@@ -8,9 +8,11 @@
     "app"
   ],
   "scripts": {
+    "dev": "npm run build:shared && concurrently \"npm run server\" \"npm run app\"",
     "server": "npm run dev --workspace=server",
-    "app": "npm run start --workspace=app",
+    "app": "npm run dev --workspace=app",
     "build:shared": "npm run build --workspace=shared",
-    "build:server": "npm run build --workspace=server"
+    "build:server": "npm run build --workspace=server",
+    "build:app": "npm run build --workspace=app"
   }
 }

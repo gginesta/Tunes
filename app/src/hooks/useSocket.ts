@@ -1,33 +1,33 @@
 import { useEffect } from 'react';
-import { getSocket, connectSocket } from '../services/socket';
-import { useGameStore } from '../stores/gameStore';
-import { playTrack } from '../services/spotify';
+import { getSocket } from '../services/socket';
+import { useGameStore } from '../store';
 
 export function useSocket() {
   const store = useGameStore();
 
   useEffect(() => {
-    const socket = connectSocket();
+    const socket = getSocket();
+    socket.connect();
+    store.setConnected(true);
 
-    socket.on('connect', () => {
-      store.setConnected(true);
-    });
-
-    socket.on('disconnect', () => {
-      store.setConnected(false);
-    });
+    socket.on('connect', () => store.setConnected(true));
+    socket.on('disconnect', () => store.setConnected(false));
 
     socket.on('room-created', ({ code, playerId }) => {
       store.setMyId(playerId);
       store.setRoomCode(code);
-      store.setIsHost(true);
+      store.setScreen('lobby');
+      store.setError(null);
     });
 
     socket.on('room-joined', ({ room, playerId }) => {
       store.setMyId(playerId);
       store.setRoomCode(room.code);
-      store.setIsHost(false);
-      store.syncRoom(room);
+      store.setPlayers(room.players);
+      store.setHostId(room.hostId);
+      store.setSettings(room.settings);
+      store.setScreen('lobby');
+      store.setError(null);
     });
 
     socket.on('player-joined', (player) => {
@@ -44,23 +44,18 @@ export function useSocket() {
 
     socket.on('game-started', ({ gameState }) => {
       store.setPhase(gameState.phase);
-      store.setCurrentTurn(gameState.currentTurnPlayerId!);
+      store.setCurrentTurnPlayerId(gameState.currentTurnPlayerId);
       store.setDeckSize(gameState.deckSize);
+      store.setLastReveal(null);
+      store.setScreen('game');
     });
 
     socket.on('new-turn', ({ turnPlayerId, songCard }) => {
-      store.setPhase('playing');
-      store.setCurrentTurn(turnPlayerId);
+      store.setCurrentTurnPlayerId(turnPlayerId);
       store.setCurrentSong(songCard);
+      store.setPhase('playing');
       store.setPendingPlacement(null);
       store.setLastReveal(null);
-    });
-
-    socket.on('play-song', async ({ spotifyTrackId }) => {
-      const token = useGameStore.getState().spotifyAccessToken;
-      if (token && useGameStore.getState().isHost) {
-        await playTrack(spotifyTrackId, token);
-      }
     });
 
     socket.on('card-placed', ({ position }) => {
@@ -68,13 +63,14 @@ export function useSocket() {
       store.setPhase('challenge');
     });
 
-    socket.on('challenge-made', () => {
-      // UI can show challenge indicator
+    socket.on('challenge-made', ({ challengerId }) => {
+      store.addChallenger(challengerId);
     });
 
     socket.on('reveal', (data) => {
-      store.setPhase('reveal');
       store.setLastReveal(data);
+      store.setPhase('reveal');
+      store.setCurrentSong(data.song);
     });
 
     socket.on('tokens-updated', ({ playerId, tokens }) => {
@@ -85,23 +81,23 @@ export function useSocket() {
       store.updatePlayerTimeline(playerId, timeline);
     });
 
-    socket.on('game-over', ({ winnerId }) => {
+    socket.on('game-over', ({ winnerId, players }) => {
+      store.setWinner(winnerId, players);
       store.setPhase('game_over');
-      store.setWinner(winnerId);
+      store.setScreen('results');
+    });
+
+    socket.on('error', ({ message }) => {
+      store.setError(message);
     });
 
     socket.on('state-sync', (room) => {
       store.syncRoom(room);
     });
 
-    socket.on('error', ({ message }) => {
-      console.warn('Server error:', message);
-    });
-
     return () => {
       socket.removeAllListeners();
+      socket.disconnect();
     };
-  }, []);
-
-  return getSocket();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 }
