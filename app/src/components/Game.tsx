@@ -315,7 +315,7 @@ export function Game() {
               </div>
 
               {/* Center: Play/Pause for host, "?" for non-host */}
-              {isSpotifyHost && spotifyReady && phase === 'playing' ? (
+              {isSpotifyHost && phase === 'playing' ? (
                 <button
                   onClick={togglePlayback}
                   className="w-20 h-20 rounded-full bg-[#1DB954] hover:bg-[#1ed760] flex items-center justify-center transition-all transform active:scale-90 shadow-[0_0_30px_rgba(29,185,84,0.4)]"

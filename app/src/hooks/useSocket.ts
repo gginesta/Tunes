@@ -62,8 +62,8 @@ export function useSocket() {
       useGameStore.setState({ songNameResult: null });
     });
 
-    socket.on('play-song', ({ spotifyTrackId }) => {
-      store.setCurrentTrackId(spotifyTrackId);
+    socket.on('play-song', ({ spotifyTrackId, previewUrl }) => {
+      store.setCurrentTrackId(spotifyTrackId, previewUrl);
     });
 
     socket.on('resolving-tracks', () => {

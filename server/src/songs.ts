@@ -6,8 +6,8 @@ import { DECK_SIZE } from '@hitster/shared';
 
 let allSongs: SongData[] = [];
 
-// In-memory cache: "title::artist" → spotifyTrackId
-const trackIdCache = new Map<string, string>();
+// In-memory cache: "title::artist" → { trackId, previewUrl }
+const trackCache = new Map<string, { trackId: string; previewUrl?: string }>();
 
 function cacheKey(song: SongData): string {
   return `${song.title.toLowerCase()}::${song.artist.toLowerCase()}`;
@@ -80,10 +80,10 @@ export function selectGameDeck(count: number = DECK_SIZE): SongCard[] {
   return deck;
 }
 
-export async function resolveSpotifyTrackId(
+export async function resolveSpotifyTrack(
   song: SongData,
   accessToken: string
-): Promise<string | null> {
+): Promise<{ trackId: string; previewUrl?: string } | null> {
   try {
     const query = encodeURIComponent(`track:${song.title} artist:${song.artist}`);
     const res = await fetch(
@@ -93,7 +93,8 @@ export async function resolveSpotifyTrackId(
     if (!res.ok) return null;
     const data = await res.json();
     const track = data.tracks?.items?.[0];
-    return track?.id || null;
+    if (!track?.id) return null;
+    return { trackId: track.id, previewUrl: track.preview_url || undefined };
   } catch {
     return null;
   }
@@ -116,9 +117,10 @@ export async function resolveTrackIds(
   // First pass: fill from cache
   for (const card of deck) {
     const key = cacheKey(card);
-    const cachedId = trackIdCache.get(key);
-    if (cachedId) {
-      card.spotifyTrackId = cachedId;
+    const cachedEntry = trackCache.get(key);
+    if (cachedEntry) {
+      card.spotifyTrackId = cachedEntry.trackId;
+      card.previewUrl = cachedEntry.previewUrl;
       cached++;
       resolved++;
     }
@@ -130,15 +132,15 @@ export async function resolveTrackIds(
   // Resolve in batches with concurrency limit
   for (let i = 0; i < uncached.length; i += CONCURRENCY) {
     const batch = uncached.slice(i, i + CONCURRENCY);
-    const results = await Promise.all(
+    await Promise.all(
       batch.map(async (card) => {
-        const trackId = await resolveSpotifyTrackId(card, accessToken);
-        if (trackId) {
-          card.spotifyTrackId = trackId;
-          trackIdCache.set(cacheKey(card), trackId);
+        const result = await resolveSpotifyTrack(card, accessToken);
+        if (result) {
+          card.spotifyTrackId = result.trackId;
+          card.previewUrl = result.previewUrl;
+          trackCache.set(cacheKey(card), result);
           resolved++;
         }
-        return trackId;
       }),
     );
 

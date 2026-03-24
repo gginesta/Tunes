@@ -133,6 +133,7 @@ export class GameEngine {
     if (song.spotifyTrackId) {
       this.io.to(this.room.code).emit('play-song', {
         spotifyTrackId: song.spotifyTrackId,
+        previewUrl: song.previewUrl,
       });
     }
   }

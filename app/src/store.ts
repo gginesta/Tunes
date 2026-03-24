@@ -60,6 +60,7 @@ interface GameStore {
   spotifyError: string | null;
   isPlaying: boolean;
   currentTrackId: string | null;
+  currentPreviewUrl: string | null;
 
   // Winner
   winnerId: string | null;
@@ -94,7 +95,7 @@ interface GameStore {
   setSpotifyReady: (ready: boolean) => void;
   setSpotifyError: (error: string | null) => void;
   setIsPlaying: (playing: boolean) => void;
-  setCurrentTrackId: (trackId: string | null) => void;
+  setCurrentTrackId: (trackId: string | null, previewUrl?: string | null) => void;
   syncRoom: (room: Room) => void;
   reset: () => void;
 }
@@ -122,6 +123,7 @@ const initialState = {
   spotifyError: null as string | null,
   isPlaying: false,
   currentTrackId: null as string | null,
+  currentPreviewUrl: null as string | null,
   lastReveal: null,
   songNameResult: null,
   winnerId: null,
@@ -178,7 +180,7 @@ export const useGameStore = create<GameStore>((set) => ({
   setSpotifyReady: (spotifyReady) => set({ spotifyReady }),
   setSpotifyError: (spotifyError) => set({ spotifyError }),
   setIsPlaying: (isPlaying) => set({ isPlaying }),
-  setCurrentTrackId: (currentTrackId) => set({ currentTrackId }),
+  setCurrentTrackId: (currentTrackId, previewUrl) => set({ currentTrackId, currentPreviewUrl: previewUrl ?? null }),
   syncRoom: (room) =>
     set({
       players: room.players,

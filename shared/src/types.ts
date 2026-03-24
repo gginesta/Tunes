@@ -7,6 +7,7 @@ export interface SongData {
 export interface SongCard extends SongData {
   id: string;
   spotifyTrackId?: string;
+  previewUrl?: string;
 }
 
 export type GameMode = 'original' | 'pro' | 'expert' | 'coop';
