@@ -18,6 +18,11 @@ COPY shared/ shared/
 COPY app/ app/
 COPY server/ server/
 
+# Write VITE env vars for frontend build
+RUN echo "VITE_SPOTIFY_CLIENT_ID=e33859f1356b43ccaa5cd1ce2232c4f5" > app/.env && \
+    echo "VITE_SERVER_URL=" >> app/.env && \
+    echo "VITE_SPOTIFY_REDIRECT_URI=" >> app/.env
+
 # Build shared, then app, then server
 RUN npm run build
 
