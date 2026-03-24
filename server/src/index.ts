@@ -40,7 +40,10 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: { origin: '*', methods: ['GET', 'POST'] },
 });
 
+initDatabase();
+migrateAccountsFromJson();
 loadSongs();
+restoreRoomsFromDatabase(io);
 
 io.on('connection', (socket) => {
   logger.info('Client connected', { socketId: socket.id });
