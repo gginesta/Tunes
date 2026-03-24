@@ -1,13 +1,13 @@
 /**
  * Spotify Web Playback SDK integration.
  *
- * Key SDK requirements (from Spotify docs):
- * - Spotify Premium required
- * - activateElement() must be called during a user gesture before playback
- *   can start, otherwise browsers block it as autoplay
- * - The 'autoplay_failed' event fires when the browser blocks playback
- * - player_state_changed fires with null when the device is not active
- * - Use PUT /v1/me/player/play?device_id=X to transfer + start playback
+ * Key issues solved:
+ * 1. Device not found (404): The SDK fires 'ready' before the device is
+ *    registered with Spotify's servers. We must wait + retry with backoff.
+ * 2. Device reconnection: The SDK may disconnect and reconnect with a NEW
+ *    device ID. We track pending tracks and replay on new device.
+ * 3. Autoplay: activateElement() must be called during a user gesture.
+ * 4. Transfer playback: We transfer playback to our device first, then play.
  */
 
 let player: Spotify.Player | null = null;
@@ -15,6 +15,10 @@ let deviceId: string | null = null;
 let sdkLoaded = false;
 let sdkReady: Promise<void> | null = null;
 let activated = false;
+
+// Track pending playback so we can retry when device reconnects
+let pendingTrack: { trackId: string; accessToken: string } | null = null;
+let onPendingTrackReady: (() => void) | null = null;
 
 function loadSDK(): Promise<void> {
   if (sdkLoaded) return Promise.resolve();
@@ -49,7 +53,6 @@ export async function initPlayer(
   getToken: () => Promise<string>,
   callbacks: SpotifyPlayerCallbacks,
 ): Promise<void> {
-  // Guard against double-init
   if (player) return;
 
   await loadSDK();
@@ -66,6 +69,12 @@ export async function initPlayer(
     deviceId = device_id;
     console.log('[Hitster] Spotify SDK ready, device:', device_id);
     callbacks.onReady(device_id);
+
+    // If there's a pending track from a failed attempt, retry it
+    if (pendingTrack) {
+      console.log('[Hitster] Retrying pending track on new device...');
+      if (onPendingTrackReady) onPendingTrackReady();
+    }
   });
 
   player.addListener('not_ready', ({ device_id }) => {
@@ -93,7 +102,6 @@ export async function initPlayer(
     console.error('[Hitster] Spotify playback error:', err.message);
   });
 
-  // autoplay_failed: browser blocked playback (no user gesture yet)
   player.addListener('autoplay_failed', () => {
     console.warn('[Hitster] Autoplay blocked by browser — user must click play');
     callbacks.onAutoplayFailed();
@@ -116,10 +124,6 @@ export async function initPlayer(
   }
 }
 
-/**
- * Must be called during a user gesture (click/tap) to allow the browser
- * to start audio playback. Call this once before the first playTrack.
- */
 export function activateElement(): void {
   if (player && !activated) {
     player.activateElement();
@@ -129,8 +133,41 @@ export function activateElement(): void {
 }
 
 /**
- * Start playback of a track on the SDK device via the Spotify Web API.
- * This also transfers playback to our device if it's not already active.
+ * Transfer playback to our SDK device. This ensures Spotify's servers
+ * recognize the device before we try to play on it.
+ */
+async function transferPlayback(accessToken: string): Promise<boolean> {
+  if (!deviceId) return false;
+
+  console.log('[Hitster] Transferring playback to device:', deviceId);
+  const res = await fetch('https://api.spotify.com/v1/me/player', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      device_ids: [deviceId],
+      play: false,
+    }),
+  });
+
+  // 204 = success, 404 = device not yet registered
+  if (res.ok || res.status === 204) {
+    console.log('[Hitster] Transfer playback success');
+    return true;
+  }
+
+  console.warn('[Hitster] Transfer playback failed:', res.status);
+  return false;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Play a track with retry + backoff for "Device not found" (404).
+ * The SDK fires 'ready' before Spotify's API servers know about the device,
+ * so we must retry with increasing delays.
  */
 export async function playTrack(
   trackId: string,
@@ -141,14 +178,20 @@ export async function playTrack(
     return false;
   }
 
-  // Ensure audio element is activated
   activateElement();
+
+  // Store as pending so we can retry on device reconnection
+  pendingTrack = { trackId, accessToken };
 
   console.log('[Hitster] playTrack:', trackId, 'device:', deviceId);
 
-  const doPlay = () =>
-    fetch(
-      `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`,
+  const doPlay = () => {
+    // Always use the latest deviceId (it can change between retries)
+    const currentDeviceId = deviceId;
+    if (!currentDeviceId) return Promise.resolve(new Response(null, { status: 404 }));
+
+    return fetch(
+      `https://api.spotify.com/v1/me/player/play?device_id=${currentDeviceId}`,
       {
         method: 'PUT',
         headers: {
@@ -161,32 +204,73 @@ export async function playTrack(
         }),
       },
     );
+  };
 
-  let res = await doPlay();
+  // Retry with backoff: 1s, 2s, 3s, 4s — device registration can take a few seconds
+  const delays = [0, 1000, 2000, 3000, 4000];
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    if (delays[attempt] > 0) {
+      console.log(`[Hitster] playTrack retry ${attempt}, waiting ${delays[attempt]}ms...`);
+      await sleep(delays[attempt]);
+    }
 
-  // 204 = success, 200 = success
-  if (res.ok || res.status === 204) {
-    console.log('[Hitster] playTrack success');
-    return true;
+    const res = await doPlay();
+
+    if (res.ok || res.status === 204) {
+      console.log('[Hitster] playTrack success on attempt', attempt + 1);
+      pendingTrack = null;
+      return true;
+    }
+
+    if (res.status === 401) {
+      console.warn('[Hitster] playTrack: token expired (401)');
+      return false;
+    }
+
+    const body = await res.text().catch(() => '');
+    console.warn(`[Hitster] playTrack attempt ${attempt + 1} failed:`, res.status, body);
+
+    // If not a 404 "Device not found", don't keep retrying
+    if (res.status !== 404) {
+      break;
+    }
+
+    // On first 404, try transferring playback to register the device
+    if (attempt === 1) {
+      await transferPlayback(accessToken);
+    }
   }
 
-  // 401 = token expired — caller should refresh and retry
-  if (res.status === 401) {
-    console.warn('[Hitster] playTrack: token expired (401)');
-    return false;
+  // All retries failed — wait for device reconnection
+  console.log('[Hitster] playTrack: all attempts failed, waiting for device reconnection...');
+
+  // Wait up to 8 more seconds for a new 'ready' event
+  const reconnected = await new Promise<boolean>((resolve) => {
+    const timeout = setTimeout(() => {
+      onPendingTrackReady = null;
+      resolve(false);
+    }, 8000);
+
+    onPendingTrackReady = () => {
+      clearTimeout(timeout);
+      onPendingTrackReady = null;
+      resolve(true);
+    };
+  });
+
+  if (reconnected && deviceId) {
+    console.log('[Hitster] Device reconnected, final retry with new device:', deviceId);
+    await sleep(1000); // Give the new device a moment
+    const res = await doPlay();
+    if (res.ok || res.status === 204) {
+      console.log('[Hitster] playTrack success after reconnection');
+      pendingTrack = null;
+      return true;
+    }
+    console.error('[Hitster] playTrack failed even after reconnection:', res.status);
   }
 
-  // 404 = device not found, or 502/503 = temporary server issue — retry once
-  console.warn('[Hitster] playTrack attempt 1 failed:', res.status, await res.text().catch(() => ''));
-  await new Promise((r) => setTimeout(r, 1500));
-  res = await doPlay();
-
-  if (res.ok || res.status === 204) {
-    console.log('[Hitster] playTrack retry success');
-    return true;
-  }
-
-  console.error('[Hitster] playTrack retry failed:', res.status, await res.text().catch(() => ''));
+  pendingTrack = null;
   return false;
 }
 
@@ -227,6 +311,8 @@ export function disconnect(): void {
     player = null;
     deviceId = null;
     activated = false;
+    pendingTrack = null;
+    onPendingTrackReady = null;
   }
 }
 

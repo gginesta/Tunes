@@ -42,7 +42,10 @@ export function useSpotifyPlayer() {
   const getToken = useCallback(async (): Promise<string> => {
     if (tokenRef.current) return tokenRef.current;
 
-    const refreshToken = spotifyRefreshToken || sessionStorage.getItem('spotify_refresh_token');
+    // Check both storage locations (Home.tsx saves to localStorage)
+    const refreshToken = spotifyRefreshToken
+      || localStorage.getItem('spotify_refresh_token')
+      || sessionStorage.getItem('spotify_refresh_token');
     if (!refreshToken) throw new Error('No token available');
 
     const result = await refreshAccessToken(refreshToken);
@@ -50,7 +53,8 @@ export function useSpotifyPlayer() {
       spotifyToken: result.accessToken,
       spotifyRefreshToken: result.refreshToken,
     });
-    sessionStorage.setItem('spotify_refresh_token', result.refreshToken);
+    // Save to both storage locations for consistency
+    localStorage.setItem('spotify_refresh_token', result.refreshToken);
     tokenRef.current = result.accessToken;
     return result.accessToken;
   }, [spotifyRefreshToken]);
@@ -77,7 +81,10 @@ export function useSpotifyPlayer() {
         });
       },
       onNotReady: () => {
-        useGameStore.setState({ spotifyReady: false, spotifyDeviceId: null });
+        // Don't set spotifyReady=false — the SDK will reconnect with a new device
+        // and fire 'ready' again. Setting false would cancel pending playback.
+        useGameStore.setState({ spotifyDeviceId: null });
+        console.log('[Hitster] Device went offline, waiting for reconnection...');
       },
       onError: (message) => {
         useGameStore.setState({ spotifyError: message, spotifyReady: false });
@@ -167,7 +174,7 @@ export function useSpotifyPlayer() {
     return false;
   }, []);
 
-  // Auto-play on new turn
+  // Auto-play on new turn OR when device becomes ready
   useEffect(() => {
     if (!isHost || !spotifyReady || !currentTrackId) return;
     if (phase !== 'playing') return;
@@ -178,6 +185,20 @@ export function useSpotifyPlayer() {
 
     attemptPlayTrack(currentTrackId);
   }, [isHost, spotifyReady, currentTrackId, phase, attemptPlayTrack]);
+
+  // When spotifyReady flips to true (device reconnected), retry if we have a track
+  const prevReadyRef = useRef(spotifyReady);
+  useEffect(() => {
+    const wasReady = prevReadyRef.current;
+    prevReadyRef.current = spotifyReady;
+
+    // Device just became ready and we have an unplayed track
+    if (!wasReady && spotifyReady && isHost && currentTrackId && phase === 'playing') {
+      console.log('[Hitster] Device reconnected, retrying track:', currentTrackId);
+      lastTrackRef.current = currentTrackId;
+      attemptPlayTrack(currentTrackId);
+    }
+  }, [spotifyReady, isHost, currentTrackId, phase, attemptPlayTrack]);
 
   // Auto-pause on challenge/reveal/game_over
   useEffect(() => {
