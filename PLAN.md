@@ -119,3 +119,78 @@ This is handled in the `useSpotifyPlayer` hook by watching Zustand store state c
 | Token expires mid-game | SDK's getOAuthToken callback triggers refresh |
 | Host refreshes browser | Re-init SDK from sessionStorage refresh token; server re-syncs state |
 | playTrack API fails | Retry once, then skip |
+
+---
+
+## SQLite Persistent Storage (Implemented)
+
+### Architecture
+
+```
+Server startup:
+  -> database.ts initializes SQLite at data/hitster.db (WAL mode)
+  -> Creates rooms and accounts tables if not present
+  -> restoreRoomsFromDatabase() recreates GameEngine instances for saved rooms
+  -> Accounts migrated from legacy JSON files to SQLite automatically
+
+During gameplay:
+  -> Room state saved to SQLite on: create, join, start-game, place-card, reveal, restart, leave
+  -> Rooms deleted from database when all players disconnect
+
+Accounts:
+  -> Stored in SQLite (migrated from JSON on first startup)
+  -> Same API surface, transparent to the rest of the server
+```
+
+### Key Design Decisions
+
+- **better-sqlite3** chosen for synchronous API (simpler code, no async overhead for small writes)
+- **WAL mode** enables concurrent reads during writes, avoids lock contention
+- **Room serialization** -- Full GameEngine state serialized to JSON for storage; deserialized and hydrated on restore
+- **Automatic migration** -- On first startup, if legacy JSON account files exist, they are imported into SQLite and the JSON files are left in place as backups
+
+---
+
+## Turn Timer (Implemented)
+
+### Architecture
+
+```
+Server emits turn-started:
+  -> Includes deadline timestamp (Date.now() + TURN_TIME_MS)
+  -> TURN_TIME_MS = 45000 (shared constant)
+
+Client renders circular countdown on the song card:
+  -> Blue (normal) -> Orange (10s remaining) -> Red (5s remaining)
+  -> Visible to all players
+
+On timeout:
+  -> Server auto-skips the turn (no token cost to the player)
+  -> Timer cleared when player places card or manually skips
+```
+
+---
+
+## Structured Logging (Implemented)
+
+### Architecture
+
+```
+server/src/logger.ts:
+  -> JSON structured logger with debug/info/warn/error levels
+  -> LOG_LEVEL environment variable (default: "info")
+  -> Pretty-print format in development, JSON in production
+
+Request logging:
+  -> Express middleware logs method, path, status, and duration
+  -> Skips /health and /socket.io paths to reduce noise
+
+Game event logging:
+  -> Logs: game start, turn changes, card placements, challenges, game over
+  -> Includes room code and player info for traceability
+```
+
+### Health Check
+
+- **GET /health** returns `{ status, uptime, rooms, players, version }`
+- Useful for load balancer health probes and monitoring dashboards

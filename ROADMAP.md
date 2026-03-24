@@ -32,6 +32,11 @@ The game is fully playable as a real-time multiplayer experience with Spotify in
 - [x] Post-game rankings screen with 1st/2nd/3rd medal colors and staggered animations
 - [x] Play Again button (host-only, restarts game in same room)
 - [x] Optional account creation (username/password, JSON file storage) with guest fallback
+- [x] Turn timer (45s countdown with circular visual, color transitions, auto-skip on timeout)
+- [x] Persistent storage (SQLite via better-sqlite3, WAL mode, rooms survive restarts)
+- [x] Account migration from JSON files to SQLite (automatic on first startup)
+- [x] Structured JSON logging with configurable LOG_LEVEL
+- [x] Health check endpoint (GET /health)
 
 ---
 
@@ -50,7 +55,7 @@ The game is fully playable as a real-time multiplayer experience with Spotify in
 
 ## Future: Persistence and Accounts
 
-- [ ] **Persistent storage** -- Rooms are currently in-memory; move to a database
+- [x] **Persistent storage** -- SQLite database at data/hitster.db; rooms saved on state changes, restored on startup via restoreRoomsFromDatabase()
 - [ ] **Leaderboards** -- Global and friend-based rankings
 - [ ] **Game history** -- Track wins, streaks, and favourite decades
 - [ ] **Statistics** -- Which decades you're strongest at, most challenged songs, etc.
@@ -58,15 +63,14 @@ The game is fully playable as a real-time multiplayer experience with Spotify in
 ## Future: Deployment and Infrastructure
 
 - [ ] **Production deployment** -- Docker, cloud hosting (Railway, Fly.io, or similar)
-- [ ] **Database** -- Move rooms/game state to Redis for horizontal scaling
+- [x] **Database** -- SQLite for room/game state persistence (Redis for horizontal scaling is a future option)
 - [ ] **CDN** -- Serve the frontend via CDN for fast global access
-- [ ] **Monitoring** -- Error tracking and basic analytics
+- [x] **Monitoring** -- Structured logging with game event tracking; health check endpoint
 - [ ] **Mobile app** -- Native mobile client
 
 ---
 
 ## Known Limitations
 
-- No persistent storage -- rooms are lost if the server restarts
-- Account data is stored in a JSON file (not suitable for production)
 - Spotify Premium is required for the host to use the Web Playback SDK
+- SQLite limits horizontal scaling to a single server instance (Redis would be needed for multi-instance)
