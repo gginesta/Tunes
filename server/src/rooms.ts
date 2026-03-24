@@ -87,6 +87,8 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
     }
 
     socket.emit('room-created', { code, playerId, room });
+    // Also send state-sync so the host's player data is fully populated
+    socket.emit('state-sync', room);
   });
 
   socket.on('join-room', ({ code, playerName }) => {

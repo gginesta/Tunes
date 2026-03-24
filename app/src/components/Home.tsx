@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Music, Headphones, BookOpen, Wifi, WifiOff, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getSocket } from '../services/socket';
-import { openSpotifyLogin } from '../services/spotify';
+import { openSpotifyLogin, refreshAccessToken } from '../services/spotify';
 import { useGameStore } from '../store';
 
 export function Home() {
@@ -15,25 +15,41 @@ export function Home() {
   const setScreen = useGameStore((s) => s.setScreen);
   const setError = useGameStore((s) => s.setError);
 
+  const createRoomWithToken = (accessToken: string, refreshToken: string) => {
+    useGameStore.setState({
+      spotifyToken: accessToken,
+      spotifyRefreshToken: refreshToken,
+    });
+    localStorage.setItem('spotify_refresh_token', refreshToken);
+
+    const socket = getSocket();
+    socket.emit('create-room', {
+      playerName: name.trim(),
+      spotifyAccessToken: accessToken,
+    });
+  };
+
   const handleSpotifyLogin = async () => {
     if (!name.trim()) return;
     setConnecting(true);
     setError(null);
 
     try {
+      // Try to reuse a saved refresh token first
+      const savedRefresh = localStorage.getItem('spotify_refresh_token');
+      if (savedRefresh) {
+        try {
+          const refreshed = await refreshAccessToken(savedRefresh);
+          createRoomWithToken(refreshed.accessToken, refreshed.refreshToken);
+          return;
+        } catch {
+          // Refresh failed — fall through to full login
+          localStorage.removeItem('spotify_refresh_token');
+        }
+      }
+
       const { accessToken, refreshToken } = await openSpotifyLogin();
-
-      useGameStore.setState({
-        spotifyToken: accessToken,
-        spotifyRefreshToken: refreshToken,
-      });
-      sessionStorage.setItem('spotify_refresh_token', refreshToken);
-
-      const socket = getSocket();
-      socket.emit('create-room', {
-        playerName: name.trim(),
-        spotifyAccessToken: accessToken,
-      });
+      createRoomWithToken(accessToken, refreshToken);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Spotify login failed');
     } finally {
