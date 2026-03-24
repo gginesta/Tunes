@@ -1,0 +1,13 @@
+export const MAX_PLAYERS = 10;
+export const MIN_PLAYERS = 2;
+export const DEFAULT_CARDS_TO_WIN = 10;
+export const MIN_CARDS_TO_WIN = 5;
+export const MAX_CARDS_TO_WIN = 15;
+export const STARTING_TOKENS = 2;
+export const MAX_TOKENS = 5;
+export const SKIP_COST = 1;
+export const CHALLENGE_COST = 1;
+export const BUY_CARD_COST = 3;
+export const ROOM_CODE_LENGTH = 4;
+export const DECK_SIZE = 50;
+export const CHALLENGE_WINDOW_MS = 15000;
