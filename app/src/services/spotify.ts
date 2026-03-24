@@ -1,5 +1,8 @@
 const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
-const REDIRECT_URI = `${window.location.origin}/callback.html`;
+// Use 127.0.0.1 in dev because Spotify rejects "localhost" as insecure
+const REDIRECT_URI = window.location.hostname === 'localhost'
+  ? `http://127.0.0.1:${window.location.port}/callback.html`
+  : `${window.location.origin}/callback.html`;
 const SCOPES = [
   'streaming',
   'user-read-email',
@@ -33,6 +36,7 @@ export async function getSpotifyAuthUrl(): Promise<string> {
   const codeVerifier = generateRandomString(64);
   sessionStorage.setItem('spotify_code_verifier', codeVerifier);
   sessionStorage.setItem('spotify_client_id', CLIENT_ID);
+  sessionStorage.setItem('spotify_opener_origin', window.location.origin);
 
   const challenge = base64UrlEncode(await sha256(codeVerifier));
 

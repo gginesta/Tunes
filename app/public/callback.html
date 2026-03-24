@@ -5,45 +5,47 @@
 <p>Completing login...</p>
 <script>
 (async function() {
+  // The opener may be on localhost while we're on 127.0.0.1, so read the saved origin
+  var openerOrigin = sessionStorage.getItem('spotify_opener_origin') || window.location.origin;
+
   try {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    const error = params.get('error');
+    var params = new URLSearchParams(window.location.search);
+    var code = params.get('code');
+    var error = params.get('error');
 
     if (error || !code) {
       window.opener.postMessage(
         { type: 'spotify-auth-callback', error: error || 'No authorization code received' },
-        window.location.origin
+        openerOrigin
       );
       window.close();
       return;
     }
 
-    const codeVerifier = sessionStorage.getItem('spotify_code_verifier');
+    var codeVerifier = sessionStorage.getItem('spotify_code_verifier');
     if (!codeVerifier) {
       window.opener.postMessage(
         { type: 'spotify-auth-callback', error: 'Missing PKCE verifier' },
-        window.location.origin
+        openerOrigin
       );
       window.close();
       return;
     }
 
-    // Read client ID from the meta tag or hardcode via build step
-    // Since this is a static file, we read it from sessionStorage set by the opener
-    const clientId = sessionStorage.getItem('spotify_client_id');
+    var clientId = sessionStorage.getItem('spotify_client_id');
     if (!clientId) {
       window.opener.postMessage(
         { type: 'spotify-auth-callback', error: 'Missing client ID' },
-        window.location.origin
+        openerOrigin
       );
       window.close();
       return;
     }
 
-    const redirectUri = window.location.origin + '/callback.html';
+    // Redirect URI must match what was sent to Spotify's /authorize
+    var redirectUri = window.location.origin + '/callback.html';
 
-    const res = await fetch('https://accounts.spotify.com/api/token', {
+    var res = await fetch('https://accounts.spotify.com/api/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -56,12 +58,14 @@
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(function() { return {}; });
+      var err = await res.json().catch(function() { return {}; });
       throw new Error(err.error_description || 'Token exchange failed');
     }
 
-    const data = await res.json();
+    var data = await res.json();
     sessionStorage.removeItem('spotify_code_verifier');
+    sessionStorage.removeItem('spotify_client_id');
+    sessionStorage.removeItem('spotify_opener_origin');
     sessionStorage.setItem('spotify_refresh_token', data.refresh_token);
 
     window.opener.postMessage({
@@ -69,13 +73,13 @@
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
       expiresIn: data.expires_in,
-    }, window.location.origin);
+    }, openerOrigin);
 
     window.close();
   } catch (err) {
     window.opener.postMessage(
       { type: 'spotify-auth-callback', error: err.message || 'Authentication failed' },
-      window.location.origin
+      openerOrigin
     );
     window.close();
   }
