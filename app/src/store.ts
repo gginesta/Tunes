@@ -52,6 +52,9 @@ interface GameStore {
   lastReveal: RevealData | null;
   songNameResult: { playerId: string; correct: boolean } | null;
 
+  // Challenge
+  challengeDeadline: number | null;
+
   // Spotify
   spotifyToken: string | null;
   spotifyRefreshToken: string | null;
@@ -116,6 +119,7 @@ const initialState = {
   challengers: [],
   deckSize: 0,
   sharedTimeline: [] as SongCard[],
+  challengeDeadline: null as number | null,
   spotifyToken: null as string | null,
   spotifyRefreshToken: null as string | null,
   spotifyDeviceId: null as string | null,

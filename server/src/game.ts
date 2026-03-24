@@ -145,7 +145,8 @@ export class GameEngine {
     gs.pendingPlacement = position;
     gs.phase = 'challenge';
 
-    this.io.to(this.room.code).emit('card-placed', { playerId, position });
+    const challengeDeadline = this.isCoop ? undefined : Date.now() + CHALLENGE_WINDOW_MS;
+    this.io.to(this.room.code).emit('card-placed', { playerId, position, challengeDeadline });
 
     if (this.isCoop) {
       // Co-op: no challenge window, resolve immediately after a short delay

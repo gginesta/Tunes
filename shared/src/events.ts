@@ -29,7 +29,7 @@ export interface ServerToClientEvents {
   'game-started': (data: { gameState: Room['gameState'] }) => void;
   'new-turn': (data: { turnPlayerId: string; songCard: Partial<SongCard> }) => void;
   'play-song': (data: { spotifyTrackId: string; previewUrl?: string }) => void;
-  'card-placed': (data: { playerId: string; position: number }) => void;
+  'card-placed': (data: { playerId: string; position: number; challengeDeadline?: number }) => void;
   'challenge-made': (data: { challengerId: string }) => void;
   'reveal': (data: {
     song: SongCard;

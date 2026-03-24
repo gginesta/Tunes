@@ -71,8 +71,9 @@ export function useSocket() {
       console.log('Resolving Spotify track IDs...');
     });
 
-    socket.on('card-placed', ({ position }) => {
+    socket.on('card-placed', ({ position, challengeDeadline }) => {
       store.setPendingPlacement(position);
+      useGameStore.setState({ challengeDeadline: challengeDeadline ?? null });
       store.setPhase('challenge');
     });
 
@@ -84,6 +85,7 @@ export function useSocket() {
       store.setLastReveal(data);
       store.setPhase('reveal');
       store.setCurrentSong(data.song);
+      useGameStore.setState({ challengeDeadline: null });
     });
 
     socket.on('tokens-updated', ({ playerId, tokens }) => {

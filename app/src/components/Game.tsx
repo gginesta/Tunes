@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Disc, Coins, Check, X, SkipForward, AlertTriangle, ShoppingCart, Star, Play, Pause } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getSocket } from '../services/socket';
@@ -74,11 +74,35 @@ export function Game() {
   const isPlayingMusic = useGameStore((s) => s.isPlaying);
   const spotifyError = useGameStore((s) => s.spotifyError);
 
+  const challengeDeadline = useGameStore((s) => s.challengeDeadline);
+  const [noChallengeClicked, setNoChallengeClicked] = useState(false);
+
   const [guessTitle, setGuessTitle] = useState('');
   const [guessArtist, setGuessArtist] = useState('');
   const [guessYear, setGuessYear] = useState('');
   const [selectedPosition, setSelectedPosition] = useState<number | null>(null);
   const songNameResult = useGameStore((s) => s.songNameResult);
+
+  // Reset "no challenge" when phase changes
+  useEffect(() => {
+    if (phase !== 'challenge') setNoChallengeClicked(false);
+  }, [phase]);
+
+  // Countdown timer for challenge phase
+  const [countdown, setCountdown] = useState<number | null>(null);
+  useEffect(() => {
+    if (phase !== 'challenge' || !challengeDeadline) {
+      setCountdown(null);
+      return;
+    }
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((challengeDeadline - Date.now()) / 1000));
+      setCountdown(remaining);
+    };
+    tick();
+    const interval = setInterval(tick, 100);
+    return () => clearInterval(interval);
+  }, [phase, challengeDeadline]);
 
   const { isHost: isSpotifyHost, spotifyReady, togglePlayback } = useSpotifyPlayer();
 
@@ -330,6 +354,42 @@ export function Game() {
                 <h2 className="text-6xl font-black text-white/90 mt-4">?</h2>
               )}
 
+              {/* Countdown timer during challenge phase */}
+              {phase === 'challenge' && countdown !== null && countdown > 0 && (
+                <motion.div
+                  key="countdown"
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="absolute inset-0 flex items-center justify-center z-20"
+                >
+                  <div className="relative">
+                    <svg className="w-28 h-28 -rotate-90" viewBox="0 0 100 100">
+                      <circle
+                        cx="50" cy="50" r="42"
+                        fill="none"
+                        stroke="rgba(255,255,255,0.1)"
+                        strokeWidth="6"
+                      />
+                      <circle
+                        cx="50" cy="50" r="42"
+                        fill="none"
+                        stroke={countdown <= 5 ? '#ef4444' : '#f59e0b'}
+                        strokeWidth="6"
+                        strokeLinecap="round"
+                        strokeDasharray={`${2 * Math.PI * 42}`}
+                        strokeDashoffset={`${2 * Math.PI * 42 * (1 - countdown / 15)}`}
+                        className="transition-all duration-100"
+                      />
+                    </svg>
+                    <span className={`absolute inset-0 flex items-center justify-center text-4xl font-black ${
+                      countdown <= 5 ? 'text-red-400' : 'text-amber-400'
+                    }`}>
+                      {countdown}
+                    </span>
+                  </div>
+                </motion.div>
+              )}
+
               <p className="text-white/50 font-medium mt-3 text-sm">
                 {phase === 'challenge'
                   ? (isCoop ? 'Checking placement...' : 'Waiting for challenges...')
@@ -419,8 +479,8 @@ export function Game() {
           </motion.div>
         )}
 
-        {/* Challenge button for non-active players (not in co-op) */}
-        {!isMyTurn && phase === 'challenge' && !isCoop && !challengers.includes(myId) && (
+        {/* Challenge / No Challenge buttons for non-active players */}
+        {!isMyTurn && phase === 'challenge' && !isCoop && !challengers.includes(myId) && !noChallengeClicked && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -429,19 +489,39 @@ export function Game() {
             <p className="text-gray-400 mb-4">
               {activePlayer.name} placed the card. Challenge?
             </p>
-            <button
-              onClick={handleChallenge}
-              disabled={me.tokens < CHALLENGE_COST}
-              className="bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/50 font-bold py-3 px-6 rounded-2xl flex items-center gap-2 mx-auto transition-all disabled:opacity-50"
-            >
-              <AlertTriangle className="w-5 h-5" />
-              Challenge! ({CHALLENGE_COST} Token)
-            </button>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={handleChallenge}
+                disabled={me.tokens < CHALLENGE_COST}
+                className="bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/50 font-bold py-3 px-6 rounded-2xl flex items-center gap-2 transition-all disabled:opacity-50"
+              >
+                <AlertTriangle className="w-5 h-5" />
+                Challenge! ({CHALLENGE_COST} Token)
+              </button>
+              <button
+                onClick={() => setNoChallengeClicked(true)}
+                className="bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white border border-white/10 font-bold py-3 px-6 rounded-2xl flex items-center gap-2 transition-all"
+              >
+                <Check className="w-5 h-5" />
+                No Challenge
+              </button>
+            </div>
           </motion.div>
         )}
 
         {!isMyTurn && phase === 'challenge' && !isCoop && challengers.includes(myId) && (
           <p className="mt-8 text-[#1DB954] font-medium">Challenge submitted!</p>
+        )}
+
+        {!isMyTurn && phase === 'challenge' && !isCoop && noChallengeClicked && !challengers.includes(myId) && (
+          <p className="mt-8 text-gray-500 font-medium">No challenge — waiting for timer...</p>
+        )}
+
+        {/* Active player sees countdown too during challenge */}
+        {isMyTurn && phase === 'challenge' && !isCoop && (
+          <p className="mt-8 text-gray-400 font-medium">
+            Waiting for challenges...
+          </p>
         )}
 
         {!isMyTurn && phase === 'playing' && (
