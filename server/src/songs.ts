@@ -14,7 +14,7 @@ function cacheKey(song: SongData): string {
 }
 
 export function loadSongs() {
-  const songsPath = path.join(__dirname, '../../..', 'data', 'songs.json');
+  const songsPath = path.join(__dirname, '../..', 'data', 'songs.json');
   try {
     const raw = fs.readFileSync(songsPath, 'utf-8');
     allSongs = JSON.parse(raw);
