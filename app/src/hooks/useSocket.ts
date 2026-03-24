@@ -110,6 +110,20 @@ export function useSocket() {
       store.setScreen('results');
     });
 
+    socket.on('game-restarted', ({ room }) => {
+      store.syncRoom(room);
+      store.setScreen('lobby');
+      store.setCurrentTrackId(null);
+      store.setIsPlaying(false);
+      store.setLastReveal(null);
+      useGameStore.setState({
+        winnerId: null,
+        finalPlayers: {},
+        songNameResult: null,
+        challengeDeadline: null,
+      });
+    });
+
     socket.on('error', ({ message }) => {
       store.setError(message);
     });

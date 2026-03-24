@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import type { ClientToServerEvents, ServerToClientEvents } from '@hitster/shared';
 import { registerRoomHandlers } from './rooms';
+import { registerAuthHandlers } from './accounts-handler';
 import { loadSongs } from './songs';
 
 const app = express();

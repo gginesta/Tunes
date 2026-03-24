@@ -18,6 +18,9 @@ export interface ClientToServerEvents {
   'skip-song': () => void;
   'buy-card': () => void;
   'confirm-reveal': () => void;
+  'restart-game': () => void;
+  'register': (data: { username: string; password: string; displayName: string }) => void;
+  'login': (data: { username: string; password: string }) => void;
 }
 
 export interface ServerToClientEvents {
@@ -49,6 +52,8 @@ export interface ServerToClientEvents {
   'song-named': (data: { playerId: string; correct: boolean }) => void;
   'game-over': (data: { winnerId: string; players: Record<string, Player> }) => void;
   'resolving-tracks': () => void;
+  'game-restarted': (data: { room: Room }) => void;
   'error': (data: { message: string }) => void;
   'state-sync': (room: Room) => void;
+  'auth-result': (data: { success: boolean; error?: string; displayName?: string }) => void;
 }

@@ -218,6 +218,41 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
     engine.confirmReveal();
   });
 
+  socket.on('restart-game', () => {
+    const mapping = socketToRoom.get(socket.id);
+    if (!mapping) return;
+    const room = rooms.get(mapping.code);
+    if (!room) return;
+
+    // Only the host can restart
+    if (room.hostId !== mapping.playerId) {
+      socket.emit('error', { message: 'Only the host can restart the game' });
+      return;
+    }
+
+    // Reset engine state
+    const engine = games.get(mapping.code);
+    if (engine) {
+      engine.resetGame();
+    } else {
+      // No engine — reset room state manually
+      room.gameState = createDefaultGameState();
+      for (const player of Object.values(room.players)) {
+        player.timeline = [];
+        player.tokens = STARTING_TOKENS;
+      }
+    }
+
+    // Remove disconnected players
+    for (const [id, player] of Object.entries(room.players)) {
+      if (!player.connected) {
+        delete room.players[id];
+      }
+    }
+
+    io.to(mapping.code).emit('game-restarted', { room });
+  });
+
   socket.on('disconnect', () => {
     handleLeave(io, socket);
   });

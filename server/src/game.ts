@@ -47,6 +47,39 @@ export class GameEngine {
     this.spotifyAccessToken = token;
   }
 
+  resetGame() {
+    // Clear timers
+    if (this.challengeTimer) {
+      clearTimeout(this.challengeTimer);
+      this.challengeTimer = null;
+    }
+
+    // Clear engine state
+    this.deck = [];
+    this.songNamed.clear();
+    this.songNameCorrect.clear();
+    this.yearGuess = null;
+
+    // Reset all players: clear timelines, restore starting tokens
+    for (const player of Object.values(this.room.players)) {
+      player.timeline = [];
+      player.tokens = STARTING_TOKENS;
+    }
+
+    // Reset game state to lobby defaults
+    this.room.gameState = {
+      phase: 'lobby',
+      currentTurnPlayerId: null,
+      currentSong: null,
+      pendingPlacement: null,
+      challengers: [],
+      turnOrder: [],
+      turnIndex: 0,
+      deckSize: 0,
+      sharedTimeline: [],
+    };
+  }
+
   startGame(deck: SongCard[]) {
     this.deck = [...deck];
     const playerIds = Object.keys(this.room.players);
