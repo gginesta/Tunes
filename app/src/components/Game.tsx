@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { getSocket } from '../services/socket';
 import { useGameStore } from '../store';
 import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
+import { requestActivation } from '../services/spotifyPlayer';
 import { SKIP_COST, CHALLENGE_COST, BUY_CARD_COST, TURN_TIME_MS } from '@hitster/shared';
 import {
   playCorrectSound,
@@ -185,6 +186,16 @@ export function Game() {
 
   const { isHost: isSpotifyHost, spotifyReady, togglePlayback } = useSpotifyPlayer();
 
+  // Pre-activate Spotify audio on first user interaction anywhere on the game screen.
+  // This ensures the browser's autoplay policy is satisfied.
+  const activatedRef = useRef(false);
+  const handleFirstInteraction = useCallback(() => {
+    if (!activatedRef.current) {
+      activatedRef.current = true;
+      requestActivation();
+    }
+  }, []);
+
   const socket = getSocket();
   const isMyTurn = currentTurnPlayerId === myId;
   const me = players[myId];
@@ -249,7 +260,11 @@ export function Game() {
   const songNamingRequired = mode === 'pro' || mode === 'expert';
 
   return (
-    <div className="flex flex-col h-screen text-white bg-[#1a1a2e] overflow-hidden">
+    <div
+      className="flex flex-col h-screen text-white bg-[#1a1a2e] overflow-hidden"
+      onClick={handleFirstInteraction}
+      onTouchStart={handleFirstInteraction}
+    >
       {/* Top Bar */}
       <div className="flex justify-between items-center p-4 bg-black/30 backdrop-blur-md border-b border-white/5 z-10">
         <div className="flex items-center gap-3">
@@ -430,16 +445,23 @@ export function Game() {
 
               {/* Center: Play/Pause for host, "?" for non-host */}
               {isSpotifyHost && phase === 'playing' ? (
-                <button
-                  onClick={togglePlayback}
-                  className="w-20 h-20 rounded-full bg-[#1DB954] hover:bg-[#1ed760] flex items-center justify-center transition-all transform active:scale-90 shadow-[0_0_30px_rgba(29,185,84,0.4)]"
-                >
-                  {isPlayingMusic ? (
-                    <Pause className="w-10 h-10 text-black" fill="black" />
-                  ) : (
-                    <Play className="w-10 h-10 text-black ml-1" fill="black" />
+                <div className="flex flex-col items-center gap-2">
+                  <button
+                    onClick={togglePlayback}
+                    className={`w-20 h-20 rounded-full bg-[#1DB954] hover:bg-[#1ed760] flex items-center justify-center transition-all transform active:scale-90 shadow-[0_0_30px_rgba(29,185,84,0.4)] ${!isPlayingMusic ? 'animate-pulse' : ''}`}
+                  >
+                    {isPlayingMusic ? (
+                      <Pause className="w-10 h-10 text-black" fill="black" />
+                    ) : (
+                      <Play className="w-10 h-10 text-black ml-1" fill="black" />
+                    )}
+                  </button>
+                  {!isPlayingMusic && (
+                    <span className="text-xs text-[#1DB954] font-bold animate-pulse">
+                      TAP TO PLAY
+                    </span>
                   )}
-                </button>
+                </div>
               ) : (
                 <h2 className="text-6xl font-black text-white/90 mt-4">?</h2>
               )}

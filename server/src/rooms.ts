@@ -180,6 +180,44 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
     socket.to(upperCode).emit('player-joined', player);
   });
 
+  socket.on('rejoin-room', ({ code, playerId }) => {
+    const upperCode = code.toUpperCase();
+    const room = rooms.get(upperCode);
+
+    if (!room || !room.players[playerId]) {
+      socket.emit('error', { message: 'Room not found or player unknown' });
+      return;
+    }
+
+    // Re-associate this socket with the existing player
+    const player = room.players[playerId];
+    player.connected = true;
+    socketToRoom.set(socket.id, { code: upperCode, playerId });
+    socket.join(upperCode);
+
+    logger.info('Player rejoined', { code: upperCode, playerId, name: player.name });
+
+    // Send full state to the reconnecting client
+    socket.emit('room-joined', { room, playerId });
+    // Notify others
+    io.to(upperCode).emit('state-sync', room);
+
+    // If game is in progress, resend current game screen
+    if (room.gameState.phase !== 'lobby' && room.gameState.phase !== 'game_over') {
+      socket.emit('game-started', { gameState: room.gameState });
+
+      // Re-send current turn info
+      if (room.gameState.currentTurnPlayerId && room.gameState.currentSong) {
+        socket.emit('new-turn', {
+          turnPlayerId: room.gameState.currentTurnPlayerId,
+          songCard: room.gameState.currentSong,
+        });
+      }
+    }
+
+    persistRoom(upperCode);
+  });
+
   socket.on('leave-room', () => {
     handleLeave(io, socket);
   });
@@ -336,6 +374,12 @@ function handleLeave(io: HitsterServer, socket: HitsterSocket) {
   socket.to(mapping.code).emit('player-left', mapping.playerId);
   socketToRoom.delete(socket.id);
   socket.leave(mapping.code);
+
+  // If player was mid-turn, skip to next player
+  const engine = games.get(mapping.code);
+  if (engine) {
+    engine.handlePlayerDisconnect(mapping.playerId);
+  }
 
   const connectedPlayers = Object.values(room.players).filter((p) => p.connected);
   if (connectedPlayers.length === 0) {

@@ -521,6 +521,31 @@ export class GameEngine {
     timeline.splice(insertAt, 0, card);
   }
 
+  /**
+   * Called when a player disconnects. If it's their turn, skip to the next player.
+   */
+  handlePlayerDisconnect(playerId: string): void {
+    const gs = this.room.gameState;
+    if (gs.phase === 'lobby' || gs.phase === 'game_over') return;
+
+    // Check if all remaining connected players are gone
+    const connected = Object.values(this.room.players).filter((p) => p.connected);
+    if (connected.length === 0) return; // room cleanup handles this
+
+    if (gs.currentTurnPlayerId === playerId && (gs.phase === 'playing' || gs.phase === 'challenge')) {
+      // Clear any running timers for this turn
+      if (this.turnTimer) {
+        clearTimeout(this.turnTimer);
+        this.turnTimer = null;
+      }
+      if (this.challengeTimer) {
+        clearTimeout(this.challengeTimer);
+        this.challengeTimer = null;
+      }
+      this.advanceTurn();
+    }
+  }
+
   private advanceTurn() {
     const gs = this.room.gameState;
     gs.turnIndex = (gs.turnIndex + 1) % gs.turnOrder.length;

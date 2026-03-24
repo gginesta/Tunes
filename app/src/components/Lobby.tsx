@@ -1,7 +1,8 @@
 import { Users, Crown, Settings, LogOut, Play } from 'lucide-react';
 import { motion } from 'motion/react';
-import { getSocket } from '../services/socket';
+import { getSocket, clearSession } from '../services/socket';
 import { useGameStore } from '../store';
+import { requestActivation } from '../services/spotifyPlayer';
 import type { GameMode } from '@hitster/shared';
 import { MIN_CARDS_TO_WIN, MAX_CARDS_TO_WIN, MIN_PLAYERS } from '@hitster/shared';
 
@@ -20,10 +21,14 @@ export function Lobby() {
 
   const handleLeave = () => {
     socket.emit('leave-room');
+    clearSession();
     reset();
   };
 
   const handleStart = () => {
+    // Pre-activate Spotify audio element during this user gesture
+    // so autoplay works when the first song arrives
+    requestActivation();
     socket.emit('start-game');
   };
 

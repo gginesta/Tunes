@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { getSocket } from '../services/socket';
+import { getSocket, saveSession, getSession, clearSession } from '../services/socket';
 import { useGameStore } from '../store';
 
 export function useSocket() {
@@ -10,7 +10,19 @@ export function useSocket() {
     socket.connect();
     store.setConnected(true);
 
-    socket.on('connect', () => store.setConnected(true));
+    socket.on('connect', () => {
+      store.setConnected(true);
+
+      // Auto-rejoin room after reconnect
+      const session = getSession();
+      if (session) {
+        console.log('[Hitster] Reconnected — attempting rejoin', session.roomCode);
+        socket.emit('rejoin-room', {
+          code: session.roomCode,
+          playerId: session.playerId,
+        });
+      }
+    });
     socket.on('disconnect', () => store.setConnected(false));
 
     socket.on('room-created', ({ code, playerId, room }) => {
@@ -21,6 +33,7 @@ export function useSocket() {
       store.setSettings(room.settings);
       store.setScreen('lobby');
       store.setError(null);
+      saveSession(code, playerId);
     });
 
     socket.on('room-joined', ({ room, playerId }) => {
@@ -29,8 +42,13 @@ export function useSocket() {
       store.setPlayers(room.players);
       store.setHostId(room.hostId);
       store.setSettings(room.settings);
-      store.setScreen('lobby');
+      // Only navigate to lobby if not in an active game
+      const phase = room.gameState.phase;
+      if (phase === 'lobby') {
+        store.setScreen('lobby');
+      }
       store.setError(null);
+      saveSession(room.code, playerId);
     });
 
     socket.on('player-joined', (player) => {
@@ -131,6 +149,10 @@ export function useSocket() {
 
     socket.on('error', ({ message }) => {
       store.setError(message);
+      // If rejoin failed (room gone), clear saved session
+      if (message.includes('not found') || message.includes('unknown')) {
+        clearSession();
+      }
     });
 
     socket.on('state-sync', (room) => {

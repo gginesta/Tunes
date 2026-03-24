@@ -9,6 +9,7 @@ import type {
 export interface ClientToServerEvents {
   'create-room': (data: { playerName: string; spotifyAccessToken?: string }) => void;
   'join-room': (data: { code: string; playerName: string }) => void;
+  'rejoin-room': (data: { code: string; playerId: string }) => void;
   'leave-room': () => void;
   'update-settings': (settings: Partial<GameSettings>) => void;
   'start-game': () => void;
