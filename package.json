@@ -13,7 +13,9 @@
     "app": "npm run dev --workspace=app",
     "build:shared": "npm run build --workspace=shared",
     "build:server": "npm run build --workspace=server",
-    "build:app": "npm run build --workspace=app"
+    "build:app": "npm run build --workspace=app",
+    "build": "npm run build:shared && npm run build:app && npm run build:server",
+    "start": "NODE_ENV=production node server/dist/index.js"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
