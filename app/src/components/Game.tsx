@@ -275,87 +275,66 @@ export function Game() {
       onTouchStart={handleFirstInteraction}
     >
       {/* Top Bar */}
-      <div className="flex justify-between items-center p-4 bg-black/30 backdrop-blur-md border-b border-white/5 z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold">
+      <div className="flex justify-between items-center px-4 py-3 bg-black/40 backdrop-blur-xl border-b border-white/5 z-10">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold text-sm flex-shrink-0">
             {activePlayer.name.charAt(0).toUpperCase()}
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <p className="text-xs text-gray-400 uppercase tracking-wider font-bold">
-                {deckSize} cards left
+              <p className="text-[11px] text-gray-500 uppercase tracking-wider font-bold">
+                {deckSize} left
               </p>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${MODE_COLORS[mode]}`}>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${MODE_COLORS[mode]}`}>
                 {MODE_LABELS[mode]}
               </span>
             </div>
-            <p className="font-bold text-[#1DB954]">
+            <p className="font-bold text-[#1DB954] text-sm truncate">
               {isMyTurn ? 'Your Turn' : `${activePlayer.name}'s Turn`}
             </p>
           </div>
         </div>
 
-        {/* Mute button + Player score chips */}
-        <div className="flex items-center gap-3">
+        {/* Player score chips + mute */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex gap-2 overflow-x-auto hide-scrollbar">
+            {isCoop ? (
+              <div className="flex flex-col items-center px-1">
+                <span className="text-xs font-black tabular-nums">
+                  {sharedTimeline.length}/{settings.cardsToWin}
+                </span>
+                <span className="text-[9px] text-green-400 font-bold uppercase">Team</span>
+              </div>
+            ) : (
+              playerList.map((p) => (
+                <div
+                  key={p.id}
+                  className={`flex flex-col items-center px-1 transition-opacity ${
+                    p.id === currentTurnPlayerId ? 'opacity-100' : 'opacity-40'
+                  }`}
+                >
+                  <span className="text-xs font-black tabular-nums">
+                    {p.timeline.length}/{settings.cardsToWin}
+                  </span>
+                  <span className="text-[9px] text-gray-500 truncate max-w-[45px] font-medium">
+                    {p.id === myId ? 'You' : p.name}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
           <button
             onClick={handleToggleMute}
-            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
-            title={soundMuted ? 'Unmute sounds' : 'Mute sounds'}
+            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors flex-shrink-0"
           >
             {soundMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
-        </div>
-
-        {/* Player score chips */}
-        <div className="flex gap-3 overflow-x-auto hide-scrollbar">
-          {isCoop ? (
-            <div className="flex flex-col items-center">
-              <div className="flex items-center gap-1 text-xs font-bold">
-                <div className="w-2 h-3 bg-green-400/40 rounded-sm" />
-                {sharedTimeline.length}/{settings.cardsToWin}
-              </div>
-              <span className="text-[10px] text-green-400 font-bold">Team</span>
-            </div>
-          ) : (
-            playerList.map((p) => (
-              <div
-                key={p.id}
-                className={`flex flex-col items-center ${
-                  p.id === currentTurnPlayerId ? 'opacity-100' : 'opacity-50'
-                }`}
-              >
-                <div className="flex items-center gap-1 text-xs font-bold">
-                  <div className="w-2 h-3 bg-white/20 rounded-sm" />
-                  {p.timeline.length}/{settings.cardsToWin}
-                </div>
-                <div className="flex items-center gap-1 text-xs text-[#FFD700] font-bold">
-                  <Coins className="w-3 h-3" />
-                  {p.tokens}
-                </div>
-                <span className="text-[10px] text-gray-500 truncate max-w-[50px]">
-                  {p.id === myId ? 'You' : p.name}
-                </span>
-              </div>
-            ))
-          )}
-          {/* Show individual tokens in co-op too */}
-          {isCoop && playerList.map((p) => (
-            <div key={p.id} className="flex flex-col items-center opacity-80">
-              <div className="flex items-center gap-1 text-xs text-[#FFD700] font-bold">
-                <Coins className="w-3 h-3" />
-                {p.tokens}
-              </div>
-              <span className="text-[10px] text-gray-500 truncate max-w-[50px]">
-                {p.id === myId ? 'You' : p.name}
-              </span>
-            </div>
-          ))}
         </div>
       </div>
 
       {/* Spotify error banner */}
       {spotifyError && (
-        <div className="bg-red-500/10 border-b border-red-500/20 px-4 py-2 text-center text-sm text-red-400">
+        <div className="bg-red-500/10 border-b border-red-500/20 px-4 py-2 text-center text-xs text-red-400 font-medium">
           {spotifyError}
         </div>
       )}
@@ -369,10 +348,10 @@ export function Game() {
               initial={{ scale: 0.8, opacity: 0, y: 50 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.8, opacity: 0, y: -50 }}
-              className={`w-64 aspect-square rounded-3xl p-6 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl bg-gradient-to-br ${
+              className={`w-60 aspect-square rounded-3xl p-6 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl bg-gradient-to-br ${
                 lastReveal!.correct
-                  ? 'from-green-500 to-emerald-700 shadow-[0_0_50px_rgba(34,197,94,0.5)]'
-                  : 'from-red-500 to-rose-700 shadow-[0_0_50px_rgba(239,68,68,0.5)]'
+                  ? 'from-green-500 to-emerald-700 shadow-green-500/40'
+                  : 'from-red-500 to-rose-700 shadow-red-500/40'
               }`}
             >
               <div className="absolute -right-12 -bottom-12 opacity-20">
@@ -438,7 +417,7 @@ export function Game() {
               initial={{ scale: 0.8, opacity: 0, y: 50 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.8, opacity: 0, y: -50 }}
-              className="w-64 aspect-square rounded-3xl p-6 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl bg-gradient-to-br from-blue-600 to-indigo-900"
+              className="w-60 aspect-square rounded-3xl p-6 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl shadow-indigo-900/50 bg-gradient-to-br from-blue-600 to-indigo-900"
             >
               <div className="absolute -right-12 -bottom-12 opacity-20">
                 <Disc className="w-48 h-48" />
@@ -659,17 +638,17 @@ export function Game() {
               <button
                 onClick={handleChallenge}
                 disabled={me.tokens < CHALLENGE_COST}
-                className="bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/50 font-bold py-3 px-6 rounded-2xl flex items-center gap-2 transition-all disabled:opacity-50"
+                className="bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/30 font-bold py-3.5 px-6 rounded-2xl flex items-center gap-2 transition-all disabled:opacity-40 active:scale-[0.97]"
               >
                 <AlertTriangle className="w-5 h-5" />
-                Challenge! ({CHALLENGE_COST} Token)
+                Challenge! ({CHALLENGE_COST})
               </button>
               <button
                 onClick={() => setNoChallengeClicked(true)}
-                className="bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white border border-white/10 font-bold py-3 px-6 rounded-2xl flex items-center gap-2 transition-all"
+                className="bg-white/[0.06] hover:bg-white/[0.1] text-gray-400 hover:text-white border border-white/[0.08] font-bold py-3.5 px-6 rounded-2xl flex items-center gap-2 transition-all active:scale-[0.97]"
               >
                 <Check className="w-5 h-5" />
-                No Challenge
+                Looks Good
               </button>
             </div>
           </motion.div>
@@ -795,20 +774,20 @@ function TimelineCard({ card }: { card: SongCard }) {
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, scale: 0.8, y: -20 }}
+      initial={{ opacity: 0, scale: 0.85, y: -15 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-      className={`flex-shrink-0 w-28 h-36 rounded-2xl p-3 flex flex-col justify-between bg-gradient-to-br ${colorClass} shadow-lg relative`}
+      className={`flex-shrink-0 w-[7rem] h-[8.5rem] rounded-2xl p-2.5 flex flex-col justify-between bg-gradient-to-br ${colorClass} shadow-lg shadow-black/30 relative overflow-hidden`}
     >
-      <div className="absolute inset-0 bg-black/20 rounded-2xl" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-transparent rounded-2xl" />
       <div className="relative z-10">
-        <h4 className="font-black text-2xl text-white/90">{card.year}</h4>
+        <h4 className="font-black text-[1.4rem] text-white drop-shadow-sm">{card.year}</h4>
       </div>
       <div className="relative z-10">
-        <p className="text-xs font-bold text-white leading-tight line-clamp-2">
+        <p className="text-[11px] font-bold text-white leading-snug line-clamp-2 drop-shadow-sm">
           {card.title}
         </p>
-        <p className="text-[10px] text-white/70 truncate">{card.artist}</p>
+        <p className="text-[10px] text-white/60 truncate mt-0.5">{card.artist}</p>
       </div>
     </motion.div>
   );
@@ -821,10 +800,11 @@ function PendingCard() {
       initial={{ opacity: 0, scale: 0.5 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-      className="flex-shrink-0 w-28 h-36 rounded-2xl p-3 flex flex-col items-center justify-center border-2 border-dashed border-yellow-400 bg-yellow-400/10 shadow-[0_0_20px_rgba(250,204,21,0.3)] relative"
+      className="flex-shrink-0 w-[7rem] h-[8.5rem] rounded-2xl flex flex-col items-center justify-center border-2 border-dashed border-amber-400/70 bg-amber-400/10 shadow-[0_0_25px_rgba(251,191,36,0.2)] relative overflow-hidden"
     >
-      <span className="text-4xl font-black text-yellow-400">?</span>
-      <span className="text-[10px] font-bold text-yellow-400/80 mt-1 uppercase tracking-wider">Placed here</span>
+      <div className="absolute inset-0 bg-gradient-to-t from-amber-500/10 to-transparent" />
+      <span className="text-4xl font-black text-amber-400 relative z-10">?</span>
+      <span className="text-[10px] font-bold text-amber-400/70 mt-1 uppercase tracking-wider relative z-10">Placed here</span>
     </motion.div>
   );
 }
@@ -842,17 +822,18 @@ function DropZone({
     <motion.button
       layout
       onClick={onClick}
-      className={`flex-shrink-0 w-12 h-24 mx-2 rounded-xl border-2 border-dashed flex items-center justify-center transition-all cursor-pointer ${
+      whileTap={{ scale: 0.9 }}
+      className={`flex-shrink-0 w-10 h-28 mx-1 rounded-xl border-2 border-dashed flex items-center justify-center transition-all cursor-pointer ${
         selected
           ? 'border-[#1DB954] bg-[#1DB954]/20 shadow-[0_0_15px_rgba(29,185,84,0.3)]'
-          : 'border-[#1DB954]/50 hover:border-[#1DB954] hover:bg-[#1DB954]/10'
+          : 'border-white/15 hover:border-[#1DB954]/70 hover:bg-[#1DB954]/5'
       }`}
     >
       <div
-        className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-sm ${
+        className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
           selected
             ? 'bg-[#1DB954] text-black'
-            : 'bg-[#1DB954]/20 text-[#1DB954]'
+            : 'bg-white/10 text-white/40'
         }`}
       >
         +

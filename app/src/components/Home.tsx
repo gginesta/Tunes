@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Music, Headphones, BookOpen, Wifi, WifiOff, Loader2, LogIn, LogOut, UserPlus } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { getSocket } from '../services/socket';
 import { openSpotifyLogin, refreshAccessToken } from '../services/spotify';
 import { useGameStore } from '../store';
@@ -89,7 +89,6 @@ export function Home() {
     setError(null);
 
     try {
-      // Try to reuse a saved refresh token first
       const savedRefresh = localStorage.getItem('spotify_refresh_token');
       if (savedRefresh) {
         try {
@@ -97,7 +96,6 @@ export function Home() {
           createRoomWithToken(refreshed.accessToken, refreshed.refreshToken);
           return;
         } catch {
-          // Refresh failed — fall through to full login
           localStorage.removeItem('spotify_refresh_token');
         }
       }
@@ -136,42 +134,50 @@ export function Home() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen p-6 text-white bg-[#1a1a2e]">
+    <div className="flex flex-col items-center justify-center min-h-screen p-6 text-white bg-[#1a1a2e] bg-pattern">
       {/* Connection indicator */}
       <div className="absolute top-4 right-4">
         {connected ? (
-          <div className="flex items-center gap-1.5 text-xs text-green-400">
+          <div className="flex items-center gap-1.5 text-xs text-green-400 font-medium">
             <Wifi className="w-3.5 h-3.5" />
             Connected
           </div>
         ) : (
-          <div className="flex items-center gap-1.5 text-xs text-red-400 animate-pulse">
+          <div className="flex items-center gap-1.5 text-xs text-red-400 animate-pulse font-medium">
             <WifiOff className="w-3.5 h-3.5" />
             Connecting...
           </div>
         )}
       </div>
 
+      {/* Logo */}
       <motion.div
-        initial={{ y: -50, opacity: 0 }}
+        initial={{ y: -30, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        className="flex flex-col items-center mb-12"
+        transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+        className="flex flex-col items-center mb-10"
       >
-        <div className="relative">
-          <div className="absolute inset-0 bg-[#1DB954] blur-xl opacity-20 rounded-full" />
-          <Music className="w-24 h-24 text-[#1DB954] mb-4 relative z-10" />
+        <div className="relative mb-2">
+          <div className="absolute inset-0 bg-[#1DB954] blur-2xl opacity-20 rounded-full scale-150" />
+          <Music className="w-20 h-20 text-[#1DB954] relative z-10" />
         </div>
-        <h1 className="text-5xl font-black tracking-tighter bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
+        <h1 className="text-5xl font-black tracking-tighter bg-gradient-to-r from-white via-white to-gray-400 bg-clip-text text-transparent">
           HITSTER
         </h1>
-        <p className="text-gray-400 mt-2 font-medium tracking-wide uppercase text-sm">
+        <p className="text-gray-500 mt-1 font-medium tracking-widest uppercase text-xs">
           The Music Party Game
         </p>
       </motion.div>
 
-      <div className="w-full max-w-sm space-y-6">
-        <div className="space-y-2">
-          <label className="text-sm font-semibold text-gray-300 uppercase tracking-wider ml-1">
+      <motion.div
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.1, type: 'spring', stiffness: 200, damping: 20 }}
+        className="w-full max-w-sm space-y-5"
+      >
+        {/* Name input */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">
             Your Name
           </label>
           <input
@@ -184,19 +190,19 @@ export function Home() {
             autoCorrect="off"
             autoCapitalize="words"
             spellCheck={false}
-            className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#1DB954] focus:border-transparent transition-all"
+            className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-lg text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-[#1DB954]/50 focus:border-[#1DB954]/50 focus:bg-white/[0.07] transition-all"
           />
         </div>
 
         {/* Account section */}
         {signedInAs ? (
-          <div className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-2.5">
+          <div className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3 border border-white/5">
             <span className="text-sm text-gray-300">
-              Signed in as <span className="text-white font-medium">{signedInAs}</span>
+              Signed in as <span className="text-white font-semibold">{signedInAs}</span>
             </span>
             <button
               onClick={handleSignOut}
-              className="text-xs text-gray-400 hover:text-white flex items-center gap-1 transition-colors"
+              className="text-xs text-gray-500 hover:text-white flex items-center gap-1 transition-colors py-1 px-2 rounded-lg hover:bg-white/5"
             >
               <LogOut className="w-3 h-3" />
               Sign out
@@ -204,20 +210,20 @@ export function Home() {
           </div>
         ) : authMode !== 'none' ? (
           <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            className="space-y-3 bg-white/5 rounded-xl p-4"
+            initial={{ opacity: 0, scale: 0.97 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="space-y-3 bg-white/5 rounded-2xl p-5 border border-white/10"
           >
-            <div className="flex gap-2 mb-2">
+            <div className="flex gap-1 bg-black/30 rounded-xl p-1">
               <button
                 onClick={() => { setAuthMode('login'); setError(null); }}
-                className={`flex-1 text-xs font-bold py-1.5 rounded-lg transition-all ${authMode === 'login' ? 'bg-white/15 text-white' : 'text-gray-400 hover:text-white'}`}
+                className={`flex-1 text-xs font-bold py-2 rounded-lg transition-all ${authMode === 'login' ? 'bg-white/10 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
               >
                 Sign In
               </button>
               <button
                 onClick={() => { setAuthMode('register'); setError(null); }}
-                className={`flex-1 text-xs font-bold py-1.5 rounded-lg transition-all ${authMode === 'register' ? 'bg-white/15 text-white' : 'text-gray-400 hover:text-white'}`}
+                className={`flex-1 text-xs font-bold py-2 rounded-lg transition-all ${authMode === 'register' ? 'bg-white/10 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
               >
                 Create Account
               </button>
@@ -232,7 +238,7 @@ export function Home() {
               autoCorrect="off"
               autoCapitalize="off"
               spellCheck={false}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-[#1DB954] transition-all"
+              className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-[#1DB954]/50 transition-all"
             />
             <input
               type="text"
@@ -244,30 +250,30 @@ export function Home() {
               autoCorrect="off"
               autoCapitalize="off"
               spellCheck={false}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-[#1DB954] transition-all"
+              className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-[#1DB954]/50 transition-all"
             />
-            <div className="flex gap-2">
+            <div className="flex gap-2 pt-1">
               <button
                 onClick={() => { setAuthMode('none'); setError(null); }}
-                className="flex-1 text-xs text-gray-400 hover:text-white py-2 transition-colors"
+                className="flex-1 text-sm text-gray-500 hover:text-white py-2.5 rounded-xl transition-colors hover:bg-white/5"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAuth}
                 disabled={!authUsername.trim() || !authPassword.trim() || authLoading}
-                className="flex-[2] bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-50 text-black text-xs font-bold py-2 rounded-xl transition-all flex items-center justify-center gap-1"
+                className="flex-[2] bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-50 text-black text-sm font-bold py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5"
               >
                 {authLoading ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                 ) : authMode === 'register' ? (
                   <>
-                    <UserPlus className="w-3 h-3" />
-                    Create Account
+                    <UserPlus className="w-4 h-4" />
+                    Create
                   </>
                 ) : (
                   <>
-                    <LogIn className="w-3 h-3" />
+                    <LogIn className="w-4 h-4" />
                     Sign In
                   </>
                 )}
@@ -277,135 +283,152 @@ export function Home() {
         ) : (
           <button
             onClick={() => setAuthMode('login')}
-            className="text-xs text-gray-500 hover:text-gray-300 transition-colors self-center"
+            className="text-sm text-gray-500 hover:text-gray-300 transition-colors py-2 px-4 rounded-xl hover:bg-white/5 mx-auto block"
           >
             Have an account? Sign in
           </button>
         )}
 
-        {error && (
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-red-400 text-sm text-center bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2"
-          >
-            {error}
-          </motion.p>
-        )}
+        {/* Error */}
+        <AnimatePresence>
+          {error && (
+            <motion.p
+              initial={{ opacity: 0, y: -5 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -5 }}
+              className="text-red-400 text-sm text-center bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5"
+            >
+              {error}
+            </motion.p>
+          )}
+        </AnimatePresence>
 
-        {mode === 'idle' ? (
-          <div className="space-y-4 pt-4">
-            <button
-              onClick={() => {
-                if (!name.trim()) return;
-                setMode('host');
-              }}
-              disabled={!name.trim() || !connected}
-              className="w-full bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-50 disabled:hover:bg-[#1DB954] text-black font-bold text-lg py-4 px-6 rounded-2xl flex items-center justify-center gap-3 transition-all transform active:scale-95 shadow-[0_0_20px_rgba(29,185,84,0.3)]"
+        {/* Main actions */}
+        <AnimatePresence mode="wait">
+          {mode === 'idle' ? (
+            <motion.div
+              key="idle"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="space-y-3 pt-2"
             >
-              <Headphones className="w-6 h-6" />
-              Host Game
-            </button>
-            <button
-              onClick={() => {
-                if (!name.trim()) return;
-                setMode('join');
-              }}
-              disabled={!name.trim() || !connected}
-              className="w-full bg-white/10 hover:bg-white/15 disabled:opacity-50 text-white font-bold text-lg py-4 px-6 rounded-2xl transition-all transform active:scale-95"
-            >
-              Join Game
-            </button>
-            <button
-              onClick={() => setScreen('rules')}
-              className="w-full bg-transparent text-gray-400 hover:text-white font-medium text-base py-3 flex items-center justify-center gap-2 transition-all"
-            >
-              <BookOpen className="w-5 h-5" />
-              How to Play
-            </button>
-          </div>
-        ) : mode === 'host' ? (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            className="space-y-4 pt-4 text-center"
-          >
-            <p className="text-gray-300 text-sm">
-              Connect your Spotify Premium account to play music for the room.
-            </p>
-            <button
-              onClick={handleSpotifyLogin}
-              disabled={connecting}
-              className="w-full bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-70 text-black font-bold text-lg py-4 px-6 rounded-2xl flex items-center justify-center gap-3 transition-all transform active:scale-95 shadow-[0_0_20px_rgba(29,185,84,0.3)]"
-            >
-              {connecting ? (
-                <>
-                  <Loader2 className="w-6 h-6 animate-spin" />
-                  Connecting to Spotify...
-                </>
-              ) : (
-                <>
-                  <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
-                  </svg>
-                  Connect Spotify & Create Room
-                </>
-              )}
-            </button>
-            <button
-              onClick={() => { setMode('idle'); setError(null); }}
-              className="w-full bg-transparent text-gray-400 hover:text-white font-bold py-2 transition-all"
-            >
-              Cancel
-            </button>
-          </motion.div>
-        ) : (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            className="space-y-6 pt-4"
-          >
-            <div className="space-y-3">
-              <label className="text-sm font-semibold text-gray-300 uppercase tracking-wider ml-1 text-center block">
-                Enter Room Code
-              </label>
-              <div className="flex justify-between gap-3">
-                {[0, 1, 2, 3].map((i) => (
-                  <input
-                    key={i}
-                    id={`code-${i}`}
-                    type="text"
-                    maxLength={1}
-                    value={code[i]}
-                    onChange={(e) => handleCodeChange(i, e.target.value)}
-                    onKeyDown={(e) => handleCodeKeyDown(i, e)}
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="characters"
-                    spellCheck={false}
-                    className="w-16 h-20 bg-white/5 border-2 border-white/10 rounded-2xl text-center text-3xl font-black text-white focus:outline-none focus:border-[#1DB954] focus:bg-[#1DB954]/10 transition-all uppercase"
-                  />
-                ))}
-              </div>
-            </div>
-            <div className="flex gap-3">
               <button
-                onClick={() => setMode('idle')}
-                className="flex-1 bg-white/10 hover:bg-white/15 text-white font-bold py-4 rounded-2xl transition-all"
+                onClick={() => {
+                  if (!name.trim()) return;
+                  setMode('host');
+                }}
+                disabled={!name.trim() || !connected}
+                className="w-full bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-40 text-black font-bold text-lg py-4 rounded-2xl flex items-center justify-center gap-3 transition-all transform active:scale-[0.97] shadow-[0_4px_20px_rgba(29,185,84,0.3)]"
+              >
+                <Headphones className="w-6 h-6" />
+                Host Game
+              </button>
+              <button
+                onClick={() => {
+                  if (!name.trim()) return;
+                  setMode('join');
+                }}
+                disabled={!name.trim() || !connected}
+                className="w-full bg-white/[0.07] hover:bg-white/[0.12] disabled:opacity-40 text-white font-bold text-lg py-4 rounded-2xl transition-all transform active:scale-[0.97] border border-white/[0.08]"
+              >
+                Join Game
+              </button>
+              <button
+                onClick={() => setScreen('rules')}
+                className="w-full text-gray-500 hover:text-gray-300 font-medium text-sm py-3 flex items-center justify-center gap-2 transition-colors rounded-xl hover:bg-white/5"
+              >
+                <BookOpen className="w-4 h-4" />
+                How to Play
+              </button>
+            </motion.div>
+          ) : mode === 'host' ? (
+            <motion.div
+              key="host"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="space-y-4 pt-2"
+            >
+              <p className="text-gray-400 text-sm text-center leading-relaxed">
+                Connect your Spotify Premium account to play music for the room.
+              </p>
+              <button
+                onClick={handleSpotifyLogin}
+                disabled={connecting}
+                className="w-full bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-70 text-black font-bold text-lg py-4 rounded-2xl flex items-center justify-center gap-3 transition-all transform active:scale-[0.97] shadow-[0_4px_20px_rgba(29,185,84,0.3)]"
+              >
+                {connecting ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
+                    </svg>
+                    Connect Spotify & Host
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => { setMode('idle'); setError(null); }}
+                className="w-full text-gray-500 hover:text-white font-medium py-3 transition-colors rounded-xl hover:bg-white/5"
               >
                 Back
               </button>
-              <button
-                onClick={handleJoin}
-                disabled={code.join('').length !== 4}
-                className="flex-[2] bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-50 text-black font-bold py-4 rounded-2xl transition-all shadow-[0_0_20px_rgba(29,185,84,0.3)]"
-              >
-                Join Room
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="join"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="space-y-5 pt-2"
+            >
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-gray-400 uppercase tracking-wider text-center block">
+                  Enter Room Code
+                </label>
+                <div className="flex justify-center gap-3">
+                  {[0, 1, 2, 3].map((i) => (
+                    <input
+                      key={i}
+                      id={`code-${i}`}
+                      type="text"
+                      maxLength={1}
+                      value={code[i]}
+                      onChange={(e) => handleCodeChange(i, e.target.value)}
+                      onKeyDown={(e) => handleCodeKeyDown(i, e)}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="characters"
+                      spellCheck={false}
+                      className="w-14 h-16 bg-white/5 border-2 border-white/10 rounded-xl text-center text-2xl font-black text-white focus:outline-none focus:border-[#1DB954] focus:bg-[#1DB954]/10 transition-all uppercase"
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setMode('idle')}
+                  className="flex-1 bg-white/[0.07] hover:bg-white/[0.12] text-white font-bold py-4 rounded-2xl transition-all border border-white/[0.08]"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handleJoin}
+                  disabled={code.join('').length !== 4}
+                  className="flex-[2] bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-40 text-black font-bold py-4 rounded-2xl transition-all shadow-[0_4px_20px_rgba(29,185,84,0.3)]"
+                >
+                  Join Room
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
     </div>
   );
 }
