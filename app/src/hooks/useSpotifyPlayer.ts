@@ -85,11 +85,27 @@ export function useSpotifyPlayer() {
     if (currentTrackId === lastTrackRef.current) return;
 
     lastTrackRef.current = currentTrackId;
-    const token = tokenRef.current;
-    if (token) {
-      playTrack(currentTrackId, token);
-    }
-  }, [isHost, spotifyReady, currentTrackId, phase]);
+
+    const attemptPlay = async () => {
+      let token = tokenRef.current;
+      if (!token) {
+        // Token might not be ready yet — try refreshing
+        try {
+          token = await getToken();
+        } catch {
+          console.error('[Hitster] Failed to get Spotify token for auto-play');
+          return;
+        }
+      }
+      try {
+        await playTrack(currentTrackId, token);
+      } catch (err) {
+        console.error('[Hitster] Auto-play failed:', err);
+      }
+    };
+
+    attemptPlay();
+  }, [isHost, spotifyReady, currentTrackId, phase, getToken]);
 
   // Auto-pause on challenge/reveal
   useEffect(() => {
@@ -101,11 +117,17 @@ export function useSpotifyPlayer() {
 
   // Expose controls
   const togglePlayback = useCallback(async () => {
-    const { isPlaying: playing } = useGameStore.getState();
+    const { isPlaying: playing, currentTrackId: trackId } = useGameStore.getState();
     if (playing) {
       await pause();
     } else {
-      await resume();
+      // Try resume first; if no track is loaded, start playback from scratch
+      const token = tokenRef.current;
+      if (trackId && token) {
+        await playTrack(trackId, token);
+      } else {
+        await resume();
+      }
     }
   }, []);
 

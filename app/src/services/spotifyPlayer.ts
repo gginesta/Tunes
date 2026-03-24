@@ -92,27 +92,15 @@ export async function playTrack(
   trackId: string,
   accessToken: string,
 ): Promise<void> {
-  if (!deviceId) return;
+  if (!deviceId) {
+    console.error('[Hitster] playTrack: no deviceId — player not ready');
+    return;
+  }
 
-  const res = await fetch(
-    `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`,
-    {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        uris: [`spotify:track:${trackId}`],
-        position_ms: 0,
-      }),
-    },
-  );
+  console.log('[Hitster] playTrack:', trackId, 'device:', deviceId);
 
-  if (!res.ok && res.status !== 204) {
-    // Retry once
-    await new Promise((r) => setTimeout(r, 1000));
-    const retry = await fetch(
+  const doPlay = () =>
+    fetch(
       `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`,
       {
         method: 'PUT',
@@ -126,8 +114,16 @@ export async function playTrack(
         }),
       },
     );
+
+  const res = await doPlay();
+
+  if (!res.ok && res.status !== 204) {
+    console.warn('[Hitster] playTrack first attempt failed:', res.status, await res.text().catch(() => ''));
+    // Retry once after a short delay
+    await new Promise((r) => setTimeout(r, 1000));
+    const retry = await doPlay();
     if (!retry.ok && retry.status !== 204) {
-      console.error('Failed to play track after retry:', trackId);
+      console.error('[Hitster] playTrack retry failed:', retry.status, await retry.text().catch(() => ''));
     }
   }
 }
