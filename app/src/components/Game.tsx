@@ -206,8 +206,17 @@ export function Game() {
 
   if (!me || !activePlayer) return null;
 
-  // Timeline to display: shared for co-op, personal otherwise
-  const displayTimeline = isCoop ? sharedTimeline : me.timeline;
+  const pendingPlacement = useGameStore((s) => s.pendingPlacement);
+
+  // Timeline to display:
+  // - Co-op: shared timeline always
+  // - Challenge phase: show the active player's timeline so everyone can see the placement
+  // - Otherwise: show your own timeline
+  const displayTimeline = isCoop
+    ? sharedTimeline
+    : phase === 'challenge' || (phase === 'reveal' && !isMyTurn)
+      ? activePlayer.timeline
+      : me.timeline;
 
   const handlePlaceCard = () => {
     if (selectedPosition === null) return;
@@ -691,7 +700,7 @@ export function Game() {
       {/* Bottom: Timeline + Actions */}
       <div
         className={`bg-black/40 backdrop-blur-xl border-t border-white/10 p-4 transition-opacity duration-500 ${
-          !isMyTurn && phase !== 'reveal' ? 'opacity-60' : ''
+          !isMyTurn && phase !== 'reveal' && phase !== 'challenge' ? 'opacity-60' : ''
         }`}
       >
         <div className="flex items-center justify-between mb-3">
@@ -700,7 +709,9 @@ export function Game() {
               ? 'Team Timeline'
               : isMyTurn
                 ? 'Your Timeline'
-                : `${activePlayer.name}'s Timeline`}
+                : phase === 'challenge'
+                  ? `${activePlayer.name}'s Timeline — Placed Card`
+                  : `${activePlayer.name}'s Timeline`}
           </h3>
         </div>
 
@@ -714,6 +725,9 @@ export function Game() {
             />
           )}
 
+          {/* Show pending placement indicator at position 0 */}
+          {phase === 'challenge' && pendingPlacement === 0 && <PendingCard />}
+
           {displayTimeline.map((card, idx) => (
             <div key={card.id} className="flex items-center">
               <TimelineCard card={card} />
@@ -724,10 +738,12 @@ export function Game() {
                   onClick={() => setSelectedPosition(idx + 1)}
                 />
               )}
+              {/* Show pending placement indicator after this card */}
+              {phase === 'challenge' && pendingPlacement === idx + 1 && <PendingCard />}
             </div>
           ))}
 
-          {displayTimeline.length === 0 && !isMyTurn && (
+          {displayTimeline.length === 0 && !isMyTurn && phase !== 'challenge' && (
             <p className="text-gray-500 text-sm italic mx-auto">No cards yet</p>
           )}
         </div>
@@ -785,6 +801,21 @@ function TimelineCard({ card }: { card: SongCard }) {
         </p>
         <p className="text-[10px] text-white/70 truncate">{card.artist}</p>
       </div>
+    </motion.div>
+  );
+}
+
+function PendingCard() {
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, scale: 0.5 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+      className="flex-shrink-0 w-28 h-36 rounded-2xl p-3 flex flex-col items-center justify-center border-2 border-dashed border-yellow-400 bg-yellow-400/10 shadow-[0_0_20px_rgba(250,204,21,0.3)] relative"
+    >
+      <span className="text-4xl font-black text-yellow-400">?</span>
+      <span className="text-[10px] font-bold text-yellow-400/80 mt-1 uppercase tracking-wider">Placed here</span>
     </motion.div>
   );
 }
