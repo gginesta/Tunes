@@ -7,6 +7,8 @@
  * until our device appears in the list before attempting playback.
  */
 
+const PLAYER_NAME = 'Hitster Game';
+
 let player: Spotify.Player | null = null;
 let deviceId: string | null = null;
 let sdkLoaded = false;
@@ -56,7 +58,7 @@ export async function initPlayer(
   await loadSDK();
 
   player = new window.Spotify.Player({
-    name: 'Hitster Game',
+    name: PLAYER_NAME,
     getOAuthToken: (cb) => {
       getToken().then(cb).catch(() => cb(''));
     },
@@ -123,24 +125,20 @@ export async function initPlayer(
 
 /**
  * Poll GET /v1/me/player/devices until our device appears.
- * This is necessary because the SDK fires 'ready' before the device
- * is actually registered with Spotify's servers.
+ *
+ * IMPORTANT: The SDK's device_id from the 'ready' event does NOT match
+ * the device ID in Spotify's REST API. We must match by device NAME
+ * and use the API's ID for all subsequent REST API calls.
  */
 async function pollForDevice(
-  targetDeviceId: string,
+  _sdkDeviceId: string,
   getToken: () => Promise<string>,
   callbacks: SpotifyPlayerCallbacks,
 ): Promise<void> {
-  const MAX_POLLS = 20;
-  const POLL_INTERVAL = 1500;
+  const MAX_POLLS = 15;
+  const POLL_INTERVAL = 2000;
 
   for (let i = 0; i < MAX_POLLS; i++) {
-    // Device changed (SDK reconnected), stop this poller
-    if (deviceId !== targetDeviceId) {
-      console.log('[Hitster] Device changed during polling, stopping');
-      return;
-    }
-
     try {
       const token = await getToken();
       const res = await fetch('https://api.spotify.com/v1/me/player/devices', {
@@ -149,12 +147,16 @@ async function pollForDevice(
 
       if (res.ok) {
         const data = await res.json();
-        const devices = data.devices || [];
-        console.log(`[Hitster] Devices poll ${i + 1}/${MAX_POLLS}:`, devices.map((d: { name: string; id: string }) => `${d.name} (${d.id})`));
+        const devices: { name: string; id: string }[] = data.devices || [];
+        console.log(`[Hitster] Devices poll ${i + 1}/${MAX_POLLS}:`,
+          devices.map((d) => `${d.name} (${d.id.slice(0, 8)}...)`));
 
-        const found = devices.find((d: { id: string }) => d.id === targetDeviceId);
+        // Match by NAME, not by ID — the SDK's device_id differs from the API's
+        const found = devices.find((d) => d.name === PLAYER_NAME);
         if (found) {
-          console.log('[Hitster] Device confirmed in Spotify device list!');
+          console.log('[Hitster] Device found in API! SDK id:', _sdkDeviceId.slice(0, 8), '→ API id:', found.id.slice(0, 8));
+          // Use the API's device ID for REST calls, not the SDK's
+          deviceId = found.id;
           deviceConfirmed = true;
           callbacks.onDeviceConfirmed();
           return;
@@ -167,8 +169,7 @@ async function pollForDevice(
     await new Promise((r) => setTimeout(r, POLL_INTERVAL));
   }
 
-  console.warn('[Hitster] Device never appeared in Spotify device list after', MAX_POLLS, 'polls');
-  // Try to play anyway — maybe it'll work
+  console.warn('[Hitster] Device never appeared after', MAX_POLLS, 'polls — trying with SDK device ID');
   deviceConfirmed = true;
   callbacks.onDeviceConfirmed();
 }
