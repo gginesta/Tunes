@@ -120,6 +120,7 @@ export async function initPlayer(
     callbacks.onError('Failed to connect to Spotify');
   } else {
     console.log('[Hitster] Player connected, waiting for device registration...');
+    applyPendingActivation();
   }
 }
 
@@ -179,6 +180,30 @@ export function activateElement(): void {
     player.activateElement();
     activated = true;
     console.log('[Hitster] activateElement() called');
+  }
+}
+
+/**
+ * Pre-activate the audio element from any user gesture.
+ * Can be called even before the player is fully initialized —
+ * stores intent and applies it once the player is ready.
+ */
+let pendingActivation = false;
+
+export function requestActivation(): void {
+  if (player) {
+    activateElement();
+  } else {
+    pendingActivation = true;
+  }
+}
+
+export function applyPendingActivation(): void {
+  if (pendingActivation && player && !activated) {
+    player.activateElement();
+    activated = true;
+    pendingActivation = false;
+    console.log('[Hitster] Deferred activateElement() applied');
   }
 }
 

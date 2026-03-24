@@ -12,10 +12,14 @@ export interface SongCard extends SongData {
 
 export type GameMode = 'original' | 'pro' | 'expert' | 'coop';
 export type GamePhase = 'lobby' | 'playing' | 'challenge' | 'reveal' | 'game_over';
+export type SongPack = 'standard' | 'decades' | 'playlist';
 
 export interface GameSettings {
   mode: GameMode;
   cardsToWin: number;
+  songPack: SongPack;
+  decades?: number[];      // When songPack is 'decades': selected decade start years e.g. [1980, 1990]
+  playlistUrl?: string;    // When songPack is 'playlist': Spotify playlist URL or ID
 }
 
 export interface Player {

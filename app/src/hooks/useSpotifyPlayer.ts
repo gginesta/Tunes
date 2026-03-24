@@ -8,6 +8,7 @@ import {
   pause,
   togglePlay,
   isInitialized,
+  requestActivation,
 } from '../services/spotifyPlayer';
 import {
   initFallbackAudio,
@@ -165,6 +166,10 @@ export function useSpotifyPlayer() {
     if (currentTrackId === lastTrackRef.current) return;
 
     lastTrackRef.current = currentTrackId;
+    // activateElement should already have been called from a user gesture
+    // (Start Game click or first game screen interaction), but call it
+    // here too in case the element was deferred.
+    activateElement();
     attemptPlayTrack(currentTrackId);
   }, [isHost, spotifyReady, currentTrackId, phase, attemptPlayTrack]);
 

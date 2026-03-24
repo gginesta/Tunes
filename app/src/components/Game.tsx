@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { getSocket } from '../services/socket';
 import { useGameStore } from '../store';
 import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
-import { SKIP_COST, CHALLENGE_COST, BUY_CARD_COST } from '@hitster/shared';
+import { SKIP_COST, CHALLENGE_COST, BUY_CARD_COST, TURN_TIME_MS } from '@hitster/shared';
 import {
   playCorrectSound,
   playWrongSound,
@@ -85,6 +85,7 @@ export function Game() {
   const spotifyError = useGameStore((s) => s.spotifyError);
 
   const challengeDeadline = useGameStore((s) => s.challengeDeadline);
+  const turnDeadline = useGameStore((s) => s.turnDeadline);
   const [noChallengeClicked, setNoChallengeClicked] = useState(false);
 
   const [guessTitle, setGuessTitle] = useState('');
@@ -113,6 +114,23 @@ export function Game() {
     const interval = setInterval(tick, 100);
     return () => clearInterval(interval);
   }, [phase, challengeDeadline]);
+
+  // Countdown timer for turn (playing phase)
+  const TURN_TIME_SECONDS = TURN_TIME_MS / 1000;
+  const [turnCountdown, setTurnCountdown] = useState<number | null>(null);
+  useEffect(() => {
+    if (phase !== 'playing' || !turnDeadline) {
+      setTurnCountdown(null);
+      return;
+    }
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((turnDeadline - Date.now()) / 1000));
+      setTurnCountdown(remaining);
+    };
+    tick();
+    const interval = setInterval(tick, 100);
+    return () => clearInterval(interval);
+  }, [phase, turnDeadline]);
 
   // --- Sound effects ---
   const [soundMuted, setSoundMuted] = useState(isMuted);
@@ -197,8 +215,17 @@ export function Game() {
 
   if (!me || !activePlayer) return null;
 
-  // Timeline to display: shared for co-op, personal otherwise
-  const displayTimeline = isCoop ? sharedTimeline : me.timeline;
+  const pendingPlacement = useGameStore((s) => s.pendingPlacement);
+
+  // Timeline to display:
+  // - Co-op: shared timeline always
+  // - Challenge phase: show the active player's timeline so everyone can see the placement
+  // - Otherwise: show your own timeline
+  const displayTimeline = isCoop
+    ? sharedTimeline
+    : phase === 'challenge' || (phase === 'reveal' && !isMyTurn)
+      ? activePlayer.timeline
+      : me.timeline;
 
   const handlePlaceCard = () => {
     if (selectedPosition === null) return;
@@ -251,83 +278,64 @@ export function Game() {
   const songNamingRequired = mode === 'pro' || mode === 'expert';
 
   return (
-    <div className="flex flex-col h-screen text-white bg-[#1a1a2e] overflow-hidden">
+    <div
+      className="flex flex-col h-screen text-white bg-[#1a1a2e] overflow-hidden"
+    >
       {/* Top Bar */}
-      <div className="flex justify-between items-center p-4 bg-black/30 backdrop-blur-md border-b border-white/5 z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold">
+      <div className="flex justify-between items-center px-4 py-3 bg-black/40 backdrop-blur-xl border-b border-white/5 z-10">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold text-sm flex-shrink-0">
             {activePlayer.name.charAt(0).toUpperCase()}
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <p className="text-xs text-gray-400 uppercase tracking-wider font-bold">
-                {deckSize} cards left
+              <p className="text-[11px] text-gray-500 uppercase tracking-wider font-bold">
+                {deckSize} left
               </p>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${MODE_COLORS[mode]}`}>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${MODE_COLORS[mode]}`}>
                 {MODE_LABELS[mode]}
               </span>
             </div>
-            <p className="font-bold text-[#1DB954]">
+            <p className="font-bold text-[#1DB954] text-sm truncate">
               {isMyTurn ? 'Your Turn' : `${activePlayer.name}'s Turn`}
             </p>
           </div>
         </div>
 
-        {/* Mute button + Player score chips */}
-        <div className="flex items-center gap-3">
+        {/* Player score chips + mute */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex gap-2 overflow-x-auto hide-scrollbar">
+            {isCoop ? (
+              <div className="flex flex-col items-center px-1">
+                <span className="text-xs font-black tabular-nums">
+                  {sharedTimeline.length}/{settings.cardsToWin}
+                </span>
+                <span className="text-[9px] text-green-400 font-bold uppercase">Team</span>
+              </div>
+            ) : (
+              playerList.map((p) => (
+                <div
+                  key={p.id}
+                  className={`flex flex-col items-center px-1 transition-opacity ${
+                    p.id === currentTurnPlayerId ? 'opacity-100' : 'opacity-40'
+                  }`}
+                >
+                  <span className="text-xs font-black tabular-nums">
+                    {p.timeline.length}/{settings.cardsToWin}
+                  </span>
+                  <span className="text-[9px] text-gray-500 truncate max-w-[45px] font-medium">
+                    {p.id === myId ? 'You' : p.name}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
           <button
             onClick={handleToggleMute}
-            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
-            title={soundMuted ? 'Unmute sounds' : 'Mute sounds'}
+            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors flex-shrink-0"
           >
             {soundMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
-        </div>
-
-        {/* Player score chips */}
-        <div className="flex gap-3 overflow-x-auto hide-scrollbar">
-          {isCoop ? (
-            <div className="flex flex-col items-center">
-              <div className="flex items-center gap-1 text-xs font-bold">
-                <div className="w-2 h-3 bg-green-400/40 rounded-sm" />
-                {sharedTimeline.length}/{settings.cardsToWin}
-              </div>
-              <span className="text-[10px] text-green-400 font-bold">Team</span>
-            </div>
-          ) : (
-            playerList.map((p) => (
-              <div
-                key={p.id}
-                className={`flex flex-col items-center ${
-                  p.id === currentTurnPlayerId ? 'opacity-100' : 'opacity-50'
-                }`}
-              >
-                <div className="flex items-center gap-1 text-xs font-bold">
-                  <div className="w-2 h-3 bg-white/20 rounded-sm" />
-                  {p.timeline.length}/{settings.cardsToWin}
-                </div>
-                <div className="flex items-center gap-1 text-xs text-[#FFD700] font-bold">
-                  <Coins className="w-3 h-3" />
-                  {p.tokens}
-                </div>
-                <span className="text-[10px] text-gray-500 truncate max-w-[50px]">
-                  {p.id === myId ? 'You' : p.name}
-                </span>
-              </div>
-            ))
-          )}
-          {/* Show individual tokens in co-op too */}
-          {isCoop && playerList.map((p) => (
-            <div key={p.id} className="flex flex-col items-center opacity-80">
-              <div className="flex items-center gap-1 text-xs text-[#FFD700] font-bold">
-                <Coins className="w-3 h-3" />
-                {p.tokens}
-              </div>
-              <span className="text-[10px] text-gray-500 truncate max-w-[50px]">
-                {p.id === myId ? 'You' : p.name}
-              </span>
-            </div>
-          ))}
         </div>
       </div>
 
@@ -348,7 +356,7 @@ export function Game() {
 
       {/* Spotify error banner */}
       {spotifyError && !autoplayBlocked && (
-        <div className="bg-red-500/10 border-b border-red-500/20 px-4 py-2 text-center text-sm text-red-400">
+        <div className="bg-red-500/10 border-b border-red-500/20 px-4 py-2 text-center text-xs text-red-400 font-medium">
           {spotifyError}
         </div>
       )}
@@ -362,10 +370,10 @@ export function Game() {
               initial={{ scale: 0.8, opacity: 0, y: 50 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.8, opacity: 0, y: -50 }}
-              className={`w-64 aspect-square rounded-3xl p-6 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl bg-gradient-to-br ${
+              className={`w-60 aspect-square rounded-3xl p-6 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl bg-gradient-to-br ${
                 lastReveal!.correct
-                  ? 'from-green-500 to-emerald-700 shadow-[0_0_50px_rgba(34,197,94,0.5)]'
-                  : 'from-red-500 to-rose-700 shadow-[0_0_50px_rgba(239,68,68,0.5)]'
+                  ? 'from-green-500 to-emerald-700 shadow-green-500/40'
+                  : 'from-red-500 to-rose-700 shadow-red-500/40'
               }`}
             >
               <div className="absolute -right-12 -bottom-12 opacity-20">
@@ -431,7 +439,7 @@ export function Game() {
               initial={{ scale: 0.8, opacity: 0, y: 50 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.8, opacity: 0, y: -50 }}
-              className="w-64 aspect-square rounded-3xl p-6 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl bg-gradient-to-br from-blue-600 to-indigo-900"
+              className="w-60 aspect-square rounded-3xl p-6 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl shadow-indigo-900/50 bg-gradient-to-br from-blue-600 to-indigo-900"
             >
               <div className="absolute -right-12 -bottom-12 opacity-20">
                 <Disc className="w-48 h-48" />
@@ -447,18 +455,61 @@ export function Game() {
 
               {/* Center: Play/Pause for host, "?" for non-host */}
               {isSpotifyHost && phase === 'playing' ? (
-                <button
-                  onClick={togglePlayback}
-                  className="w-20 h-20 rounded-full bg-[#1DB954] hover:bg-[#1ed760] flex items-center justify-center transition-all transform active:scale-90 shadow-[0_0_30px_rgba(29,185,84,0.4)]"
-                >
-                  {isPlayingMusic ? (
-                    <Pause className="w-10 h-10 text-black" fill="black" />
-                  ) : (
-                    <Play className="w-10 h-10 text-black ml-1" fill="black" />
+                <div className="flex flex-col items-center gap-2">
+                  <button
+                    onClick={togglePlayback}
+                    className={`w-20 h-20 rounded-full bg-[#1DB954] hover:bg-[#1ed760] flex items-center justify-center transition-all transform active:scale-90 shadow-[0_0_30px_rgba(29,185,84,0.4)] ${!isPlayingMusic ? 'animate-pulse' : ''}`}
+                  >
+                    {isPlayingMusic ? (
+                      <Pause className="w-10 h-10 text-black" fill="black" />
+                    ) : (
+                      <Play className="w-10 h-10 text-black ml-1" fill="black" />
+                    )}
+                  </button>
+                  {!isPlayingMusic && (
+                    <span className="text-xs text-[#1DB954] font-bold animate-pulse">
+                      TAP TO PLAY
+                    </span>
                   )}
-                </button>
+                </div>
               ) : (
                 <h2 className="text-6xl font-black text-white/90 mt-4">?</h2>
+              )}
+
+              {/* Countdown timer during playing phase (turn timer) */}
+              {phase === 'playing' && turnCountdown !== null && turnCountdown > 0 && (
+                <motion.div
+                  key="turn-countdown"
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="absolute top-3 right-3 z-20"
+                >
+                  <div className="relative">
+                    <svg className="w-14 h-14 -rotate-90" viewBox="0 0 100 100">
+                      <circle
+                        cx="50" cy="50" r="42"
+                        fill="none"
+                        stroke="rgba(255,255,255,0.1)"
+                        strokeWidth="6"
+                      />
+                      <circle
+                        cx="50" cy="50" r="42"
+                        fill="none"
+                        stroke={turnCountdown <= 5 ? '#ef4444' : turnCountdown <= 10 ? '#f97316' : '#3b82f6'}
+                        strokeWidth="6"
+                        strokeLinecap="round"
+                        strokeDasharray={`${2 * Math.PI * 42}`}
+                        strokeDashoffset={`${2 * Math.PI * 42 * (1 - turnCountdown / TURN_TIME_SECONDS)}`}
+                        className="transition-all duration-100"
+                      />
+                    </svg>
+                    <span className={`absolute inset-0 flex items-center justify-center text-lg font-black ${
+                      turnCountdown <= 5 ? 'text-red-400' : turnCountdown <= 10 ? 'text-orange-400' : 'text-white'
+                    }`}>
+                      {turnCountdown}
+                    </span>
+                  </div>
+                </motion.div>
               )}
 
               {/* Countdown timer during challenge phase */}
@@ -549,6 +600,10 @@ export function Game() {
               placeholder={songNamingRequired ? 'Song Title (Required)' : 'Guess Title (Optional, +1 token)'}
               value={guessTitle}
               onChange={(e) => setGuessTitle(e.target.value)}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#1DB954]"
             />
             <input
@@ -556,6 +611,10 @@ export function Game() {
               placeholder={songNamingRequired ? 'Artist (Required)' : 'Guess Artist (Optional)'}
               value={guessArtist}
               onChange={(e) => setGuessArtist(e.target.value)}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#1DB954]"
             />
             {mode === 'expert' && (
@@ -564,6 +623,7 @@ export function Game() {
                 placeholder="Exact Year (Required)"
                 value={guessYear}
                 onChange={(e) => setGuessYear(e.target.value)}
+                autoComplete="off"
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#1DB954]"
               />
             )}
@@ -600,17 +660,17 @@ export function Game() {
               <button
                 onClick={handleChallenge}
                 disabled={me.tokens < CHALLENGE_COST}
-                className="bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/50 font-bold py-3 px-6 rounded-2xl flex items-center gap-2 transition-all disabled:opacity-50"
+                className="bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/30 font-bold py-3.5 px-6 rounded-2xl flex items-center gap-2 transition-all disabled:opacity-40 active:scale-[0.97]"
               >
                 <AlertTriangle className="w-5 h-5" />
-                Challenge! ({CHALLENGE_COST} Token)
+                Challenge! ({CHALLENGE_COST})
               </button>
               <button
                 onClick={() => setNoChallengeClicked(true)}
-                className="bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white border border-white/10 font-bold py-3 px-6 rounded-2xl flex items-center gap-2 transition-all"
+                className="bg-white/[0.06] hover:bg-white/[0.1] text-gray-400 hover:text-white border border-white/[0.08] font-bold py-3.5 px-6 rounded-2xl flex items-center gap-2 transition-all active:scale-[0.97]"
               >
                 <Check className="w-5 h-5" />
-                No Challenge
+                Looks Good
               </button>
             </div>
           </motion.div>
@@ -650,7 +710,7 @@ export function Game() {
       {/* Bottom: Timeline + Actions */}
       <div
         className={`bg-black/40 backdrop-blur-xl border-t border-white/10 p-4 transition-opacity duration-500 ${
-          !isMyTurn && phase !== 'reveal' ? 'opacity-60' : ''
+          !isMyTurn && phase !== 'reveal' && phase !== 'challenge' ? 'opacity-60' : ''
         }`}
       >
         <div className="flex items-center justify-between mb-3">
@@ -659,7 +719,9 @@ export function Game() {
               ? 'Team Timeline'
               : isMyTurn
                 ? 'Your Timeline'
-                : `${activePlayer.name}'s Timeline`}
+                : phase === 'challenge'
+                  ? `${activePlayer.name}'s Timeline — Placed Card`
+                  : `${activePlayer.name}'s Timeline`}
           </h3>
         </div>
 
@@ -673,6 +735,9 @@ export function Game() {
             />
           )}
 
+          {/* Show pending placement indicator at position 0 */}
+          {phase === 'challenge' && pendingPlacement === 0 && <PendingCard />}
+
           {displayTimeline.map((card, idx) => (
             <div key={card.id} className="flex items-center">
               <TimelineCard card={card} />
@@ -683,10 +748,12 @@ export function Game() {
                   onClick={() => setSelectedPosition(idx + 1)}
                 />
               )}
+              {/* Show pending placement indicator after this card */}
+              {phase === 'challenge' && pendingPlacement === idx + 1 && <PendingCard />}
             </div>
           ))}
 
-          {displayTimeline.length === 0 && !isMyTurn && (
+          {displayTimeline.length === 0 && !isMyTurn && phase !== 'challenge' && (
             <p className="text-gray-500 text-sm italic mx-auto">No cards yet</p>
           )}
         </div>
@@ -729,21 +796,37 @@ function TimelineCard({ card }: { card: SongCard }) {
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, scale: 0.8, y: -20 }}
+      initial={{ opacity: 0, scale: 0.85, y: -15 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-      className={`flex-shrink-0 w-28 h-36 rounded-2xl p-3 flex flex-col justify-between bg-gradient-to-br ${colorClass} shadow-lg relative`}
+      className={`flex-shrink-0 w-[7rem] h-[8.5rem] rounded-2xl p-2.5 flex flex-col justify-between bg-gradient-to-br ${colorClass} shadow-lg shadow-black/30 relative overflow-hidden`}
     >
-      <div className="absolute inset-0 bg-black/20 rounded-2xl" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-transparent rounded-2xl" />
       <div className="relative z-10">
-        <h4 className="font-black text-2xl text-white/90">{card.year}</h4>
+        <h4 className="font-black text-[1.4rem] text-white drop-shadow-sm">{card.year}</h4>
       </div>
       <div className="relative z-10">
-        <p className="text-xs font-bold text-white leading-tight line-clamp-2">
+        <p className="text-[11px] font-bold text-white leading-snug line-clamp-2 drop-shadow-sm">
           {card.title}
         </p>
-        <p className="text-[10px] text-white/70 truncate">{card.artist}</p>
+        <p className="text-[10px] text-white/60 truncate mt-0.5">{card.artist}</p>
       </div>
+    </motion.div>
+  );
+}
+
+function PendingCard() {
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, scale: 0.5 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+      className="flex-shrink-0 w-[7rem] h-[8.5rem] rounded-2xl flex flex-col items-center justify-center border-2 border-dashed border-amber-400/70 bg-amber-400/10 shadow-[0_0_25px_rgba(251,191,36,0.2)] relative overflow-hidden"
+    >
+      <div className="absolute inset-0 bg-gradient-to-t from-amber-500/10 to-transparent" />
+      <span className="text-4xl font-black text-amber-400 relative z-10">?</span>
+      <span className="text-[10px] font-bold text-amber-400/70 mt-1 uppercase tracking-wider relative z-10">Placed here</span>
     </motion.div>
   );
 }
@@ -761,17 +844,18 @@ function DropZone({
     <motion.button
       layout
       onClick={onClick}
-      className={`flex-shrink-0 w-12 h-24 mx-2 rounded-xl border-2 border-dashed flex items-center justify-center transition-all cursor-pointer ${
+      whileTap={{ scale: 0.9 }}
+      className={`flex-shrink-0 w-10 h-28 mx-1 rounded-xl border-2 border-dashed flex items-center justify-center transition-all cursor-pointer ${
         selected
           ? 'border-[#1DB954] bg-[#1DB954]/20 shadow-[0_0_15px_rgba(29,185,84,0.3)]'
-          : 'border-[#1DB954]/50 hover:border-[#1DB954] hover:bg-[#1DB954]/10'
+          : 'border-white/15 hover:border-[#1DB954]/70 hover:bg-[#1DB954]/5'
       }`}
     >
       <div
-        className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-sm ${
+        className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
           selected
             ? 'bg-[#1DB954] text-black'
-            : 'bg-[#1DB954]/20 text-[#1DB954]'
+            : 'bg-white/10 text-white/40'
         }`}
       >
         +

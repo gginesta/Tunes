@@ -9,6 +9,7 @@ import type {
 export interface ClientToServerEvents {
   'create-room': (data: { playerName: string; spotifyAccessToken?: string }) => void;
   'join-room': (data: { code: string; playerName: string }) => void;
+  'rejoin-room': (data: { code: string; playerId: string }) => void;
   'leave-room': () => void;
   'update-settings': (settings: Partial<GameSettings>) => void;
   'start-game': () => void;
@@ -31,6 +32,7 @@ export interface ServerToClientEvents {
   'settings-updated': (settings: GameSettings) => void;
   'game-started': (data: { gameState: Room['gameState'] }) => void;
   'new-turn': (data: { turnPlayerId: string; songCard: Partial<SongCard> }) => void;
+  'turn-started': (data: { turnPlayerId: string; turnDeadline: number }) => void;
   'play-song': (data: { spotifyTrackId: string; previewUrl?: string }) => void;
   'card-placed': (data: { playerId: string; position: number; challengeDeadline?: number }) => void;
   'challenge-made': (data: { challengerId: string }) => void;

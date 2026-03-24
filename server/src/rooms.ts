@@ -16,7 +16,9 @@ import {
   DEFAULT_CARDS_TO_WIN,
 } from '@hitster/shared';
 import { GameEngine } from './game';
-import { selectGameDeck, resolveTrackIds } from './songs';
+import { selectGameDeck, resolveTrackIds, fetchPlaylistDeck } from './songs';
+import { saveRoom, loadAllRooms, deleteRoom } from './database';
+import { logger } from './logger';
 
 type HitsterSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 type HitsterServer = Server<ClientToServerEvents, ServerToClientEvents>;
@@ -53,6 +55,51 @@ function createDefaultGameState(): GameState {
   };
 }
 
+/**
+ * Persist the current room state to SQLite.
+ */
+function persistRoom(code: string): void {
+  const room = rooms.get(code);
+  if (!room) return;
+  const spotifyToken = roomSpotifyTokens.get(code);
+  try {
+    saveRoom(code, room, spotifyToken);
+  } catch (err) {
+    logger.error('Failed to persist room', { code, error: String(err) });
+  }
+}
+
+/**
+ * Load all rooms from the database on server startup.
+ * GameEngine instances are recreated for rooms with active games.
+ */
+export function restoreRoomsFromDatabase(io: HitsterServer): void {
+  const saved = loadAllRooms();
+  for (const { room, spotifyToken } of saved) {
+    rooms.set(room.code, room);
+    if (spotifyToken) {
+      roomSpotifyTokens.set(room.code, spotifyToken);
+    }
+
+    // Mark all players as disconnected since this is a fresh server start
+    for (const player of Object.values(room.players)) {
+      player.connected = false;
+    }
+
+    // Recreate GameEngine for rooms that had active games
+    if (room.gameState.phase !== 'lobby' && room.gameState.phase !== 'game_over') {
+      const engine = new GameEngine(room, io);
+      if (spotifyToken) {
+        engine.setSpotifyToken(spotifyToken);
+      }
+      games.set(room.code, engine);
+    }
+
+    logger.info('Restored room from database', { code: room.code, phase: room.gameState.phase });
+  }
+  logger.info('Room restoration complete', { count: saved.length });
+}
+
 export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
   socket.on('create-room', ({ playerName, spotifyAccessToken }) => {
     const code = generateRoomCode();
@@ -71,7 +118,7 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
       code,
       players: { [playerId]: player },
       hostId: playerId,
-      settings: { mode: 'original', cardsToWin: DEFAULT_CARDS_TO_WIN },
+      settings: { mode: 'original', cardsToWin: DEFAULT_CARDS_TO_WIN, songPack: 'standard' },
       gameState: createDefaultGameState(),
     };
 
@@ -86,7 +133,9 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
       roomSpotifyTokens.set(code, spotifyAccessToken);
     }
 
-    console.log(`[create-room] Room ${code} created. Players:`, Object.keys(room.players), 'Host:', room.hostId);
+    persistRoom(code);
+
+    logger.info('Room created', { code, hostId: room.hostId, playerCount: Object.keys(room.players).length });
     socket.emit('room-created', { code, playerId, room });
     // Also send state-sync so the host's player data is fully populated
     socket.emit('state-sync', room);
@@ -125,8 +174,48 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
     socketToRoom.set(socket.id, { code: upperCode, playerId });
     socket.join(upperCode);
 
+    persistRoom(upperCode);
+
     socket.emit('room-joined', { room, playerId });
     socket.to(upperCode).emit('player-joined', player);
+  });
+
+  socket.on('rejoin-room', ({ code, playerId }) => {
+    const upperCode = code.toUpperCase();
+    const room = rooms.get(upperCode);
+
+    if (!room || !room.players[playerId]) {
+      socket.emit('error', { message: 'Room not found or player unknown' });
+      return;
+    }
+
+    // Re-associate this socket with the existing player
+    const player = room.players[playerId];
+    player.connected = true;
+    socketToRoom.set(socket.id, { code: upperCode, playerId });
+    socket.join(upperCode);
+
+    logger.info('Player rejoined', { code: upperCode, playerId, name: player.name });
+
+    // Send full state to the reconnecting client
+    socket.emit('room-joined', { room, playerId });
+    // Notify others
+    io.to(upperCode).emit('state-sync', room);
+
+    // If game is in progress, resend current game screen
+    if (room.gameState.phase !== 'lobby' && room.gameState.phase !== 'game_over') {
+      socket.emit('game-started', { gameState: room.gameState });
+
+      // Re-send current turn info
+      if (room.gameState.currentTurnPlayerId && room.gameState.currentSong) {
+        socket.emit('new-turn', {
+          turnPlayerId: room.gameState.currentTurnPlayerId,
+          songCard: room.gameState.currentSong,
+        });
+      }
+    }
+
+    persistRoom(upperCode);
   });
 
   socket.on('leave-room', () => {
@@ -155,26 +244,46 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
       return;
     }
 
-    let deck = selectGameDeck();
+    const spotifyToken = roomSpotifyTokens.get(mapping.code);
+    const { songPack, decades, playlistUrl } = room.settings;
+    let deck: import('@hitster/shared').SongCard[];
+
+    if (songPack === 'playlist' && playlistUrl && spotifyToken) {
+      // Fetch songs directly from a Spotify playlist
+      io.to(mapping.code).emit('resolving-tracks');
+      deck = await fetchPlaylistDeck(playlistUrl, spotifyToken);
+      if (deck.length === 0) {
+        socket.emit('error', { message: 'Could not load songs from that playlist. Check the link and try again.' });
+        return;
+      }
+    } else {
+      // Use built-in song database (standard or decade-filtered)
+      deck = selectGameDeck(undefined, songPack === 'decades' ? decades : undefined);
+      if (deck.length === 0) {
+        socket.emit('error', { message: 'Not enough songs for the selected decades. Try adding more.' });
+        return;
+      }
+
+      // Resolve Spotify track IDs if token available
+      if (spotifyToken) {
+        io.to(mapping.code).emit('resolving-tracks');
+        const playable = await resolveTrackIds(deck, spotifyToken);
+        if (playable.length === 0) {
+          socket.emit('error', { message: 'Could not find any songs on Spotify. Please try again.' });
+          return;
+        }
+        deck = playable;
+      }
+    }
+
     let engine = games.get(mapping.code);
     if (!engine) {
       engine = new GameEngine(room, io);
       games.set(mapping.code, engine);
     }
 
-    // Resolve Spotify track IDs if token available
-    const spotifyToken = roomSpotifyTokens.get(mapping.code);
-    if (spotifyToken) {
-      io.to(mapping.code).emit('resolving-tracks');
-      const playable = await resolveTrackIds(deck, spotifyToken);
-      if (playable.length === 0) {
-        socket.emit('error', { message: 'Could not find any songs on Spotify. Please try again.' });
-        return;
-      }
-      deck = playable;
-    }
-
     engine.startGame(deck);
+    persistRoom(mapping.code);
   });
 
   socket.on('place-card', ({ position }) => {
@@ -182,6 +291,7 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
     const mapping = socketToRoom.get(socket.id);
     if (!engine || !mapping) return;
     engine.placeCard(mapping.playerId, position);
+    persistRoom(mapping.code);
   });
 
   socket.on('challenge', () => {
@@ -214,8 +324,10 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
 
   socket.on('confirm-reveal', () => {
     const engine = getEngine(socket);
-    if (!engine) return;
+    const mapping = socketToRoom.get(socket.id);
+    if (!engine || !mapping) return;
     engine.confirmReveal();
+    persistRoom(mapping.code);
   });
 
   socket.on('restart-game', () => {
@@ -250,6 +362,8 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
       }
     }
 
+    persistRoom(mapping.code);
+
     io.to(mapping.code).emit('game-restarted', { room });
   });
 
@@ -280,14 +394,38 @@ function handleLeave(io: HitsterServer, socket: HitsterSocket) {
   socketToRoom.delete(socket.id);
   socket.leave(mapping.code);
 
+  // If player was mid-turn, skip to next player
+  const engine = games.get(mapping.code);
+  if (engine) {
+    engine.handlePlayerDisconnect(mapping.playerId);
+  }
+
   const connectedPlayers = Object.values(room.players).filter((p) => p.connected);
   if (connectedPlayers.length === 0) {
+    logger.info('Room destroyed (no connected players)', { code: mapping.code });
     rooms.delete(mapping.code);
     games.delete(mapping.code);
+    deleteRoom(mapping.code);
   } else if (mapping.playerId === room.hostId) {
     const newHost = connectedPlayers[0];
     room.hostId = newHost.id;
     newHost.isHost = true;
+    logger.info('Host transferred', { code: mapping.code, newHostId: newHost.id });
     io.to(mapping.code).emit('state-sync', room);
+    persistRoom(mapping.code);
+  } else {
+    persistRoom(mapping.code);
   }
+}
+
+export function getRoomCount(): number {
+  return rooms.size;
+}
+
+export function getTotalPlayerCount(): number {
+  let count = 0;
+  for (const room of rooms.values()) {
+    count += Object.values(room.players).filter((p) => p.connected).length;
+  }
+  return count;
 }

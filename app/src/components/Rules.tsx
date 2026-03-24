@@ -47,38 +47,38 @@ export function Rules() {
   ];
 
   return (
-    <div className="flex flex-col min-h-screen p-6 text-white bg-[#1a1a2e]">
-      <div className="flex items-center mb-8">
+    <div className="flex flex-col min-h-screen p-6 text-white bg-[#1a1a2e] bg-pattern">
+      <div className="flex items-center gap-4 mb-8">
         <button
           onClick={() => setScreen('home')}
-          className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors"
+          className="p-2.5 bg-white/5 rounded-xl hover:bg-white/10 transition-colors"
         >
           <ArrowLeft className="w-5 h-5 text-gray-400" />
         </button>
-        <h1 className="text-2xl font-black ml-4">How to Play</h1>
+        <h1 className="text-2xl font-black">How to Play</h1>
       </div>
 
-      <div className="max-w-lg mx-auto w-full space-y-6">
+      <div className="max-w-lg mx-auto w-full space-y-5 pb-8">
         {sections.map((section, i) => (
           <motion.div
             key={section.title}
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.1 }}
-            className="bg-white/5 rounded-3xl p-6 border border-white/10"
+            transition={{ delay: i * 0.08, type: 'spring', stiffness: 200, damping: 22 }}
+            className="bg-white/[0.04] rounded-2xl p-5 border border-white/[0.06]"
           >
-            <h3 className="text-lg font-bold flex items-center gap-3 mb-4">
+            <h3 className="text-base font-bold flex items-center gap-3 mb-3">
               {section.icon}
               {section.title}
             </h3>
             {section.content && (
-              <p className="text-gray-300 leading-relaxed">{section.content}</p>
+              <p className="text-gray-400 leading-relaxed text-sm">{section.content}</p>
             )}
             {section.items && (
-              <ul className="space-y-2">
+              <ul className="space-y-2.5">
                 {section.items.map((item, j) => (
-                  <li key={j} className="text-gray-300 text-sm flex gap-2">
-                    <span className="text-[#1DB954] font-bold mt-0.5">
+                  <li key={j} className="text-gray-400 text-sm flex gap-2.5 leading-relaxed">
+                    <span className="text-[#1DB954] font-bold mt-0.5 flex-shrink-0">
                       {j + 1}.
                     </span>
                     {item}

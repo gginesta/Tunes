@@ -1,6 +1,8 @@
 import { createHash } from 'crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, renameSync, existsSync } from 'fs';
 import { join } from 'path';
+import { saveAccount, loadAccount } from './database';
+import { logger } from './logger';
 
 export interface Account {
   username: string;
@@ -15,28 +17,33 @@ interface AccountStore {
 
 const DATA_DIR = join(__dirname, '..', '..', 'data');
 const ACCOUNTS_FILE = join(DATA_DIR, 'accounts.json');
+const MIGRATED_FILE = join(DATA_DIR, 'accounts.json.migrated');
 
 function hashPassword(password: string): string {
   return createHash('sha256').update(password).digest('hex');
 }
 
-function loadStore(): AccountStore {
-  if (!existsSync(ACCOUNTS_FILE)) {
-    return { accounts: {} };
-  }
+/**
+ * Migrate accounts from the old JSON file to SQLite.
+ * Called once on startup. If accounts.json exists, imports all entries
+ * into SQLite and renames the file to accounts.json.migrated.
+ */
+export function migrateAccountsFromJson(): void {
+  if (!existsSync(ACCOUNTS_FILE)) return;
+
   try {
     const raw = readFileSync(ACCOUNTS_FILE, 'utf-8');
-    return JSON.parse(raw) as AccountStore;
-  } catch {
-    return { accounts: {} };
-  }
-}
+    const store = JSON.parse(raw) as AccountStore;
 
-function saveStore(store: AccountStore): void {
-  if (!existsSync(DATA_DIR)) {
-    mkdirSync(DATA_DIR, { recursive: true });
+    for (const account of Object.values(store.accounts)) {
+      saveAccount(account);
+    }
+
+    renameSync(ACCOUNTS_FILE, MIGRATED_FILE);
+    logger.info('Migrated accounts from JSON to SQLite', { count: Object.keys(store.accounts).length });
+  } catch (err) {
+    logger.error('Failed to migrate accounts from JSON', { error: String(err) });
   }
-  writeFileSync(ACCOUNTS_FILE, JSON.stringify(store, null, 2), 'utf-8');
 }
 
 export function createAccount(
@@ -44,10 +51,9 @@ export function createAccount(
   password: string,
   displayName: string,
 ): { success: boolean; error?: string } {
-  const store = loadStore();
   const key = username.toLowerCase();
 
-  if (store.accounts[key]) {
+  if (loadAccount(key)) {
     return { success: false, error: 'Username already taken' };
   }
 
@@ -59,14 +65,15 @@ export function createAccount(
     return { success: false, error: 'Password must be at least 3 characters' };
   }
 
-  store.accounts[key] = {
+  const account: Account = {
     username: key,
     displayName: displayName || username,
     passwordHash: hashPassword(password),
     createdAt: new Date().toISOString(),
   };
 
-  saveStore(store);
+  saveAccount(account);
+  logger.info('Account created', { username: key });
   return { success: true };
 }
 
@@ -74,22 +81,23 @@ export function login(
   username: string,
   password: string,
 ): { success: boolean; error?: string; displayName?: string } {
-  const store = loadStore();
   const key = username.toLowerCase();
-  const account = store.accounts[key];
+  const account = loadAccount(key);
 
   if (!account) {
+    logger.warn('Login failed: account not found', { username: key });
     return { success: false, error: 'Account not found' };
   }
 
   if (account.passwordHash !== hashPassword(password)) {
+    logger.warn('Login failed: incorrect password', { username: key });
     return { success: false, error: 'Incorrect password' };
   }
 
+  logger.info('Login successful', { username: key });
   return { success: true, displayName: account.displayName };
 }
 
 export function getAccount(username: string): Account | null {
-  const store = loadStore();
-  return store.accounts[username.toLowerCase()] || null;
+  return loadAccount(username.toLowerCase());
 }

@@ -3,6 +3,7 @@ import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { SongCard, SongData } from '@hitster/shared';
 import { DECK_SIZE } from '@hitster/shared';
+import { logger } from './logger';
 
 let allSongs: SongData[] = [];
 
@@ -14,8 +15,7 @@ function cacheKey(song: SongData): string {
 }
 
 export function loadSongs() {
-  console.log('[songs] __dirname:', __dirname);
-  console.log('[songs] process.cwd():', process.cwd());
+  logger.debug('Song loader paths', { __dirname, cwd: process.cwd() });
 
   // Try multiple possible locations for songs.json
   const candidates = [
@@ -24,44 +24,60 @@ export function loadSongs() {
     path.join(process.cwd(), 'data', 'songs.json'),            // from project root (npm workspaces)
   ];
 
-  console.log('[songs] Candidates:');
-  for (const c of candidates) {
-    console.log(`  ${c} → exists: ${fs.existsSync(c)}`);
-  }
+  logger.debug('Song file candidates', {
+    candidates: candidates.map(c => ({ path: c, exists: fs.existsSync(c) })),
+  });
 
   const songsPath = candidates.find(p => fs.existsSync(p)) || candidates[0];
-  console.log('[songs] Using:', songsPath);
+  logger.info('Loading songs', { path: songsPath });
 
   try {
     const raw = fs.readFileSync(songsPath, 'utf-8');
     allSongs = JSON.parse(raw);
-    console.log(`Loaded ${allSongs.length} songs from database`);
+    logger.info('Songs loaded successfully', { count: allSongs.length });
   } catch (err) {
-    console.error('Failed to load songs:', err);
+    logger.error('Failed to load songs', { error: String(err) });
     allSongs = [];
   }
 }
 
-export function selectGameDeck(count: number = DECK_SIZE): SongCard[] {
+/**
+ * Select a game deck from the built-in song database.
+ * @param decades - Optional array of decade start years to filter by (e.g. [1980, 1990])
+ */
+export function selectGameDeck(count: number = DECK_SIZE, decades?: number[]): SongCard[] {
   if (allSongs.length === 0) {
-    console.warn('No songs loaded, returning empty deck');
+    logger.warn('No songs loaded, returning empty deck');
+    return [];
+  }
+
+  // Filter by selected decades if provided
+  const pool = decades && decades.length > 0
+    ? allSongs.filter((song) => {
+        const decade = Math.floor(song.year / 10) * 10;
+        return decades.includes(decade);
+      })
+    : allSongs;
+
+  if (pool.length === 0) {
+    logger.warn('No songs match the selected decades', { decades });
     return [];
   }
 
   // Group songs by decade for balanced selection
   const byDecade = new Map<number, SongData[]>();
-  for (const song of allSongs) {
+  for (const song of pool) {
     const decade = Math.floor(song.year / 10) * 10;
     if (!byDecade.has(decade)) byDecade.set(decade, []);
     byDecade.get(decade)!.push(song);
   }
 
   const selected: SongData[] = [];
-  const decades = [...byDecade.keys()].sort();
-  const perDecade = Math.max(1, Math.ceil(count / decades.length));
+  const decadeKeys = [...byDecade.keys()].sort();
+  const perDecade = Math.max(1, Math.ceil(count / decadeKeys.length));
 
   // Pick from each decade
-  for (const decade of decades) {
+  for (const decade of decadeKeys) {
     const songs = byDecade.get(decade)!;
     const shuffled = [...songs].sort(() => Math.random() - 0.5);
     selected.push(...shuffled.slice(0, perDecade));
@@ -78,6 +94,102 @@ export function selectGameDeck(count: number = DECK_SIZE): SongCard[] {
     }));
 
   return deck;
+}
+
+/**
+ * Fetch tracks from a Spotify playlist and convert them to a game deck.
+ * Returns SongCards with spotifyTrackId already set (no search needed).
+ */
+export async function fetchPlaylistDeck(
+  playlistUrl: string,
+  accessToken: string,
+  count: number = DECK_SIZE,
+): Promise<SongCard[]> {
+  // Extract playlist ID from URL or bare ID
+  const playlistId = extractPlaylistId(playlistUrl);
+  if (!playlistId) {
+    logger.warn('Invalid playlist URL', { playlistUrl });
+    return [];
+  }
+
+  logger.info('Fetching Spotify playlist', { playlistId });
+
+  const cards: SongCard[] = [];
+  let url: string | null = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?fields=items(track(id,name,artists,album(release_date),preview_url)),next&limit=100`;
+
+  while (url && cards.length < count * 2) {
+    try {
+      const res: Response = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!res.ok) {
+        const body: string = await res.text().catch(() => '');
+        logger.warn('Playlist fetch failed', { status: res.status, body });
+        break;
+      }
+
+      const data: { items?: PlaylistItem[]; next?: string } = await res.json();
+      const items: PlaylistItem[] = data.items || [];
+
+      for (const item of items) {
+        const track = item.track;
+        if (!track?.id || !track.name || !track.album?.release_date) continue;
+
+        const year = parseInt(track.album.release_date.slice(0, 4), 10);
+        if (isNaN(year)) continue;
+
+        const artist = track.artists?.map((a: { name: string }) => a.name).join(', ') || 'Unknown';
+
+        cards.push({
+          id: uuidv4(),
+          title: track.name,
+          artist,
+          year,
+          spotifyTrackId: track.id,
+          previewUrl: track.preview_url || undefined,
+        });
+      }
+
+      url = data.next || null;
+    } catch (err) {
+      logger.warn('Playlist fetch error', { error: String(err) });
+      break;
+    }
+  }
+
+  // Shuffle and trim
+  const deck = cards
+    .sort(() => Math.random() - 0.5)
+    .slice(0, count);
+
+  logger.info('Playlist deck created', { playlistId, total: cards.length, selected: deck.length });
+  return deck;
+}
+
+interface PlaylistItem {
+  track: {
+    id: string;
+    name: string;
+    artists: { name: string }[];
+    album: { release_date: string };
+    preview_url: string | null;
+  } | null;
+}
+
+function extractPlaylistId(input: string): string | null {
+  // Handle full URLs: https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=...
+  const urlMatch = input.match(/playlist\/([a-zA-Z0-9]+)/);
+  if (urlMatch) return urlMatch[1];
+
+  // Handle spotify: URIs: spotify:playlist:37i9dQZF1DXcBWIGoYBM5M
+  const uriMatch = input.match(/spotify:playlist:([a-zA-Z0-9]+)/);
+  if (uriMatch) return uriMatch[1];
+
+  // Bare ID (alphanumeric, 22 chars typical)
+  if (/^[a-zA-Z0-9]{10,}$/.test(input.trim())) return input.trim();
+
+  return null;
 }
 
 export async function resolveSpotifyTrack(
@@ -151,9 +263,12 @@ export async function resolveTrackIds(
   }
 
   const playable = deck.filter((c) => c.spotifyTrackId);
-  console.log(
-    `Track resolution: ${resolved}/${deck.length} resolved (${cached} cached), ${playable.length} playable`,
-  );
+  logger.info('Track resolution complete', {
+    resolved,
+    total: deck.length,
+    cached,
+    playable: playable.length,
+  });
 
   return playable;
 }

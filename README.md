@@ -26,7 +26,11 @@ A real-time multiplayer music party game where players compete to build a chrono
 - **Sound effects** -- Web Audio API sounds (correct, wrong, challenge, stolen, tick, start) with mute toggle
 - **Post-game rankings** -- Results screen with 1st/2nd/3rd medal colors and staggered animations
 - **Play Again** -- Host-only button to restart the game in the same room
-- **Optional accounts** -- Username/password with JSON file storage; guest fallback
+- **Turn timer** -- 45-second countdown for the active player to place their card; circular timer visible on the song card with color transitions (blue -> orange at 10s -> red at 5s); auto-skips on timeout
+- **Persistent storage** -- SQLite database (via better-sqlite3 with WAL mode) preserves rooms across server restarts; accounts migrated from JSON to SQLite automatically on first startup
+- **Structured logging** -- JSON structured logger with debug/info/warn/error levels; LOG_LEVEL env var; pretty-print in dev, JSON in production; request and game event logging
+- **Health check** -- GET /health returns status, uptime, room/player counts, and version
+- **Optional accounts** -- Username/password stored in SQLite; guest fallback
 - **Connection handling** -- Tracks player online/offline status with automatic host reassignment
 - **Responsive UI** -- Tailwind CSS 4 with Motion animations
 
@@ -36,7 +40,9 @@ A real-time multiplayer music party game where players compete to build a chrono
 |-------|-----------|
 | Frontend | React 19, Vite, Tailwind CSS 4, Zustand, Motion |
 | Backend | Node.js, Express, Socket.io, TypeScript |
+| Database | SQLite via better-sqlite3 (WAL mode) |
 | Music | Spotify Web Playback SDK, PKCE OAuth, Web API, HTML5 Audio fallback |
+| Logging | Structured JSON logger (server/src/logger.ts) |
 | Shared | TypeScript types, constants, and typed Socket.io events |
 | Monorepo | npm workspaces (shared, server, app) |
 
@@ -56,15 +62,18 @@ hitster/
 │       ├── rooms.ts        # Room creation, joining, leaving
 │       ├── game.ts         # GameEngine — turns, placement, challenges, scoring
 │       ├── songs.ts        # Song loading, deck selection, Spotify track resolution
-│       ├── accounts.ts     # Account storage (JSON file)
-│       └── accounts-handler.ts # Account route handlers
+│       ├── accounts.ts     # Account storage (SQLite)
+│       ├── accounts-handler.ts # Account route handlers
+│       ├── database.ts     # SQLite database setup and room persistence
+│       └── logger.ts       # Structured JSON logger
 ├── shared/                 # Shared TypeScript package
 │   └── src/
 │       ├── types.ts        # Player, Room, GameState, SongCard, etc.
 │       ├── constants.ts    # Game constants (tokens, costs, limits)
 │       └── events.ts       # Typed client/server Socket.io events
 └── data/
-    └── songs.json          # Song database
+    ├── songs.json          # Song database
+    └── hitster.db          # SQLite database (created at runtime)
 ```
 
 ## Getting Started
@@ -91,6 +100,9 @@ npm install
 # Create environment file
 cp app/.env.example app/.env
 # Edit app/.env and add your Spotify Client ID
+
+# Optional: set log level (default: "info")
+# export LOG_LEVEL=debug
 
 # Start development (server on :3000, frontend on :5173)
 npm run dev
@@ -126,7 +138,7 @@ Each player starts with 2 tokens (max 5). Use them for:
 ### Turn Flow
 
 1. A mystery song card is drawn from the deck and plays via Spotify
-2. The active player places it on their timeline
+2. The active player has 45 seconds to place the card on their timeline (circular countdown visible on the song card)
 3. Other players have 15 seconds to challenge the placement (costs 1 token) or click "No Challenge"
 4. The song is revealed:
    - **Correct placement** -- the active player keeps the card

@@ -1,9 +1,31 @@
-import { Users, Crown, Settings, LogOut, Play } from 'lucide-react';
+import { useState } from 'react';
+import { Users, Crown, Settings, LogOut, Play, Music, ListMusic, Link } from 'lucide-react';
 import { motion } from 'motion/react';
-import { getSocket } from '../services/socket';
+import { getSocket, clearSession } from '../services/socket';
 import { useGameStore } from '../store';
-import type { GameMode } from '@hitster/shared';
+import { requestActivation } from '../services/spotifyPlayer';
+import type { GameMode, SongPack } from '@hitster/shared';
 import { MIN_CARDS_TO_WIN, MAX_CARDS_TO_WIN, MIN_PLAYERS } from '@hitster/shared';
+
+const AVAILABLE_DECADES = [
+  { value: 1950, label: '50s' },
+  { value: 1960, label: '60s' },
+  { value: 1970, label: '70s' },
+  { value: 1980, label: '80s' },
+  { value: 1990, label: '90s' },
+  { value: 2000, label: '00s' },
+  { value: 2010, label: '10s' },
+  { value: 2020, label: '20s' },
+];
+
+/** Curated Spotify playlists for genre packs */
+const GENRE_PACKS = [
+  { label: 'Summer Hits', icon: '\u2600', playlistId: '37i9dQZF1DXdwTUxmGKrdN' },
+  { label: 'Movie Soundtracks', icon: '\uD83C\uDFAC', playlistId: '37i9dQZF1DX4dyzvuaRJ0n' },
+  { label: 'Rock Classics', icon: '\uD83E\uDD18', playlistId: '37i9dQZF1DWXRqgorJj26U' },
+  { label: 'Hip-Hop', icon: '\uD83C\uDFA4', playlistId: '37i9dQZF1DX48TTZL62Yht' },
+  { label: 'Latin Hits', icon: '\uD83D\uDD25', playlistId: '37i9dQZF1DX10zKzsJ2jva' },
+];
 
 export function Lobby() {
   const players = useGameStore((s) => s.players);
@@ -13,17 +35,23 @@ export function Lobby() {
   const settings = useGameStore((s) => s.settings);
   const error = useGameStore((s) => s.error);
   const reset = useGameStore((s) => s.reset);
+  const spotifyToken = useGameStore((s) => s.spotifyToken);
 
   const isHost = hostId === myId;
+  const hasSpotify = !!spotifyToken;
   const playerList = Object.values(players);
   const socket = getSocket();
 
+  const [playlistInput, setPlaylistInput] = useState(settings.playlistUrl || '');
+
   const handleLeave = () => {
     socket.emit('leave-room');
+    clearSession();
     reset();
   };
 
   const handleStart = () => {
+    requestActivation();
     socket.emit('start-game');
   };
 
@@ -35,12 +63,41 @@ export function Lobby() {
     socket.emit('update-settings', { cardsToWin });
   };
 
+  const handleSetSongPack = (songPack: SongPack) => {
+    socket.emit('update-settings', { songPack, decades: undefined, playlistUrl: undefined });
+  };
+
+  const handleToggleDecade = (decade: number) => {
+    const current = settings.decades || [];
+    const next = current.includes(decade)
+      ? current.filter((d) => d !== decade)
+      : [...current, decade];
+    socket.emit('update-settings', { songPack: 'decades', decades: next });
+  };
+
+  const handleSelectGenrePack = (playlistId: string) => {
+    const url = `https://open.spotify.com/playlist/${playlistId}`;
+    setPlaylistInput(url);
+    socket.emit('update-settings', { songPack: 'playlist', playlistUrl: url });
+  };
+
+  const handlePlaylistUrlChange = (url: string) => {
+    setPlaylistInput(url);
+    socket.emit('update-settings', { songPack: 'playlist', playlistUrl: url });
+  };
+
   const modes: { value: GameMode; label: string; desc: string }[] = [
     { value: 'original', label: 'Original', desc: 'Place correctly to keep the card' },
     { value: 'pro', label: 'Pro', desc: 'Must also name the song' },
     { value: 'expert', label: 'Expert', desc: 'Name song + guess exact year' },
     { value: 'coop', label: 'Co-op', desc: 'Shared timeline, work together' },
   ];
+
+  const songPackLabel = settings.songPack === 'standard'
+    ? 'Standard Mix'
+    : settings.songPack === 'decades'
+      ? `Decades: ${(settings.decades || []).sort().map(d => `${d}s`).join(', ') || 'None'}`
+      : 'Spotify Playlist';
 
   return (
     <div className="flex flex-col min-h-screen p-6 text-white bg-[#1a1a2e]">
@@ -72,7 +129,7 @@ export function Lobby() {
         </motion.p>
       )}
 
-      <div className="flex-1 space-y-8 max-w-lg mx-auto w-full">
+      <div className="flex-1 space-y-8 max-w-lg mx-auto w-full overflow-y-auto">
         {/* Player list */}
         <div className="bg-white/5 rounded-3xl p-6 border border-white/10">
           <div className="flex items-center justify-between mb-4">
@@ -180,6 +237,156 @@ export function Lobby() {
                 {modes.find(m => m.value === settings.mode)?.desc}
               </p>
             </div>
+          </div>
+        )}
+
+        {/* Song Packs — host only, Spotify required */}
+        {isHost && hasSpotify ? (
+          <div className="bg-white/5 rounded-3xl p-6 border border-white/10 space-y-5">
+            <h3 className="text-lg font-bold flex items-center gap-2">
+              <Music className="w-5 h-5 text-[#1DB954]" />
+              Song Source
+            </h3>
+
+            {/* Pack type selector */}
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={() => handleSetSongPack('standard')}
+                className={`py-3 px-2 rounded-xl text-center transition-all ${
+                  settings.songPack === 'standard'
+                    ? 'bg-[#1DB954] text-black'
+                    : 'bg-black/30 text-gray-300 hover:bg-black/50'
+                }`}
+              >
+                <ListMusic className={`w-5 h-5 mx-auto mb-1 ${settings.songPack === 'standard' ? 'text-black' : ''}`} />
+                <span className="text-xs font-bold block">Standard</span>
+              </button>
+              <button
+                onClick={() => handleSetSongPack('decades')}
+                className={`py-3 px-2 rounded-xl text-center transition-all ${
+                  settings.songPack === 'decades'
+                    ? 'bg-[#1DB954] text-black'
+                    : 'bg-black/30 text-gray-300 hover:bg-black/50'
+                }`}
+              >
+                <span className={`text-lg block ${settings.songPack === 'decades' ? 'text-black' : ''}`}>#</span>
+                <span className="text-xs font-bold block">Decades</span>
+              </button>
+              <button
+                onClick={() => handleSetSongPack('playlist')}
+                className={`py-3 px-2 rounded-xl text-center transition-all ${
+                  settings.songPack === 'playlist'
+                    ? 'bg-[#1DB954] text-black'
+                    : 'bg-black/30 text-gray-300 hover:bg-black/50'
+                }`}
+              >
+                <Link className={`w-5 h-5 mx-auto mb-1 ${settings.songPack === 'playlist' ? 'text-black' : ''}`} />
+                <span className="text-xs font-bold block">Playlist</span>
+              </button>
+            </div>
+
+            {/* Decade chips */}
+            {settings.songPack === 'decades' && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="space-y-2"
+              >
+                <label className="text-xs text-gray-400 font-medium block">
+                  Select decades (pick at least one)
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {AVAILABLE_DECADES.map(({ value, label }) => {
+                    const selected = (settings.decades || []).includes(value);
+                    return (
+                      <button
+                        key={value}
+                        onClick={() => handleToggleDecade(value)}
+                        className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
+                          selected
+                            ? 'bg-[#1DB954] text-black'
+                            : 'bg-black/30 text-gray-300 hover:bg-black/50'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
+
+            {/* Playlist input + genre presets */}
+            {settings.songPack === 'playlist' && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="space-y-3"
+              >
+                {/* Genre presets */}
+                <label className="text-xs text-gray-400 font-medium block">
+                  Genre Packs
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {GENRE_PACKS.map(({ label, icon, playlistId }) => {
+                    const isActive = playlistInput.includes(playlistId);
+                    return (
+                      <button
+                        key={playlistId}
+                        onClick={() => handleSelectGenrePack(playlistId)}
+                        className={`px-3 py-2 rounded-full text-sm font-bold transition-all flex items-center gap-1.5 ${
+                          isActive
+                            ? 'bg-[#1DB954] text-black'
+                            : 'bg-black/30 text-gray-300 hover:bg-black/50'
+                        }`}
+                      >
+                        <span>{icon}</span>
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="relative">
+                  <label className="text-xs text-gray-400 font-medium block mb-1">
+                    Or paste a Spotify playlist link
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="https://open.spotify.com/playlist/..."
+                    value={playlistInput}
+                    onChange={(e) => handlePlaylistUrlChange(e.target.value)}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#1DB954] transition-all"
+                  />
+                </div>
+              </motion.div>
+            )}
+
+            {settings.songPack === 'standard' && (
+              <p className="text-xs text-gray-500">
+                500+ songs spanning 1950s–2020s, balanced across decades
+              </p>
+            )}
+          </div>
+        ) : isHost ? null : (
+          /* Non-host: show what the host picked */
+          settings.songPack !== 'standard' && (
+            <div className="bg-white/5 rounded-3xl p-4 border border-white/10">
+              <p className="text-sm text-gray-400 text-center">
+                <Music className="w-4 h-4 inline-block mr-1 -mt-0.5" />
+                {songPackLabel}
+              </p>
+            </div>
+          )
+        )}
+
+        {/* Non-host waiting message */}
+        {!isHost && (
+          <div className="bg-white/5 rounded-3xl p-6 border border-white/10">
             <div className="flex flex-col items-center justify-center py-6 text-gray-400">
               <div className="animate-pulse flex space-x-2 mb-4">
                 <div className="w-3 h-3 bg-[#1DB954] rounded-full" />
@@ -196,7 +403,7 @@ export function Lobby() {
         <div className="mt-6 max-w-lg mx-auto w-full">
           <button
             onClick={handleStart}
-            disabled={playerList.length < MIN_PLAYERS}
+            disabled={playerList.length < MIN_PLAYERS || (settings.songPack === 'decades' && (!settings.decades || settings.decades.length === 0))}
             className="w-full bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-50 disabled:hover:bg-[#1DB954] text-black font-black text-xl py-5 rounded-2xl flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(29,185,84,0.4)] transition-all transform active:scale-95"
           >
             <Play className="w-6 h-6 fill-current" />

@@ -1,36 +1,37 @@
 import { Trophy, Home, RotateCcw, Medal, Coins } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getSocket } from '../services/socket';
+import { clearSession } from '../services/socket';
 import { useGameStore } from '../store';
 
 const ORDINALS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
 
 const MEDAL_STYLES: Record<number, { bg: string; border: string; badge: string; text: string }> = {
   0: {
-    bg: 'bg-gradient-to-r from-[#FFD700]/20 to-transparent',
-    border: 'border-[#FFD700]/50',
-    badge: 'bg-[#FFD700] text-black',
+    bg: 'bg-gradient-to-r from-[#FFD700]/15 via-[#FFD700]/5 to-transparent',
+    border: 'border-[#FFD700]/40',
+    badge: 'bg-gradient-to-br from-[#FFD700] to-[#FFA000] text-black',
     text: 'text-[#FFD700]',
   },
   1: {
-    bg: 'bg-gradient-to-r from-[#C0C0C0]/15 to-transparent',
-    border: 'border-[#C0C0C0]/40',
-    badge: 'bg-[#C0C0C0] text-black',
+    bg: 'bg-gradient-to-r from-[#C0C0C0]/10 to-transparent',
+    border: 'border-[#C0C0C0]/30',
+    badge: 'bg-gradient-to-br from-[#D0D0D0] to-[#A0A0A0] text-black',
     text: 'text-[#C0C0C0]',
   },
   2: {
-    bg: 'bg-gradient-to-r from-[#CD7F32]/15 to-transparent',
-    border: 'border-[#CD7F32]/40',
-    badge: 'bg-[#CD7F32] text-black',
+    bg: 'bg-gradient-to-r from-[#CD7F32]/10 to-transparent',
+    border: 'border-[#CD7F32]/30',
+    badge: 'bg-gradient-to-br from-[#CD7F32] to-[#A0622A] text-black',
     text: 'text-[#CD7F32]',
   },
 };
 
 const DEFAULT_STYLE = {
-  bg: 'bg-white/5',
-  border: 'border-white/10',
-  badge: 'bg-black/50 text-gray-400',
-  text: 'text-gray-400',
+  bg: 'bg-white/[0.03]',
+  border: 'border-white/[0.06]',
+  badge: 'bg-white/10 text-gray-500',
+  text: 'text-gray-500',
 };
 
 export function Results() {
@@ -58,34 +59,38 @@ export function Results() {
   const handleHome = () => {
     const socket = getSocket();
     socket.emit('leave-room');
+    clearSession();
     reset();
   };
 
   if (!winner) return null;
 
   return (
-    <div className="flex flex-col min-h-screen p-6 text-white bg-[#1a1a2e] overflow-y-auto">
+    <div className="flex flex-col min-h-screen p-6 text-white bg-[#1a1a2e] bg-pattern overflow-y-auto">
+      {/* Winner announcement */}
       <motion.div
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="flex flex-col items-center mt-8 mb-12"
+        transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+        className="flex flex-col items-center mt-8 mb-10"
       >
-        <div className="relative mb-6">
-          <div className="absolute inset-0 bg-[#FFD700] blur-3xl opacity-30 rounded-full" />
-          <Trophy className="w-32 h-32 text-[#FFD700] relative z-10" />
+        <div className="relative mb-4">
+          <div className="absolute inset-0 bg-[#FFD700] blur-3xl opacity-20 rounded-full scale-150" />
+          <Trophy className="w-24 h-24 text-[#FFD700] relative z-10" />
         </div>
-        <h1 className="text-5xl font-black tracking-tighter text-center mb-2">
+        <h1 className="text-4xl font-black tracking-tight text-center mb-1">
           {isCoop ? 'TEAM WINS!' : `${winner.name} WINS!`}
         </h1>
-        <p className="text-[#1DB954] font-bold text-xl">
+        <p className="text-[#1DB954] font-bold text-lg">
           {isCoop
             ? `${sharedTimeline.length} Cards Collected Together`
             : `${winner.timeline.length} Cards Collected`}
         </p>
       </motion.div>
 
-      <div className="flex-1 w-full max-w-md mx-auto space-y-4">
-        <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">
+      {/* Rankings */}
+      <div className="flex-1 w-full max-w-md mx-auto space-y-3">
+        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
           {isCoop ? 'Team Result' : 'Final Rankings'}
         </h3>
 
@@ -94,13 +99,13 @@ export function Results() {
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.2 }}
-            className="p-6 rounded-2xl border bg-gradient-to-r from-[#1DB954]/20 to-transparent border-[#1DB954]/40"
+            className="p-5 rounded-2xl border bg-gradient-to-r from-[#1DB954]/15 to-transparent border-[#1DB954]/30"
           >
             <div className="flex items-center justify-between mb-4">
-              <span className="text-lg font-bold text-[#1DB954]">Team Score</span>
-              <div className="flex items-center gap-2">
+              <span className="text-base font-bold text-[#1DB954]">Team Score</span>
+              <div className="flex items-baseline gap-1.5">
                 <span className="font-black text-2xl">{sharedTimeline.length}</span>
-                <span className="text-xs text-gray-400 uppercase">Cards</span>
+                <span className="text-xs text-gray-500 uppercase">Cards</span>
               </div>
             </div>
             <div className="space-y-2">
@@ -109,15 +114,13 @@ export function Results() {
                   key={player.id}
                   initial={{ x: -10, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
-                  transition={{ delay: 0.3 + index * 0.1 }}
-                  className="flex items-center justify-between py-2 px-3 rounded-lg bg-white/5"
+                  transition={{ delay: 0.3 + index * 0.08 }}
+                  className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-white/[0.04]"
                 >
-                  <span className="font-medium">{player.name}</span>
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1 text-sm text-gray-400">
-                      <Coins className="w-3.5 h-3.5" />
-                      <span>{player.tokens}</span>
-                    </div>
+                  <span className="font-medium text-sm">{player.name}</span>
+                  <div className="flex items-center gap-1.5 text-sm text-[#FFD700]/80">
+                    <Coins className="w-3.5 h-3.5" />
+                    <span className="font-bold">{player.tokens}</span>
                   </div>
                 </motion.div>
               ))}
@@ -131,15 +134,15 @@ export function Results() {
             return (
               <motion.div
                 key={player.id}
-                initial={{ x: -30, opacity: 0 }}
+                initial={{ x: -20, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
-                transition={{ delay: 0.2 + index * 0.12, type: 'spring', stiffness: 200 }}
+                transition={{ delay: 0.15 + index * 0.1, type: 'spring', stiffness: 200, damping: 22 }}
                 className={`flex items-center justify-between p-4 rounded-2xl border ${style.bg} ${style.border}`}
               >
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                   <div className="flex flex-col items-center gap-0.5">
                     <div
-                      className={`w-9 h-9 rounded-full flex items-center justify-center font-black text-sm ${style.badge}`}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm ${style.badge}`}
                     >
                       {index < 3 ? (
                         <Medal className="w-5 h-5" />
@@ -147,22 +150,25 @@ export function Results() {
                         index + 1
                       )}
                     </div>
-                    <span className={`text-[10px] font-bold uppercase ${style.text}`}>
+                    <span className={`text-[9px] font-bold uppercase ${style.text}`}>
                       {ordinal}
                     </span>
                   </div>
-                  <span className="font-bold text-lg">{player.name}</span>
+                  <div>
+                    <span className="font-bold text-base block">{player.name}</span>
+                    {player.id === myId && (
+                      <span className="text-[10px] text-gray-500 font-medium">You</span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <div className="flex flex-col items-end">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-black text-xl">{player.timeline.length}</span>
-                      <span className="text-xs text-gray-400 uppercase">Cards</span>
-                    </div>
-                    <div className="flex items-center gap-1 text-sm text-gray-400">
-                      <Coins className="w-3.5 h-3.5" />
-                      <span>{player.tokens} tokens</span>
-                    </div>
+                <div className="flex flex-col items-end">
+                  <div className="flex items-baseline gap-1">
+                    <span className="font-black text-xl tabular-nums">{player.timeline.length}</span>
+                    <span className="text-[10px] text-gray-500 uppercase font-bold">Cards</span>
+                  </div>
+                  <div className="flex items-center gap-1 text-xs text-[#FFD700]/70 font-bold">
+                    <Coins className="w-3 h-3" />
+                    {player.tokens}
                   </div>
                 </div>
               </motion.div>
@@ -171,27 +177,28 @@ export function Results() {
         )}
       </div>
 
-      <div className="mt-12 w-full max-w-md mx-auto space-y-4">
+      {/* Action buttons */}
+      <div className="mt-8 w-full max-w-md mx-auto space-y-3 pb-4">
         {isHost ? (
           <button
             onClick={handlePlayAgain}
-            className="w-full bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold text-lg py-4 px-6 rounded-2xl flex items-center justify-center gap-3 transition-all transform active:scale-95 shadow-[0_0_20px_rgba(29,185,84,0.3)]"
+            className="w-full bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold text-lg py-4 rounded-2xl flex items-center justify-center gap-3 transition-all transform active:scale-[0.97] shadow-[0_4px_20px_rgba(29,185,84,0.3)]"
           >
-            <RotateCcw className="w-6 h-6" />
+            <RotateCcw className="w-5 h-5" />
             Play Again
           </button>
         ) : (
-          <div className="w-full bg-white/5 text-gray-400 font-bold text-lg py-4 px-6 rounded-2xl flex items-center justify-center gap-3">
-            <RotateCcw className="w-6 h-6" />
-            Waiting for host to restart...
+          <div className="w-full bg-white/[0.04] text-gray-500 font-bold py-4 rounded-2xl flex items-center justify-center gap-3 border border-white/[0.06]">
+            <RotateCcw className="w-5 h-5 animate-spin" style={{ animationDuration: '3s' }} />
+            Waiting for host...
           </div>
         )}
         <button
           onClick={handleHome}
-          className="w-full bg-white/10 hover:bg-white/15 text-white font-bold text-lg py-4 px-6 rounded-2xl flex items-center justify-center gap-3 transition-all transform active:scale-95"
+          className="w-full bg-white/[0.06] hover:bg-white/[0.1] text-gray-400 hover:text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 transition-all transform active:scale-[0.97] border border-white/[0.06]"
         >
-          <Home className="w-6 h-6" />
-          Back to Home
+          <Home className="w-5 h-5" />
+          Leave Game
         </button>
       </div>
     </div>

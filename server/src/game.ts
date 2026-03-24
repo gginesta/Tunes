@@ -13,8 +13,10 @@ import {
   CHALLENGE_COST,
   BUY_CARD_COST,
   CHALLENGE_WINDOW_MS,
+  TURN_TIME_MS,
   COOP_WRONG_PENALTY,
 } from '@hitster/shared';
+import { logger } from './logger';
 
 type HitsterServer = Server<ClientToServerEvents, ServerToClientEvents>;
 
@@ -24,6 +26,7 @@ export class GameEngine {
   private deck: SongCard[] = [];
   private spotifyAccessToken: string | null = null;
   private challengeTimer: ReturnType<typeof setTimeout> | null = null;
+  private turnTimer: ReturnType<typeof setTimeout> | null = null;
   private songNamed = new Set<string>();
   /** Tracks whether each player's song name guess was correct this round */
   private songNameCorrect = new Map<string, boolean>();
@@ -52,6 +55,10 @@ export class GameEngine {
     if (this.challengeTimer) {
       clearTimeout(this.challengeTimer);
       this.challengeTimer = null;
+    }
+    if (this.turnTimer) {
+      clearTimeout(this.turnTimer);
+      this.turnTimer = null;
     }
 
     // Clear engine state
@@ -119,6 +126,13 @@ export class GameEngine {
       sharedTimeline: this.room.gameState.sharedTimeline || [],
     };
 
+    logger.info('Game started', {
+      roomCode: this.room.code,
+      playerCount: playerIds.length,
+      mode: this.mode,
+      deckSize: this.deck.length,
+    });
+
     this.io.to(this.room.code).emit('game-started', { gameState: this.room.gameState });
 
     // Sync each player's starting timeline
@@ -155,12 +169,36 @@ export class GameEngine {
     this.yearGuess = null;
 
     const turnPlayerId = this.room.gameState.currentTurnPlayerId!;
+    const turnPlayer = this.room.players[turnPlayerId];
+
+    logger.info('Turn started', {
+      roomCode: this.room.code,
+      playerName: turnPlayer?.name,
+      songTitle: song.title,
+      songArtist: song.artist,
+      cardsRemaining: this.deck.length,
+    });
 
     // Send song info to all players (year hidden for active player)
     this.io.to(this.room.code).emit('new-turn', {
       turnPlayerId,
       songCard: { id: song.id },
     });
+
+    // Emit turn-started with deadline for countdown
+    const turnDeadline = Date.now() + TURN_TIME_MS;
+    this.io.to(this.room.code).emit('turn-started', {
+      turnPlayerId,
+      turnDeadline,
+    });
+
+    // Start turn timer — auto-skip on timeout (no token cost)
+    this.turnTimer = setTimeout(() => {
+      this.turnTimer = null;
+      if (this.room.gameState.phase === 'playing' && this.room.gameState.currentTurnPlayerId === turnPlayerId) {
+        this.advanceTurn();
+      }
+    }, TURN_TIME_MS);
 
     // Tell host to play the song
     if (song.spotifyTrackId) {
@@ -174,6 +212,12 @@ export class GameEngine {
   placeCard(playerId: string, position: number) {
     const gs = this.room.gameState;
     if (gs.phase !== 'playing' || gs.currentTurnPlayerId !== playerId) return;
+
+    // Clear turn timer since player acted
+    if (this.turnTimer) {
+      clearTimeout(this.turnTimer);
+      this.turnTimer = null;
+    }
 
     gs.pendingPlacement = position;
     gs.phase = 'challenge';
@@ -207,6 +251,12 @@ export class GameEngine {
     if (!gs.challengers.includes(challengerId)) {
       gs.challengers.push(challengerId);
       player.tokens -= CHALLENGE_COST;
+
+      logger.info('Challenge made', {
+        roomCode: this.room.code,
+        challengerName: player.name,
+        activePlayerId: gs.currentTurnPlayerId,
+      });
 
       this.io.to(this.room.code).emit('challenge-made', { challengerId });
       this.io.to(this.room.code).emit('tokens-updated', {
@@ -251,6 +301,12 @@ export class GameEngine {
   skipSong(playerId: string) {
     const gs = this.room.gameState;
     if (gs.phase !== 'playing' || gs.currentTurnPlayerId !== playerId) return;
+
+    // Clear turn timer since player acted
+    if (this.turnTimer) {
+      clearTimeout(this.turnTimer);
+      this.turnTimer = null;
+    }
 
     const player = this.room.players[playerId];
     if (!player || player.tokens < SKIP_COST) return;
@@ -358,6 +414,16 @@ export class GameEngine {
     }
     // If incorrect and no challengers, card is discarded
 
+    logger.info('Card placed', {
+      roomCode: this.room.code,
+      playerName: activePlayer.name,
+      correct,
+      placementCorrect,
+      stolenBy: stolenBy ? this.room.players[stolenBy]?.name : null,
+      songTitle: song.title,
+      songYear: song.year,
+    });
+
     gs.phase = 'reveal';
 
     this.io.to(this.room.code).emit('reveal', {
@@ -455,6 +521,31 @@ export class GameEngine {
     timeline.splice(insertAt, 0, card);
   }
 
+  /**
+   * Called when a player disconnects. If it's their turn, skip to the next player.
+   */
+  handlePlayerDisconnect(playerId: string): void {
+    const gs = this.room.gameState;
+    if (gs.phase === 'lobby' || gs.phase === 'game_over') return;
+
+    // Check if all remaining connected players are gone
+    const connected = Object.values(this.room.players).filter((p) => p.connected);
+    if (connected.length === 0) return; // room cleanup handles this
+
+    if (gs.currentTurnPlayerId === playerId && (gs.phase === 'playing' || gs.phase === 'challenge')) {
+      // Clear any running timers for this turn
+      if (this.turnTimer) {
+        clearTimeout(this.turnTimer);
+        this.turnTimer = null;
+      }
+      if (this.challengeTimer) {
+        clearTimeout(this.challengeTimer);
+        this.challengeTimer = null;
+      }
+      this.advanceTurn();
+    }
+  }
+
   private advanceTurn() {
     const gs = this.room.gameState;
     gs.turnIndex = (gs.turnIndex + 1) % gs.turnOrder.length;
@@ -490,6 +581,21 @@ export class GameEngine {
         }
       }
     }
+
+    const finalScores: Record<string, number> = {};
+    for (const [id, player] of Object.entries(this.room.players)) {
+      finalScores[player.name] = this.isCoop
+        ? this.room.gameState.sharedTimeline.length
+        : player.timeline.length;
+    }
+    const winnerName = winnerId ? this.room.players[winnerId]?.name : 'unknown';
+
+    logger.info('Game over', {
+      roomCode: this.room.code,
+      winner: winnerName,
+      mode: this.mode,
+      finalScores,
+    });
 
     this.io.to(this.room.code).emit('game-over', {
       winnerId,

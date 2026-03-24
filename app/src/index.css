@@ -10,10 +10,21 @@ body {
   font-family: var(--font-sans);
   margin: 0;
   background: #1a1a2e;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 h1, h2, h3, h4, h5, h6, .font-black {
   font-family: var(--font-heading);
+}
+
+/* Smooth transitions on all interactive elements */
+button, a, input {
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Hide scrollbar for timeline */
@@ -28,15 +39,42 @@ h1, h2, h3, h4, h5, h6, .font-black {
 /* Range slider styling */
 input[type="range"] {
   -webkit-appearance: none;
+  appearance: none;
   height: 6px;
-  border-radius: 3px;
-  background: rgba(255,255,255,0.1);
+  border-radius: 9999px;
+  background: rgba(255,255,255,0.08);
+  outline: none;
 }
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: #1DB954;
   cursor: pointer;
+  box-shadow: 0 0 10px rgba(29, 185, 84, 0.4);
+  transition: transform 0.15s ease;
+}
+input[type="range"]::-webkit-slider-thumb:active {
+  transform: scale(1.2);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #1DB954;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 10px rgba(29, 185, 84, 0.4);
+}
+input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: rgba(255,255,255,0.08);
+}
+
+/* Subtle background pattern */
+.bg-pattern {
+  background-image: radial-gradient(circle at 20% 50%, rgba(29, 185, 84, 0.03) 0%, transparent 50%),
+                    radial-gradient(circle at 80% 50%, rgba(99, 102, 241, 0.03) 0%, transparent 50%);
 }
