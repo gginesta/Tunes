@@ -57,6 +57,8 @@ The game is fully playable as a real-time multiplayer experience with Spotify in
 - [x] Leaderboards (global ranked table, medals, win rate, best streak)
 - [x] Game history tracking (per-player, saved to SQLite on game end)
 - [x] Player statistics profile (accuracy, streaks, challenges, songs named)
+- [x] Preview Mode — host without Spotify using 30-second preview clips (no account needed, unlimited players)
+- [x] Preview URL pre-baking script (`scripts/prebake-previews.ts`)
 
 ---
 
