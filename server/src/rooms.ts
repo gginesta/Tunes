@@ -260,7 +260,7 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
     }
 
     const spotifyToken = roomSpotifyTokens.get(mapping.code);
-    const { songPack, decades, playlistUrl } = room.settings;
+    const { songPack, decades, genres, regions, playlistUrl } = room.settings;
     let deck: import('@hitster/shared').SongCard[];
 
     if (songPack === 'playlist' && playlistUrl && spotifyToken) {
@@ -272,10 +272,13 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
         return;
       }
     } else {
-      // Use built-in song database (standard or decade-filtered)
-      deck = selectGameDeck(undefined, songPack === 'decades' ? decades : undefined);
+      // Use built-in song database with optional decade/genre/region filters
+      const useDecades = (songPack === 'decades' || songPack === 'genre-decade') ? decades : undefined;
+      const useGenres = (songPack === 'genre' || songPack === 'genre-decade') ? genres : undefined;
+      const useRegions = regions && regions.length > 0 ? regions : undefined;
+      deck = selectGameDeck(undefined, useDecades, useGenres, useRegions);
       if (deck.length === 0) {
-        socket.emit('error', { message: 'Not enough songs for the selected decades. Try adding more.' });
+        socket.emit('error', { message: 'Not enough songs for the selected filters. Try broadening your selection.' });
         return;
       }
 
