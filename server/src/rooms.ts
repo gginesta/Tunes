@@ -374,9 +374,19 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
   socket.on('start-game', async () => {
     try {
       const mapping = socketToRoom.get(socket.id);
-      if (!mapping) return;
+      if (!mapping) {
+        socket.emit('error', { message: 'Connection lost. Please refresh and rejoin the room.' });
+        return;
+      }
       const room = rooms.get(mapping.code);
-      if (!room || room.hostId !== mapping.playerId) return;
+      if (!room) {
+        socket.emit('error', { message: 'Room no longer exists.' });
+        return;
+      }
+      if (room.hostId !== mapping.playerId) {
+        socket.emit('error', { message: 'Only the host can start the game.' });
+        return;
+      }
 
       // Guard against double start
       if (room.gameState.phase !== 'lobby') {
@@ -446,17 +456,14 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
           }
           deck = playable;
         } else {
-          // Preview mode: prefer songs with pre-baked previewUrl, but fall back
-          // to the full deck so the game is still playable without audio.
+          // No Spotify token: prefer songs with pre-baked previewUrl for audio,
+          // but keep the full deck so the game can still start.
           const withPreview = deck.filter((s) => !!s.previewUrl);
           if (withPreview.length >= 10) {
             deck = withPreview;
-          } else {
-            logger.info('Not enough songs with preview audio, using full deck without audio', {
-              withPreview: withPreview.length,
-              total: deck.length,
-            });
           }
+          // Songs without previewUrl will still work — they just won't have audio.
+          // game.ts already handles this by skipping the play-song emit.
         }
       }
 
