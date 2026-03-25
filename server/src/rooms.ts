@@ -371,7 +371,7 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
     persistRoom(mapping.code);
   });
 
-  socket.on('start-game', async () => {
+  socket.on('start-game', async (data) => {
     try {
       const mapping = socketToRoom.get(socket.id);
       if (!mapping) {
@@ -398,6 +398,13 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
       if (playerCount < MIN_PLAYERS) {
         socket.emit('error', { message: `Need at least ${MIN_PLAYERS} players` });
         return;
+      }
+
+      // Accept a fresh Spotify token from the client (handles token expiry)
+      if (data?.spotifyAccessToken) {
+        roomSpotifyTokens.set(mapping.code, data.spotifyAccessToken);
+        const engine = games.get(mapping.code);
+        if (engine) engine.setSpotifyToken(data.spotifyAccessToken);
       }
 
       const spotifyToken = roomSpotifyTokens.get(mapping.code);
@@ -456,14 +463,20 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
           }
           deck = playable;
         } else {
-          // No Spotify token: prefer songs with pre-baked previewUrl for audio,
-          // but keep the full deck so the game can still start.
-          const withPreview = deck.filter((s) => !!s.previewUrl);
-          if (withPreview.length >= 10) {
-            deck = withPreview;
+          // Preview mode: only keep songs that have a pre-baked previewUrl
+          deck = deck.filter((s) => !!s.previewUrl);
+          if (deck.length === 0) {
+            socket.emit('error', {
+              message: 'No song previews available. Please use "Host with Spotify" to play.',
+            });
+            return;
           }
-          // Songs without previewUrl will still work — they just won't have audio.
-          // game.ts already handles this by skipping the play-song emit.
+          if (deck.length < 10) {
+            socket.emit('error', {
+              message: `Only ${deck.length} songs have preview audio. Try broadening your selection or use "Host with Spotify".`,
+            });
+            return;
+          }
         }
       }
 

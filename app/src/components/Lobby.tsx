@@ -1,9 +1,10 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Users, Crown, Settings, LogOut, Play, Music, ListMusic, Link, Share2, Check, Globe, CheckCircle, XCircle, ArrowDownToLine } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getSocket, clearSession } from '../services/socket';
 import { useGameStore } from '../store';
 import { requestActivation } from '../services/spotifyPlayer';
+import { refreshAccessToken } from '../services/spotify';
 import type { GameMode, SongPack, SongGenre, SongRegion } from '@hitster/shared';
 import { MIN_CARDS_TO_WIN, MAX_CARDS_TO_WIN, MIN_PLAYERS } from '@hitster/shared';
 
@@ -66,6 +67,12 @@ export function Lobby() {
   const [playlistInput, setPlaylistInput] = useState(settings.playlistUrl || '');
   const [playlistImported, setPlaylistImported] = useState(!!settings.playlistUrl);
   const [copied, setCopied] = useState(false);
+  const [starting, setStarting] = useState(false);
+
+  // Reset starting state when an error arrives from the server
+  useEffect(() => {
+    if (error) setStarting(false);
+  }, [error]);
 
   /** Check if a string looks like a valid Spotify playlist URL/URI */
   const isValidPlaylistUrl = useCallback((url: string): boolean => {
@@ -91,9 +98,33 @@ export function Lobby() {
     reset();
   };
 
-  const handleStart = () => {
+  const handleStart = async () => {
     requestActivation();
-    socket.emit('start-game');
+    setStarting(true);
+    useGameStore.getState().setError(null);
+
+    // Refresh Spotify token before starting to handle expiry
+    let freshToken: string | undefined;
+    if (spotifyToken) {
+      try {
+        const savedRefresh = localStorage.getItem('spotify_refresh_token');
+        if (savedRefresh) {
+          const result = await refreshAccessToken(savedRefresh);
+          useGameStore.setState({
+            spotifyToken: result.accessToken,
+            spotifyRefreshToken: result.refreshToken,
+          });
+          localStorage.setItem('spotify_refresh_token', result.refreshToken);
+          freshToken = result.accessToken;
+        }
+      } catch {
+        // Token refresh failed — try with the existing token
+      }
+    }
+
+    socket.emit('start-game', freshToken ? { spotifyAccessToken: freshToken } : undefined);
+    // Reset starting state after a timeout in case server doesn't respond
+    setTimeout(() => setStarting(false), 10000);
   };
 
   const handleUpdateMode = (mode: GameMode) => {
@@ -780,11 +811,17 @@ export function Lobby() {
       </div>
 
       {isHost && (
-        <div className="mt-6 max-w-lg mx-auto w-full">
+        <div className="mt-6 max-w-lg mx-auto w-full space-y-3">
+          {error && (
+            <p className="text-red-400 text-sm text-center bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2">
+              {error}
+            </p>
+          )}
           <button
             onClick={handleStart}
             disabled={
-              playerList.length < MIN_PLAYERS
+              starting
+              || playerList.length < MIN_PLAYERS
               || (needsDecadeSelection && (!settings.decades || settings.decades.length === 0))
               || (needsGenreSelection && (!settings.genres || settings.genres.length === 0))
               || (settings.songPack === 'playlist' && !settings.playlistUrl)
@@ -792,8 +829,13 @@ export function Lobby() {
             className="w-full bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-50 disabled:hover:bg-[#1DB954] text-black font-black text-xl py-5 rounded-2xl flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(29,185,84,0.4)] transition-all transform active:scale-95"
           >
             <Play className="w-6 h-6 fill-current" />
-            START GAME
+            {starting ? 'STARTING...' : 'START GAME'}
           </button>
+          {playerList.length < MIN_PLAYERS && (
+            <p className="text-gray-500 text-xs text-center">
+              Need at least {MIN_PLAYERS} players to start
+            </p>
+          )}
         </div>
       )}
     </div>

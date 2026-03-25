@@ -16,7 +16,7 @@ export interface ClientToServerEvents {
   'rejoin-room': (data: { code: string; playerId: string }) => void;
   'leave-room': () => void;
   'update-settings': (settings: Partial<GameSettings>) => void;
-  'start-game': () => void;
+  'start-game': (data?: { spotifyAccessToken?: string }) => void;
   'place-card': (data: { position: number }) => void;
   'challenge': () => void;
   'name-song': (guess: SongGuess) => void;
