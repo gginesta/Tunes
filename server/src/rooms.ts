@@ -439,6 +439,21 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
             return;
           }
           deck = playable;
+        } else {
+          // Preview mode: only keep songs that have a pre-baked previewUrl
+          deck = deck.filter((s) => !!s.previewUrl);
+          if (deck.length === 0) {
+            socket.emit('error', {
+              message: 'No songs have preview audio yet. Run the prebake script (scripts/prebake-previews.ts) with a Spotify token first, or host with Spotify.',
+            });
+            return;
+          }
+          if (deck.length < 10) {
+            socket.emit('error', {
+              message: `Only ${deck.length} songs have preview audio for your filters. Try broadening your selection or host with Spotify.`,
+            });
+            return;
+          }
         }
       }
 
