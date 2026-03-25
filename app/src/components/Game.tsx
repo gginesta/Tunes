@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Disc, Check, X, SkipForward, AlertTriangle, ShoppingCart, Star, Play, Pause, Volume2, Volume1, VolumeX, Clock } from 'lucide-react';
+import { Disc, Check, X, SkipForward, AlertTriangle, ShoppingCart, Star, Play, Pause, Volume2, Volume1, VolumeX, Clock, Square } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getSocket } from '../services/socket';
 import { useGameStore } from '../store';
@@ -76,6 +76,7 @@ function Equalizer({ animate }: { animate: boolean }) {
 
 export function Game() {
   const myId = useGameStore((s) => s.myId);
+  const hostId = useGameStore((s) => s.hostId);
   const players = useGameStore((s) => s.players);
   const currentTurnPlayerId = useGameStore((s) => s.currentTurnPlayerId);
   const phase = useGameStore((s) => s.phase);
@@ -89,6 +90,12 @@ export function Game() {
   const pendingPlacement = useGameStore((s) => s.pendingPlacement);
 
   const disconnectedPlayers = useGameStore((s) => s.disconnectedPlayers);
+  const isHost = myId === hostId;
+
+  // "Ready? Tap to Play!" overlay — shown once when game screen first loads
+  const [audioReady, setAudioReady] = useState(false);
+  // Stop game confirmation
+  const [showStopConfirm, setShowStopConfirm] = useState(false);
 
   const challengeDeadline = useGameStore((s) => s.challengeDeadline);
   const turnDeadline = useGameStore((s) => s.turnDeadline);
@@ -330,6 +337,20 @@ export function Game() {
     useGameStore.setState({ songNameResult: null });
   };
 
+  const handleReadyTap = () => {
+    preUnlockAudio();
+    activateElement();
+    setAudioReady(true);
+    useGameStore.setState({ autoplayBlocked: false });
+    // Trigger playback of current track if one is waiting
+    togglePlayback();
+  };
+
+  const handleStopGame = () => {
+    socket.emit('restart-game');
+    setShowStopConfirm(false);
+  };
+
   const revealedSong = lastReveal?.song;
   const isRevealed = phase === 'reveal' && revealedSong;
   const modeResult = lastReveal?.modeResult;
@@ -341,6 +362,73 @@ export function Game() {
     <div
       className="flex flex-col h-screen text-white bg-[#1a1a2e] overflow-hidden"
     >
+      {/* "Ready? Tap to Play!" overlay — unlocks audio from a real user gesture */}
+      <AnimatePresence>
+        {!audioReady && (
+          <motion.div
+            key="ready-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.3 } }}
+            className="absolute inset-0 z-50 bg-[#1a1a2e]/95 backdrop-blur-xl flex flex-col items-center justify-center"
+            onClick={handleReadyTap}
+          >
+            <motion.div
+              animate={{ scale: [1, 1.05, 1] }}
+              transition={{ duration: 2, repeat: Infinity }}
+              className="flex flex-col items-center gap-6"
+            >
+              <div className="w-24 h-24 rounded-full bg-[#1DB954] flex items-center justify-center shadow-[0_0_60px_rgba(29,185,84,0.4)]">
+                <Play className="w-12 h-12 text-black ml-1" fill="currentColor" />
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-black text-white">TAP TO START</p>
+                <p className="text-sm text-gray-400 mt-2">This unlocks music playback</p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Stop game confirmation dialog */}
+      <AnimatePresence>
+        {showStopConfirm && (
+          <motion.div
+            key="stop-confirm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center"
+            onClick={() => setShowStopConfirm(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#1a1a2e] border border-white/10 rounded-2xl p-6 mx-4 max-w-sm w-full shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-lg font-bold text-white mb-2">Stop Game?</h3>
+              <p className="text-sm text-gray-400 mb-6">This will end the current game and return everyone to the lobby.</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowStopConfirm(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-white/10 text-white font-bold text-sm hover:bg-white/15 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleStopGame}
+                  className="flex-1 py-2.5 rounded-xl bg-red-500 text-white font-bold text-sm hover:bg-red-600 transition-colors"
+                >
+                  Stop Game
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Top Bar */}
       <div className="flex justify-between items-center px-4 py-3 bg-black/40 backdrop-blur-xl border-b border-white/5 z-10">
         <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -411,6 +499,15 @@ export function Game() {
             )}
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
+            {isHost && (
+              <button
+                onClick={() => setShowStopConfirm(true)}
+                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-red-400 hover:text-red-300 transition-colors"
+                title="Stop Game"
+              >
+                <Square className="w-4 h-4" fill="currentColor" />
+              </button>
+            )}
             <button
               onClick={() => setShowHistory(true)}
               className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
