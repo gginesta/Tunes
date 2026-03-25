@@ -202,8 +202,14 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
     // Notify others
     io.to(upperCode).emit('state-sync', room);
 
-    // If game is in progress, resend current game screen
+    // If game is in progress, resend current game screen and handle reconnect
     if (room.gameState.phase !== 'lobby' && room.gameState.phase !== 'game_over') {
+      // Clear disconnect grace timer if one is running
+      const engine = games.get(upperCode);
+      if (engine) {
+        engine.handlePlayerReconnect(playerId);
+      }
+
       socket.emit('game-started', { gameState: room.gameState });
 
       // Re-send current turn info

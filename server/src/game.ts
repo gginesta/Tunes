@@ -15,8 +15,10 @@ import {
   CHALLENGE_WINDOW_MS,
   TURN_TIME_MS,
   COOP_WRONG_PENALTY,
+  DISCONNECT_GRACE_MS,
 } from '@hitster/shared';
 import { logger } from './logger';
+import { fuzzyMatch } from './fuzzy';
 
 type HitsterServer = Server<ClientToServerEvents, ServerToClientEvents>;
 
@@ -32,6 +34,8 @@ export class GameEngine {
   private songNameCorrect = new Map<string, boolean>();
   /** Tracks the active player's year guess for Expert mode */
   private yearGuess: number | null = null;
+  /** Grace period timers for disconnected players */
+  private disconnectTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
 
   constructor(room: Room, io: HitsterServer) {
     this.room = room;
@@ -60,6 +64,12 @@ export class GameEngine {
       clearTimeout(this.turnTimer);
       this.turnTimer = null;
     }
+
+    // Clear disconnect timers
+    for (const timer of this.disconnectTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.disconnectTimers.clear();
 
     // Clear engine state
     this.deck = [];
@@ -273,8 +283,8 @@ export class GameEngine {
 
     this.songNamed.add(playerId);
 
-    const titleMatch = normalize(guess.title) === normalize(gs.currentSong.title);
-    const artistMatch = normalize(guess.artist) === normalize(gs.currentSong.artist);
+    const titleMatch = fuzzyMatch(guess.title, gs.currentSong.title);
+    const artistMatch = fuzzyMatch(guess.artist, gs.currentSong.artist);
     const correct = titleMatch && artistMatch;
 
     this.songNameCorrect.set(playerId, correct);
@@ -522,7 +532,7 @@ export class GameEngine {
   }
 
   /**
-   * Called when a player disconnects. If it's their turn, skip to the next player.
+   * Called when a player disconnects. Starts a grace period before skipping their turn.
    */
   handlePlayerDisconnect(playerId: string): void {
     const gs = this.room.gameState;
@@ -532,6 +542,19 @@ export class GameEngine {
     const connected = Object.values(this.room.players).filter((p) => p.connected);
     if (connected.length === 0) return; // room cleanup handles this
 
+    const reconnectDeadline = Date.now() + DISCONNECT_GRACE_MS;
+
+    // Emit disconnected event so clients can show a countdown
+    this.io.to(this.room.code).emit('player-disconnected', { playerId, reconnectDeadline });
+
+    logger.info('Player disconnect grace period started', {
+      roomCode: this.room.code,
+      playerId,
+      playerName: this.room.players[playerId]?.name,
+      graceMs: DISCONNECT_GRACE_MS,
+    });
+
+    // If it's their turn, pause turn timer and start grace period
     if (gs.currentTurnPlayerId === playerId && (gs.phase === 'playing' || gs.phase === 'challenge')) {
       // Clear any running timers for this turn
       if (this.turnTimer) {
@@ -542,7 +565,46 @@ export class GameEngine {
         clearTimeout(this.challengeTimer);
         this.challengeTimer = null;
       }
-      this.advanceTurn();
+
+      const timer = setTimeout(() => {
+        this.disconnectTimers.delete(playerId);
+        logger.info('Player disconnect grace period expired, skipping turn', {
+          roomCode: this.room.code,
+          playerId,
+          playerName: this.room.players[playerId]?.name,
+        });
+        this.io.to(this.room.code).emit('player-timed-out', { playerId });
+        this.advanceTurn();
+      }, DISCONNECT_GRACE_MS);
+
+      this.disconnectTimers.set(playerId, timer);
+    } else {
+      // Not their turn — just track a grace timer so we can cancel it on reconnect
+      const timer = setTimeout(() => {
+        this.disconnectTimers.delete(playerId);
+        this.io.to(this.room.code).emit('player-timed-out', { playerId });
+      }, DISCONNECT_GRACE_MS);
+
+      this.disconnectTimers.set(playerId, timer);
+    }
+  }
+
+  /**
+   * Called when a player reconnects. Clears any pending disconnect timer.
+   */
+  handlePlayerReconnect(playerId: string): void {
+    const timer = this.disconnectTimers.get(playerId);
+    if (timer) {
+      clearTimeout(timer);
+      this.disconnectTimers.delete(playerId);
+
+      logger.info('Player reconnected within grace period', {
+        roomCode: this.room.code,
+        playerId,
+        playerName: this.room.players[playerId]?.name,
+      });
+
+      this.io.to(this.room.code).emit('player-reconnected', { playerId });
     }
   }
 

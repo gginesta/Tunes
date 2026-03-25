@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useSocket } from './hooks/useSocket';
 import { useGameStore } from './store';
 import { Home } from './components/Home';
@@ -9,6 +10,15 @@ import { Rules } from './components/Rules';
 export default function App() {
   useSocket();
   const screen = useGameStore((s) => s.screen);
+  const setPendingJoinCode = useGameStore((s) => s.setPendingJoinCode);
+
+  useEffect(() => {
+    const match = window.location.pathname.match(/^\/join\/([a-zA-Z]{4})$/);
+    if (match) {
+      setPendingJoinCode(match[1].toUpperCase());
+      window.history.replaceState({}, '', '/');
+    }
+  }, [setPendingJoinCode]);
 
   return (
     <div className="font-sans antialiased bg-[#1a1a2e] min-h-screen text-white selection:bg-[#1DB954] selection:text-black">

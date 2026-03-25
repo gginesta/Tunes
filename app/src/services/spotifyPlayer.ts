@@ -309,6 +309,14 @@ export async function getCurrentState(): Promise<Spotify.PlaybackState | null> {
   return player.getCurrentState();
 }
 
+export async function setPlayerVolume(vol: number): Promise<void> {
+  if (player) {
+    await player.setVolume(vol).catch((err) => {
+      console.warn('[Hitster] setVolume failed:', err);
+    });
+  }
+}
+
 export function disconnect(): void {
   if (player) {
     player.disconnect();
