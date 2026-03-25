@@ -556,7 +556,11 @@ export function Lobby() {
         <div className="mt-6 max-w-lg mx-auto w-full">
           <button
             onClick={handleStart}
-            disabled={playerList.length < MIN_PLAYERS || (settings.songPack === 'decades' && (!settings.decades || settings.decades.length === 0))}
+            disabled={
+              playerList.length < MIN_PLAYERS
+              || (needsDecadeSelection && (!settings.decades || settings.decades.length === 0))
+              || (needsGenreSelection && (!settings.genres || settings.genres.length === 0))
+            }
             className="w-full bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-50 disabled:hover:bg-[#1DB954] text-black font-black text-xl py-5 rounded-2xl flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(29,185,84,0.4)] transition-all transform active:scale-95"
           >
             <Play className="w-6 h-6 fill-current" />
