@@ -17,7 +17,9 @@ import {
 } from '@hitster/shared';
 import { GameEngine } from './game';
 import { selectGameDeck, resolveTrackIds, fetchPlaylistDeck } from './songs';
-import { saveRoom, loadAllRooms, deleteRoom } from './database';
+import { saveRoom, loadAllRooms, deleteRoom, saveGameResult, updateLeaderboard, getLeaderboard, getPlayerStats, getPlayerGameHistory } from './database';
+import type { SaveGameParticipant } from './database';
+import { socketToUsername } from './accounts-handler';
 import { logger } from './logger';
 
 type HitsterSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -27,6 +29,9 @@ const rooms = new Map<string, Room>();
 const games = new Map<string, GameEngine>();
 const socketToRoom = new Map<string, { code: string; playerId: string }>();
 const roomSpotifyTokens = new Map<string, string>();
+
+/** Reverse map: playerId -> socketId (for username lookups) */
+const playerToSocket = new Map<string, string>();
 
 const ALLOWED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 
@@ -67,6 +72,81 @@ function persistRoom(code: string): void {
   } catch (err) {
     logger.error('Failed to persist room', { code, error: String(err) });
   }
+}
+
+/**
+ * Set up the game-end callback to save results to the database.
+ */
+function setupGameEndHook(engine: GameEngine, roomCode: string): void {
+  engine.onGameEnd(() => {
+    try {
+      const room = engine.getRoom();
+      const { playerStats, totalRounds } = engine.getGameStats();
+      const winnerId = engine.getWinnerId();
+      const isCoop = room.settings.mode === 'coop';
+
+      // Build participant list for logged-in players
+      const participants: SaveGameParticipant[] = [];
+      let winnerUsername: string | null = null;
+
+      for (const [playerId, player] of Object.entries(room.players)) {
+        const socketId = playerToSocket.get(playerId);
+        if (!socketId) continue;
+        const username = socketToUsername.get(socketId);
+        if (!username) continue;
+
+        const stats = playerStats.get(playerId);
+        const isWinner = isCoop ? true : playerId === winnerId;
+        const cardsWon = isCoop
+          ? room.gameState.sharedTimeline.length
+          : player.timeline.length;
+
+        if (isWinner && !isCoop) {
+          winnerUsername = username;
+        }
+
+        participants.push({
+          username,
+          displayName: player.name,
+          cardsWon,
+          correctPlacements: stats?.correctPlacements ?? 0,
+          totalPlacements: stats?.totalPlacements ?? 0,
+          longestStreak: stats?.longestStreak ?? 0,
+          challengesWon: stats?.challengesWon ?? 0,
+          songsNamed: stats?.songsNamed ?? 0,
+          fastestPlacementMs: stats?.fastestPlacementMs ?? null,
+          isWinner,
+        });
+      }
+
+      if (participants.length === 0) return;
+
+      saveGameResult(
+        roomCode,
+        room.settings.mode,
+        winnerUsername,
+        Object.keys(room.players).length,
+        totalRounds,
+        participants,
+      );
+
+      for (const p of participants) {
+        updateLeaderboard(p.username, p.displayName, {
+          isWinner: p.isWinner,
+          correctPlacements: p.correctPlacements,
+          totalPlacements: p.totalPlacements,
+          longestStreak: p.longestStreak,
+          challengesWon: p.challengesWon,
+          songsNamed: p.songsNamed,
+          fastestPlacementMs: p.fastestPlacementMs,
+        });
+      }
+
+      logger.info('Game results saved to database', { roomCode, participantCount: participants.length });
+    } catch (err) {
+      logger.error('Failed to save game results', { roomCode, error: String(err) });
+    }
+  });
 }
 
 /**
@@ -124,6 +204,7 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
 
     rooms.set(code, room);
     socketToRoom.set(socket.id, { code, playerId });
+    playerToSocket.set(playerId, socket.id);
     socket.join(code);
 
     if (spotifyAccessToken) {
@@ -172,6 +253,7 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
 
     room.players[playerId] = player;
     socketToRoom.set(socket.id, { code: upperCode, playerId });
+    playerToSocket.set(playerId, socket.id);
     socket.join(upperCode);
 
     persistRoom(upperCode);
@@ -193,6 +275,7 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
     const player = room.players[playerId];
     player.connected = true;
     socketToRoom.set(socket.id, { code: upperCode, playerId });
+    playerToSocket.set(playerId, socket.id);
     socket.join(upperCode);
 
     logger.info('Player rejoined', { code: upperCode, playerId, name: player.name });

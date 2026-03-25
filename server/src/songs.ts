@@ -132,6 +132,9 @@ export async function fetchPlaylistDeck(
   logger.info('Fetching Spotify playlist', { playlistId });
 
   const cards: SongCard[] = [];
+  let totalItemsSeen = 0;
+  let skippedNoTrack = 0;
+  let skippedNoDate = 0;
   let url: string | null = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?fields=items(track(id,name,artists,album(release_date),preview_url)),next&limit=100`;
 
   while (url && cards.length < count * 2) {
@@ -150,8 +153,16 @@ export async function fetchPlaylistDeck(
       const items: PlaylistItem[] = data.items || [];
 
       for (const item of items) {
+        totalItemsSeen++;
         const track = item.track;
-        if (!track?.id || !track.name || !track.album?.release_date) continue;
+        if (!track?.id || !track.name) {
+          skippedNoTrack++;
+          continue;
+        }
+        if (!track.album?.release_date) {
+          skippedNoDate++;
+          continue;
+        }
 
         const year = parseInt(track.album.release_date.slice(0, 4), 10);
         if (isNaN(year)) continue;
@@ -173,6 +184,23 @@ export async function fetchPlaylistDeck(
       logger.warn('Playlist fetch error', { error: String(err) });
       break;
     }
+  }
+
+  // Log track statistics
+  logger.info('Playlist track scan complete', {
+    playlistId,
+    totalItemsSeen,
+    usableTracks: cards.length,
+    skippedNoTrack,
+    skippedNoDate,
+  });
+
+  if (cards.length === 0) {
+    logger.warn('No usable tracks from playlist', {
+      playlistId,
+      hint: 'Possible reasons: playlist is empty, playlist is private/deleted, all tracks lack release dates, or the Spotify token lacks permissions.',
+    });
+    return [];
   }
 
   // Shuffle and trim

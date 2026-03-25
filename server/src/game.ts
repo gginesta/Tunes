@@ -49,10 +49,16 @@ export class GameEngine {
   private songHistory: PlayedSong[] = [];
   /** Current round number */
   private roundNumber: number = 0;
+  /** Callback invoked after game ends */
+  private onGameEndCallback: (() => void) | null = null;
 
   constructor(room: Room, io: HitsterServer) {
     this.room = room;
     this.io = io;
+  }
+
+  onGameEnd(callback: () => void) {
+    this.onGameEndCallback = callback;
   }
 
   private get mode() {
@@ -69,6 +75,29 @@ export class GameEngine {
 
   getSongHistory(): PlayedSong[] {
     return this.songHistory;
+  }
+
+  getGameStats(): { playerStats: Map<string, PlayerStats>; totalRounds: number } {
+    return { playerStats: this.playerStats, totalRounds: this.totalRounds };
+  }
+
+  getWinnerId(): string {
+    if (this.isCoop) {
+      return this.room.gameState.turnOrder[0] || '';
+    }
+    let winnerId = '';
+    let maxCards = 0;
+    for (const [id, player] of Object.entries(this.room.players)) {
+      if (player.timeline.length > maxCards) {
+        maxCards = player.timeline.length;
+        winnerId = id;
+      }
+    }
+    return winnerId;
+  }
+
+  getRoom(): Room {
+    return this.room;
   }
 
   resetGame() {
@@ -814,6 +843,10 @@ export class GameEngine {
       winnerId,
       players: this.room.players,
     });
+
+    if (this.onGameEndCallback) {
+      this.onGameEndCallback();
+    }
   }
 }
 

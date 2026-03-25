@@ -1,6 +1,8 @@
 import type {
   GameSettings,
   GameStats,
+  GameHistoryEntry,
+  LeaderboardEntry,
   PlayedSong,
   Player,
   Room,
@@ -25,6 +27,9 @@ export interface ClientToServerEvents {
   'register': (data: { username: string; password: string; displayName: string }) => void;
   'login': (data: { username: string; password: string }) => void;
   'buzz': () => void;
+  'get-leaderboard': () => void;
+  'get-my-stats': () => void;
+  'get-my-history': () => void;
 }
 
 export interface ServerToClientEvents {
@@ -67,4 +72,7 @@ export interface ServerToClientEvents {
   'player-reconnected': (data: { playerId: string }) => void;
   'player-timed-out': (data: { playerId: string }) => void;
   'player-buzzed': (data: { playerId: string }) => void;
+  'leaderboard': (data: { entries: LeaderboardEntry[] }) => void;
+  'my-stats': (data: { stats: LeaderboardEntry | null }) => void;
+  'my-history': (data: { games: GameHistoryEntry[] }) => void;
 }

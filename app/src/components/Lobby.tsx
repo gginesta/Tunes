@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Users, Crown, Settings, LogOut, Play, Music, ListMusic, Link, Share2, Check, Globe } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { Users, Crown, Settings, LogOut, Play, Music, ListMusic, Link, Share2, Check, Globe, CheckCircle, XCircle, ArrowDownToLine } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getSocket, clearSession } from '../services/socket';
 import { useGameStore } from '../store';
@@ -38,11 +38,14 @@ const AVAILABLE_REGIONS: { value: SongRegion; label: string }[] = [
 
 /** Curated Spotify playlists for genre packs */
 const GENRE_PACKS = [
-  { label: 'Summer Hits', icon: '\u2600', playlistId: '37i9dQZF1DXdwTUxmGKrdN' },
-  { label: 'Movie Soundtracks', icon: '\uD83C\uDFAC', playlistId: '37i9dQZF1DX4dyzvuaRJ0n' },
-  { label: 'Rock Classics', icon: '\uD83E\uDD18', playlistId: '37i9dQZF1DWXRqgorJj26U' },
-  { label: 'Hip-Hop', icon: '\uD83C\uDFA4', playlistId: '37i9dQZF1DX48TTZL62Yht' },
-  { label: 'Latin Hits', icon: '\uD83D\uDD25', playlistId: '37i9dQZF1DX10zKzsJ2jva' },
+  { label: 'Summer Hits', icon: '\u2600', playlistId: '37i9dQZF1DXdwTUxmGKrdN', color: 'from-amber-500 to-orange-600' },
+  { label: 'Movie Soundtracks', icon: '\uD83C\uDFAC', playlistId: '37i9dQZF1DX4dyzvuaRJ0n', color: 'from-purple-600 to-indigo-700' },
+  { label: 'Rock Classics', icon: '\uD83E\uDD18', playlistId: '37i9dQZF1DWXRqgorJj26U', color: 'from-red-600 to-rose-800' },
+  { label: 'Hip-Hop', icon: '\uD83C\uDFA4', playlistId: '37i9dQZF1DX48TTZL62Yht', color: 'from-yellow-500 to-amber-700' },
+  { label: 'Latin Hits', icon: '\uD83D\uDD25', playlistId: '37i9dQZF1DX10zKzsJ2jva', color: 'from-pink-500 to-red-600' },
+  { label: '90s Throwback', icon: '\uD83D\uDCFC', playlistId: '37i9dQZF1DXbTxRt5MxAvz', color: 'from-cyan-500 to-blue-600' },
+  { label: 'Indie Hits', icon: '\uD83C\uDF3B', playlistId: '37i9dQZF1DX2Nc3B70tvx0', color: 'from-emerald-500 to-teal-700' },
+  { label: 'All-Time Greatest', icon: '\uD83C\uDFC6', playlistId: '37i9dQZF1DXcBWIGoYBM5M', color: 'from-yellow-400 to-yellow-600' },
 ];
 
 export function Lobby() {
@@ -61,7 +64,15 @@ export function Lobby() {
   const socket = getSocket();
 
   const [playlistInput, setPlaylistInput] = useState(settings.playlistUrl || '');
+  const [playlistImported, setPlaylistImported] = useState(!!settings.playlistUrl);
   const [copied, setCopied] = useState(false);
+
+  /** Check if a string looks like a valid Spotify playlist URL/URI */
+  const isValidPlaylistUrl = useCallback((url: string): boolean => {
+    if (!url.trim()) return false;
+    return /open\.spotify\.com\/playlist\/[a-zA-Z0-9]+/.test(url)
+      || /spotify:playlist:[a-zA-Z0-9]+/.test(url);
+  }, []);
 
   const handleCopyInviteLink = async () => {
     const link = `${window.location.origin}/join/${roomCode}`;
@@ -125,12 +136,19 @@ export function Lobby() {
   const handleSelectGenrePack = (playlistId: string) => {
     const url = `https://open.spotify.com/playlist/${playlistId}`;
     setPlaylistInput(url);
+    setPlaylistImported(true);
     socket.emit('update-settings', { songPack: 'playlist', playlistUrl: url });
   };
 
   const handlePlaylistUrlChange = (url: string) => {
     setPlaylistInput(url);
-    socket.emit('update-settings', { songPack: 'playlist', playlistUrl: url });
+    setPlaylistImported(false);
+  };
+
+  const handleImportPlaylist = () => {
+    if (!isValidPlaylistUrl(playlistInput)) return;
+    setPlaylistImported(true);
+    socket.emit('update-settings', { songPack: 'playlist', playlistUrl: playlistInput });
   };
 
   const modes: { value: GameMode; label: string; desc: string }[] = [
@@ -445,47 +463,99 @@ export function Lobby() {
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
-                className="space-y-3"
+                className="space-y-4"
               >
-                {/* Genre presets */}
+                {/* Genre presets as album-art-style cards */}
                 <label className="text-xs text-gray-400 font-medium block">
-                  Genre Packs
+                  Quick Pick a Playlist
                 </label>
-                <div className="flex flex-wrap gap-2">
-                  {GENRE_PACKS.map(({ label, icon, playlistId }) => {
+                <div className="grid grid-cols-2 gap-3">
+                  {GENRE_PACKS.map(({ label, icon, playlistId, color }) => {
                     const isActive = playlistInput.includes(playlistId);
                     return (
                       <button
                         key={playlistId}
                         onClick={() => handleSelectGenrePack(playlistId)}
-                        className={`px-3 py-2 rounded-full text-sm font-bold transition-all flex items-center gap-1.5 ${
+                        className={`relative overflow-hidden rounded-2xl p-4 text-left transition-all transform hover:scale-[1.02] active:scale-95 ${
                           isActive
-                            ? 'bg-[#1DB954] text-black'
-                            : 'bg-black/30 text-gray-300 hover:bg-black/50'
+                            ? 'ring-2 ring-[#1DB954] ring-offset-2 ring-offset-[#1a1a2e]'
+                            : ''
                         }`}
                       >
-                        <span>{icon}</span>
-                        {label}
+                        <div className={`absolute inset-0 bg-gradient-to-br ${color} opacity-${isActive ? '100' : '80'}`} />
+                        <div className="relative z-10">
+                          <span className="text-2xl block mb-1">{icon}</span>
+                          <span className="text-sm font-bold text-white block leading-tight">{label}</span>
+                        </div>
+                        {isActive && (
+                          <div className="absolute top-2 right-2 z-10">
+                            <CheckCircle className="w-5 h-5 text-white drop-shadow" />
+                          </div>
+                        )}
                       </button>
                     );
                   })}
                 </div>
 
-                <div className="relative">
-                  <label className="text-xs text-gray-400 font-medium block mb-1">
+                <div className="space-y-2">
+                  <label className="text-xs text-gray-400 font-medium block">
                     Or paste a Spotify playlist link
                   </label>
-                  <input
-                    type="text"
-                    placeholder="https://open.spotify.com/playlist/..."
-                    value={playlistInput}
-                    onChange={(e) => handlePlaylistUrlChange(e.target.value)}
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="off"
-                    spellCheck={false}
-                    className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#1DB954] transition-all"
-                  />
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        placeholder="https://open.spotify.com/playlist/..."
+                        value={playlistInput}
+                        onChange={(e) => handlePlaylistUrlChange(e.target.value)}
+                        onBlur={handleImportPlaylist}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleImportPlaylist(); }}
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        className={`w-full bg-black/30 border rounded-xl px-4 py-3 pr-10 text-sm text-white placeholder-gray-500 focus:outline-none transition-all ${
+                          playlistInput.trim() === ''
+                            ? 'border-white/10'
+                            : isValidPlaylistUrl(playlistInput)
+                              ? 'border-green-500/50'
+                              : 'border-red-500/50'
+                        }`}
+                      />
+                      {playlistInput.trim() !== '' && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          {isValidPlaylistUrl(playlistInput) ? (
+                            <CheckCircle className="w-4 h-4 text-green-500" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-red-500" />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={handleImportPlaylist}
+                      disabled={!isValidPlaylistUrl(playlistInput)}
+                      className="px-4 py-3 rounded-xl bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-40 disabled:hover:bg-[#1DB954] text-black font-bold text-sm transition-all flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <ArrowDownToLine className="w-4 h-4" />
+                      Import
+                    </button>
+                  </div>
+                  {playlistImported && isValidPlaylistUrl(playlistInput) && (
+                    <motion.p
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="text-xs text-green-400 flex items-center gap-1.5"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      Playlist loaded — ready to start
+                    </motion.p>
+                  )}
+                  {playlistInput.trim() !== '' && !isValidPlaylistUrl(playlistInput) && (
+                    <p className="text-xs text-red-400">
+                      Enter a valid Spotify playlist URL (e.g. https://open.spotify.com/playlist/...)
+                    </p>
+                  )}
                 </div>
               </motion.div>
             )}

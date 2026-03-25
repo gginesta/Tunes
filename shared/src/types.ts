@@ -95,3 +95,30 @@ export interface GameStats {
   playerStats: Record<string, PlayerStats>;
   totalRounds: number;
 }
+
+export interface LeaderboardEntry {
+  username: string;
+  displayName: string;
+  totalGames: number;
+  totalWins: number;
+  totalCorrect: number;
+  totalPlacements: number;
+  bestStreak: number;
+  totalChallengesWon: number;
+  totalSongsNamed: number;
+  bestFastestMs: number | null;
+  winRate: number;
+}
+
+export interface GameHistoryEntry {
+  id: number;
+  roomCode: string;
+  mode: string;
+  playerCount: number;
+  totalRounds: number;
+  playedAt: string;
+  isWinner: boolean;
+  cardsWon: number;
+  correctPlacements: number;
+  totalPlacements: number;
+}
