@@ -93,7 +93,47 @@ The game is fully playable as a real-time multiplayer experience with Spotify in
 
 ---
 
+## Code Audit (Completed)
+
+A full-stack audit was performed covering 30 server issues and 20 client issues. All critical, high, and medium priority items have been fixed:
+
+**Critical fixes:**
+- Race condition: double start-game prevented with phase guard
+- Game stuck after reconnect during challenge phase — timers now restarted
+- Infinite turn loop when all players disconnect — now ends game gracefully
+
+**High-priority fixes:**
+- Reconnect no longer leaks song year to rejoining players
+- buyCard now checks game phase before allowing purchase
+- Async start-game handler wrapped in try/catch
+- Settings validated (cardsToWin bounds, valid game modes)
+- Restored games reset to lobby (deck not persisted)
+- Host transfer clears old host's isHost flag
+- Rules of Hooks violation fixed in Game.tsx
+- Challengers cleared between turns
+- Premature connected state removed
+
+**Medium-priority fixes:**
+- Fisher-Yates shuffle replaces biased sort
+- Settings changes now persisted to DB
+- Card placement position bounds-checked
+- Player names validated (1-30 chars, trimmed)
+- confirmReveal restricted to host
+- Voluntary leave skips disconnect grace period
+- Password field uses type="password"
+- Start button disabled without playlist URL
+- WaitingState timer cleanup on unmount
+- Case-insensitive leaderboard username matching
+- useSocket optimized (getState instead of full store subscription)
+- Dead code removed (normalize, unused imports)
+- LOG_LEVEL env var validated
+
+---
+
 ## Known Limitations
 
 - Spotify Premium is required for the host to use the Web Playback SDK
 - SQLite limits horizontal scaling to a single server instance (Redis would be needed for multi-instance)
+- Password hashing uses SHA-256 without salt (acceptable for a game, not for sensitive data)
+- No rate limiting on auth endpoints
+- CORS origin is wildcard (should be restricted in production)
