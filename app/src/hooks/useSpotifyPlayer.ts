@@ -9,12 +9,14 @@ import {
   togglePlay,
   isInitialized,
   requestActivation,
+  setPlayerVolume,
 } from '../services/spotifyPlayer';
 import {
   initFallbackAudio,
   playPreviewUrl,
   pauseFallback,
   destroyFallback,
+  setFallbackVolume,
 } from '../services/audioFallback';
 
 export function useSpotifyPlayer() {
@@ -25,6 +27,7 @@ export function useSpotifyPlayer() {
   const phase = useGameStore((s) => s.phase);
   const currentTrackId = useGameStore((s) => s.currentTrackId);
   const spotifyReady = useGameStore((s) => s.spotifyReady);
+  const volume = useGameStore((s) => s.volume);
 
   const isHost = myId === hostId && !!spotifyToken;
   const lastTrackRef = useRef<string | null>(null);
@@ -158,6 +161,12 @@ export function useSpotifyPlayer() {
     });
     return false;
   }, []);
+
+  // Sync volume to Spotify player and fallback audio
+  useEffect(() => {
+    setPlayerVolume(volume);
+    setFallbackVolume(volume);
+  }, [volume]);
 
   // Auto-play when track changes and device is confirmed ready
   useEffect(() => {

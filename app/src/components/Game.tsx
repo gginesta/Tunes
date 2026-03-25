@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Disc, Coins, Check, X, SkipForward, AlertTriangle, ShoppingCart, Star, Play, Pause, Volume2, VolumeX } from 'lucide-react';
+import { Disc, Coins, Check, X, SkipForward, AlertTriangle, ShoppingCart, Star, Play, Pause, Volume2, Volume1, VolumeX } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getSocket } from '../services/socket';
 import { useGameStore } from '../store';
@@ -84,6 +84,8 @@ export function Game() {
   const isPlayingMusic = useGameStore((s) => s.isPlaying);
   const spotifyError = useGameStore((s) => s.spotifyError);
 
+  const disconnectedPlayers = useGameStore((s) => s.disconnectedPlayers);
+
   const challengeDeadline = useGameStore((s) => s.challengeDeadline);
   const turnDeadline = useGameStore((s) => s.turnDeadline);
   const [noChallengeClicked, setNoChallengeClicked] = useState(false);
@@ -132,12 +134,56 @@ export function Game() {
     return () => clearInterval(interval);
   }, [phase, turnDeadline]);
 
-  // --- Sound effects ---
+  // Countdown for disconnected players
+  const [disconnectCountdowns, setDisconnectCountdowns] = useState<Record<string, number>>({});
+  useEffect(() => {
+    const playerIds = Object.keys(disconnectedPlayers);
+    if (playerIds.length === 0) {
+      setDisconnectCountdowns({});
+      return;
+    }
+    const tick = () => {
+      const countdowns: Record<string, number> = {};
+      for (const [pid, deadline] of Object.entries(disconnectedPlayers)) {
+        countdowns[pid] = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      }
+      setDisconnectCountdowns(countdowns);
+    };
+    tick();
+    const interval = setInterval(tick, 500);
+    return () => clearInterval(interval);
+  }, [disconnectedPlayers]);
+
+  // --- Volume & sound effects ---
+  const volume = useGameStore((s) => s.volume);
+  const setVolume = useGameStore((s) => s.setVolume);
   const [soundMuted, setSoundMuted] = useState(isMuted);
+  const prevVolumeRef = useRef(volume || 0.8);
+
   const handleToggleMute = useCallback(() => {
+    if (volume > 0) {
+      prevVolumeRef.current = volume;
+      setVolume(0);
+    } else {
+      setVolume(prevVolumeRef.current || 0.8);
+    }
     const nowMuted = toggleMute();
     setSoundMuted(nowMuted);
-  }, []);
+  }, [volume, setVolume]);
+
+  const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = parseFloat(e.target.value);
+    setVolume(v);
+    if (v > 0 && soundMuted) {
+      const nowMuted = toggleMute();
+      setSoundMuted(nowMuted);
+    } else if (v === 0 && !soundMuted) {
+      const nowMuted = toggleMute();
+      setSoundMuted(nowMuted);
+    }
+  }, [setVolume, soundMuted]);
+
+  const VolumeIcon = volume > 0.5 ? Volume2 : volume > 0 ? Volume1 : VolumeX;
 
   // Track first turn to play start sound
   const hasPlayedStartRef = useRef(false);
@@ -330,12 +376,23 @@ export function Game() {
               ))
             )}
           </div>
-          <button
-            onClick={handleToggleMute}
-            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors flex-shrink-0"
-          >
-            {soundMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-          </button>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={handleToggleMute}
+              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+            >
+              <VolumeIcon className="w-4 h-4" />
+            </button>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={volume}
+              onChange={handleVolumeChange}
+              className="w-16 h-1 accent-[#1DB954] bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#1DB954]"
+            />
+          </div>
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, Crown, Settings, LogOut, Play, Music, ListMusic, Link } from 'lucide-react';
+import { Users, Crown, Settings, LogOut, Play, Music, ListMusic, Link, Share2, Check } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getSocket, clearSession } from '../services/socket';
 import { useGameStore } from '../store';
@@ -43,6 +43,18 @@ export function Lobby() {
   const socket = getSocket();
 
   const [playlistInput, setPlaylistInput] = useState(settings.playlistUrl || '');
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyInviteLink = async () => {
+    const link = `${window.location.origin}/join/${roomCode}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback: do nothing
+    }
+  };
 
   const handleLeave = () => {
     socket.emit('leave-room');
@@ -115,6 +127,22 @@ export function Lobby() {
           <h2 className="text-4xl font-black tracking-widest text-[#1DB954]">
             {roomCode}
           </h2>
+          <button
+            onClick={handleCopyInviteLink}
+            className="mt-1.5 flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 mx-auto"
+          >
+            {copied ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-[#1DB954]" />
+                <span className="text-[#1DB954]">Copied!</span>
+              </>
+            ) : (
+              <>
+                <Share2 className="w-3.5 h-3.5" />
+                Copy Invite Link
+              </>
+            )}
+          </button>
         </div>
         <div className="w-9" />
       </div>

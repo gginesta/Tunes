@@ -159,6 +159,18 @@ export function useSocket() {
       store.syncRoom(room);
     });
 
+    socket.on('player-disconnected', ({ playerId, reconnectDeadline }) => {
+      store.setPlayerDisconnected(playerId, reconnectDeadline);
+    });
+
+    socket.on('player-reconnected', ({ playerId }) => {
+      store.setPlayerReconnected(playerId);
+    });
+
+    socket.on('player-timed-out', ({ playerId }) => {
+      store.setPlayerTimedOut(playerId);
+    });
+
     return () => {
       socket.removeAllListeners();
       socket.disconnect();
