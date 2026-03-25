@@ -92,10 +92,15 @@ export function Game() {
   const disconnectedPlayers = useGameStore((s) => s.disconnectedPlayers);
   const isHost = myId === hostId;
 
-  // "Ready? Tap to Play!" overlay — shown once when game screen first loads
-  const [audioReady, setAudioReady] = useState(false);
+  // Audio unlock overlay — only shown for the host (who plays music)
+  const [audioReady, setAudioReady] = useState(!isHost);
   // Stop game confirmation
   const [showStopConfirm, setShowStopConfirm] = useState(false);
+
+  // Auto-dismiss overlay if music starts playing (SDK auto-played successfully)
+  useEffect(() => {
+    if (isPlayingMusic && !audioReady) setAudioReady(true);
+  }, [isPlayingMusic, audioReady]);
 
   const challengeDeadline = useGameStore((s) => s.challengeDeadline);
   const turnDeadline = useGameStore((s) => s.turnDeadline);
@@ -362,46 +367,67 @@ export function Game() {
     <div
       className="flex flex-col h-screen text-white bg-[#1a1a2e] overflow-hidden"
     >
-      {/* "Type GO" overlay — unlocks audio from a keyboard user gesture */}
+      {/* Audio unlock overlay — host only, waits for SDK to be ready */}
       <AnimatePresence>
-        {!audioReady && (
+        {!audioReady && isHost && (
           <motion.div
             key="ready-overlay"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0, transition: { duration: 0.3 } }}
             className="absolute inset-0 z-50 bg-[#1a1a2e]/95 backdrop-blur-xl flex flex-col items-center justify-center"
+            onClick={() => {
+              preUnlockAudio();
+              activateElement();
+            }}
           >
-            <motion.div
-              animate={{ scale: [1, 1.05, 1] }}
-              transition={{ duration: 2, repeat: Infinity }}
-              className="flex flex-col items-center gap-6"
-            >
-              <div className="w-24 h-24 rounded-full bg-[#1DB954] flex items-center justify-center shadow-[0_0_60px_rgba(29,185,84,0.4)]">
-                <Play className="w-12 h-12 text-black ml-1" fill="currentColor" />
-              </div>
+            <div className="flex flex-col items-center gap-6">
+              <motion.div
+                animate={{ scale: [1, 1.05, 1] }}
+                transition={{ duration: 2, repeat: Infinity }}
+                className="w-24 h-24 rounded-full bg-[#1DB954] flex items-center justify-center shadow-[0_0_60px_rgba(29,185,84,0.4)]"
+              >
+                {spotifyReady ? (
+                  <Play className="w-12 h-12 text-black ml-1" fill="currentColor" />
+                ) : (
+                  <Disc className="w-12 h-12 text-black animate-spin" />
+                )}
+              </motion.div>
               <div className="text-center">
-                <p className="text-2xl font-black text-white">READY?</p>
-                <p className="text-sm text-gray-400 mt-2 mb-4">Type <span className="text-[#1DB954] font-bold">GO</span> to start the music</p>
-                <input
-                  autoFocus
-                  type="text"
-                  placeholder="GO"
-                  className="w-32 text-center text-2xl font-black uppercase bg-white/10 border-2 border-[#1DB954]/50 rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-[#1DB954] focus:shadow-[0_0_20px_rgba(29,185,84,0.3)]"
-                  onKeyDown={() => {
-                    // Unlock audio on every keystroke — the keydown event
-                    // is a strong user activation signal for browsers
-                    preUnlockAudio();
-                    activateElement();
-                  }}
-                  onChange={(e) => {
-                    if (e.target.value.trim().toLowerCase() === 'go') {
-                      handleReadyTap();
-                    }
-                  }}
-                />
+                {spotifyReady ? (
+                  <>
+                    <p className="text-2xl font-black text-white">READY?</p>
+                    <p className="text-sm text-gray-400 mt-2 mb-4">Type <span className="text-[#1DB954] font-bold">GO</span> to start the music</p>
+                    <input
+                      autoFocus
+                      type="text"
+                      inputMode="search"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      placeholder="GO"
+                      className="w-32 text-center text-2xl font-black uppercase bg-white/10 border-2 border-[#1DB954]/50 rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-[#1DB954] focus:shadow-[0_0_20px_rgba(29,185,84,0.3)] caret-[#1DB954]"
+                      style={{ WebkitTextSecurity: 'disc' } as React.CSSProperties}
+                      onKeyDown={() => {
+                        preUnlockAudio();
+                        activateElement();
+                      }}
+                      onChange={(e) => {
+                        if (e.target.value.length >= 2) {
+                          handleReadyTap();
+                        }
+                      }}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xl font-bold text-white">Connecting to Spotify...</p>
+                    <p className="text-sm text-gray-400 mt-2">This may take a few seconds</p>
+                  </>
+                )}
               </div>
-            </motion.div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
