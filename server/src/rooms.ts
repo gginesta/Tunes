@@ -263,12 +263,29 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
     const { songPack, decades, genres, regions, playlistUrl } = room.settings;
     let deck: import('@hitster/shared').SongCard[];
 
-    if (songPack === 'playlist' && playlistUrl && spotifyToken) {
+    if (songPack === 'playlist') {
+      // Validate playlist URL is provided
+      if (!playlistUrl || playlistUrl.trim() === '') {
+        socket.emit('error', { message: 'Please enter a Spotify playlist URL before starting.' });
+        return;
+      }
+
+      if (!spotifyToken) {
+        socket.emit('error', { message: 'Spotify connection required for playlist mode.' });
+        return;
+      }
+
       // Fetch songs directly from a Spotify playlist
       io.to(mapping.code).emit('resolving-tracks');
       deck = await fetchPlaylistDeck(playlistUrl, spotifyToken);
       if (deck.length === 0) {
-        socket.emit('error', { message: 'Could not load songs from that playlist. Check the link and try again.' });
+        socket.emit('error', { message: 'Could not load songs from that playlist. It may be empty, private, or the link is invalid.' });
+        return;
+      }
+      if (deck.length < 10) {
+        socket.emit('error', {
+          message: `That playlist only has ${deck.length} playable track${deck.length === 1 ? '' : 's'}. A minimum of 10 are needed for a good game. Try a larger playlist.`,
+        });
         return;
       }
     } else {
