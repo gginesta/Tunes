@@ -1,196 +1,441 @@
-# Spotify Integration Plan
+# Implementation Plan — 10 Feature Sprint
 
-## Status: COMPLETE
-
-Spotify integration is fully implemented and working. This document now serves as a reference for the architecture decisions made and key lessons learned during implementation.
+## Status: IN PROGRESS
 
 ---
 
-## Architecture (Implemented)
+## Feature Dependency Graph & Execution Order
+
+Features are grouped into **4 parallel batches** based on dependencies:
 
 ```
-Host clicks "Host Game"
-  -> Spotify OAuth popup (PKCE flow, client-side only)
-  -> Lightweight callback.html exchanges code for tokens, posts to opener
-  -> Access token stored in Zustand store (memory)
-  -> Refresh token stored in sessionStorage (survives refresh)
-  -> Token sent to server via create-room
-  -> Token also used client-side for Web Playback SDK
+Batch 1 (independent — can all be built in parallel):
+  ├── Feature 1: Fuzzy song name matching
+  ├── Feature 4: Volume control slider
+  ├── Feature 5: Disconnect grace period
+  └── Feature 9: Shareable invite links
 
-Game starts:
-  -> Server resolves Spotify track IDs for entire deck (batch, cached)
-  -> Songs that fail resolution are filtered out of the deck
-  -> Server emits play-song with trackId each turn
+Batch 2 (depends on server-side song history from Batch 1 infra):
+  ├── Feature 2: Round recap / song history browser
+  └── Feature 3: End-of-game stats
 
-Host's browser receives play-song:
-  -> Calls Spotify Web API to play track on the matched device
-  -> UI shows play/pause controls on the mystery card
-  -> All other metadata hidden until reveal
+Batch 3 (content — independent of Batch 1-2):
+  ├── Feature 6: Genre packs, decade packs, combos
+  └── Feature 7: Regional packs
 
-Fallback:
-  -> If Web Playback SDK is unavailable, HTML5 Audio plays preview URLs
-  -> Preview URLs (30s clips) work without Spotify Premium
-
-Token refresh:
-  -> SDK's getOAuthToken callback triggers client-side refresh
-  -> All track IDs resolved upfront so server never needs a fresh token
+Batch 4 (UX — independent):
+  ├── Feature 8: Better waiting state
+  └── Feature 10: "I know this!" buzz button
 ```
 
 ---
 
-## Key Files
+## Feature 1: Fuzzy Song Name Matching
 
-| File | Purpose |
-|------|---------|
-| `app/src/services/spotify.ts` | OAuth PKCE flow + token refresh |
-| `app/src/services/spotifyPlayer.ts` | Web Playback SDK wrapper (singleton) |
-| `app/src/services/audioFallback.ts` | HTML5 Audio fallback for preview URLs |
-| `app/src/services/sounds.ts` | Web Audio API sound effects |
-| `app/public/callback.html` | Lightweight OAuth callback (vanilla JS) |
-| `app/src/hooks/useSpotifyPlayer.ts` | React hook for SDK lifecycle + auto-play |
-| `app/src/hooks/useSocket.ts` | Socket.io event wiring including play-song |
-| `server/src/songs.ts` | Song loading, deck selection, track ID resolution |
+**Goal:** Allow minor typos, missing articles, punctuation differences when guessing song names in Pro/Expert modes.
 
----
+### Changes
 
-## Key Learnings
+**`server/src/game.ts`** — Replace exact `normalize()` with fuzzy matching:
+- New function `fuzzyMatch(guess: string, actual: string): boolean`
+  - Normalize both: lowercase, strip punctuation, collapse whitespace
+  - Strip leading articles ("the", "a", "an")
+  - Use Levenshtein distance with threshold: `distance <= max(1, floor(actual.length * 0.2))`
+  - Also try substring match for partial artist names (e.g. "Beatles" matches "The Beatles")
+- Update `nameSong()` method: replace `normalize(guess.title) === normalize(gs.currentSong.title)` with `fuzzyMatch(guess.title, gs.currentSong.title)` (same for artist)
 
-### 1. Device ID Mismatch
+**`server/src/fuzzy.ts`** (new file):
+- `levenshteinDistance(a: string, b: string): number` — standard DP implementation
+- `normalizeName(s: string): string` — strip articles, punctuation, extra whitespace
+- `fuzzyMatch(guess: string, actual: string): boolean` — combines the above
+- Export for use in game.ts
 
-The Spotify Web Playback SDK provides a `device_id` via its `ready` event, but this ID is unreliable for targeting playback via the Web API. The `/me/player/play` endpoint would frequently reject the SDK-provided device ID.
+**No shared type changes needed.** Server-only logic.
 
-**Solution:** Device polling. Instead of using the SDK's device ID directly, the app polls the `/me/player/devices` endpoint and matches the device by name (the name passed to `new Spotify.Player({ name: '...' })`). This reliably finds the correct device even when the SDK device ID changes or is stale.
-
-### 2. React StrictMode Double-Initialization
-
-React 19's StrictMode mounts and unmounts components twice in development. This caused the Spotify Web Playback SDK to initialize twice, creating duplicate players and race conditions with the `onSpotifyWebPlaybackSDKReady` callback.
-
-**Solution:** The `spotifyPlayer.ts` service is a singleton with guards against double-initialization. The `initPlayer()` function checks if a player is already connected before creating a new one, and cleanup properly disconnects the player on unmount.
-
-### 3. PKCE Flow (No Backend Secret)
-
-Since this is a client-side app, the Spotify OAuth flow uses PKCE (Proof Key for Code Exchange) instead of a client secret. The code verifier is stored in sessionStorage (shared with the popup since it is same-origin) and used during the token exchange.
-
-### 4. Preview URL Fallback
-
-Not all users have Spotify Premium, and the Web Playback SDK requires it. The app falls back to HTML5 Audio using Spotify's 30-second preview URLs. These are fetched from the Spotify Web API track metadata and do not require Premium.
-
-### 5. Auto-Pause/Resume by Game Phase
-
-Playback is tied to the game phase:
-
-| Phase | Playback Action |
-|-------|----------------|
-| `playing` (new track) | Play the track |
-| `challenge` | Pause |
-| `reveal` | Pause |
-| Skip | Stop (next turn auto-plays) |
-
-This is handled in the `useSpotifyPlayer` hook by watching Zustand store state changes.
+### Test cases to verify:
+- "Beatles" ≈ "The Beatles" ✓
+- "dont stop" ≈ "Don't Stop" ✓
+- "Bohemain Rhapsody" ≈ "Bohemian Rhapsody" ✓ (1 char typo)
+- "completely wrong" ≈ "Bohemian Rhapsody" ✗
 
 ---
 
-## Spotify Configuration
+## Feature 2: Round Recap / Song History Browser
 
-### Scopes
+**Goal:** During or after a game, let players scroll through all songs that were played.
 
-`streaming`, `user-read-email`, `user-read-private`, `user-modify-playback-state`, `user-read-playback-state`
+### Changes
 
-### Environment
+**`shared/src/types.ts`** — New types:
+```ts
+export interface PlayedSong {
+  song: SongCard;
+  turnPlayerId: string;
+  correct: boolean;
+  stolenBy: string | null;
+  roundNumber: number;
+}
+```
 
-- `VITE_SPOTIFY_CLIENT_ID` -- Set in `app/.env`
-- Redirect URI in Spotify Dashboard must match: `{origin}/callback.html`
+**`shared/src/events.ts`** — New events:
+```ts
+// ServerToClientEvents:
+'song-history': (data: { history: PlayedSong[] }) => void;
+```
 
-### Requirements
+**`server/src/game.ts`**:
+- Add `private songHistory: PlayedSong[] = []` array to GameEngine
+- In `resolveRound()` and `resolveCoopRound()`: push to songHistory after each reveal
+- Add `private roundNumber = 0` counter, increment each turn
+- Add `getSongHistory(): PlayedSong[]` getter
+- In `resetGame()`: clear songHistory
 
-- **HTTPS** is required in production (localhost is the only HTTP exception)
-- **Spotify Premium** is required for Web Playback SDK (preview URL fallback works without it)
+**`server/src/rooms.ts`**:
+- On `game-over` event, emit `song-history` with the full history
+- Also emit on `rejoin-room` if game is in progress
+
+**`app/src/store.ts`**:
+- Add `songHistory: PlayedSong[]` to store
+- Add `setSongHistory` action
+
+**`app/src/hooks/useSocket.ts`**:
+- Listen for `song-history` event
+
+**`app/src/components/SongHistory.tsx`** (new):
+- Scrollable modal/drawer showing all played songs
+- Each entry: song title, artist, year, who played it, correct/incorrect badge
+- Accessible from Game screen (icon button) and Results screen
+
+**`app/src/components/Game.tsx`** and **`Results.tsx`**:
+- Add button to open SongHistory modal
 
 ---
 
-## Error Handling (Implemented)
+## Feature 3: End-of-Game Stats
 
-| Scenario | Behavior |
-|----------|----------|
-| Popup blocked | Show "Please allow popups" message |
-| Popup closed early | Show "Spotify login cancelled" |
-| Free Spotify account | SDK emits auth error; falls back to preview URLs |
-| Song not found on Spotify | Filtered out of deck before game starts |
-| Token expires mid-game | SDK's getOAuthToken callback triggers refresh |
-| Host refreshes browser | Re-init SDK from sessionStorage refresh token; server re-syncs state |
-| playTrack API fails | Retry once, then skip |
+**Goal:** Show "Fastest correct placement", "Most challenges won", "Best decade accuracy", "Longest streak" on results screen.
+
+### Changes
+
+**`shared/src/types.ts`** — New types:
+```ts
+export interface PlayerStats {
+  correctPlacements: number;
+  totalPlacements: number;
+  challengesWon: number;
+  challengesLost: number;
+  longestStreak: number;
+  fastestPlacementMs: number | null;
+  decadeAccuracy: Record<number, { correct: number; total: number }>;
+  songsNamed: number;
+}
+
+export interface GameStats {
+  playerStats: Record<string, PlayerStats>;
+  totalRounds: number;
+}
+```
+
+**`shared/src/events.ts`**:
+```ts
+// ServerToClientEvents:
+'game-stats': (data: GameStats) => void;
+```
+
+**`server/src/game.ts`**:
+- Add `private stats: Record<string, PlayerStats>` initialized per player at game start
+- Track in `resolveRound()`: correct/incorrect, streak, decade accuracy
+- Track timing: record `turnStartTime` in `startTurn()`, compute duration in `placeCard()`
+- Track challenges: increment `challengesWon`/`Lost` based on resolve outcome
+- Emit `game-stats` alongside `game-over`
+
+**`app/src/store.ts`**:
+- Add `gameStats: GameStats | null` to store
+
+**`app/src/components/Results.tsx`**:
+- Add stats section below rankings:
+  - "Awards" cards with icons:
+    - ⚡ Fastest Fingers: player with lowest fastestPlacementMs
+    - 🎯 Decade Expert: player with highest overall accuracy
+    - 🔥 Hot Streak: player with longest streak
+    - 🏴‍☠️ Master Challenger: player with most challenges won
+    - 🎵 Name That Tune: player with most songs named
+  - Show personal stats breakdown per player
 
 ---
 
-## SQLite Persistent Storage (Implemented)
+## Feature 4: Volume Control Slider
 
-### Architecture
+**Goal:** Add adjustable music volume slider in game screen.
 
-```
-Server startup:
-  -> database.ts initializes SQLite at data/hitster.db (WAL mode)
-  -> Creates rooms and accounts tables if not present
-  -> restoreRoomsFromDatabase() recreates GameEngine instances for saved rooms
-  -> Accounts migrated from legacy JSON files to SQLite automatically
+### Changes
 
-During gameplay:
-  -> Room state saved to SQLite on: create, join, start-game, place-card, reveal, restart, leave
-  -> Rooms deleted from database when all players disconnect
+**`app/src/store.ts`**:
+- Add `volume: number` (default 0.8) to store
+- Add `setVolume: (volume: number) => void` action
+- Persist volume in localStorage
 
-Accounts:
-  -> Stored in SQLite (migrated from JSON on first startup)
-  -> Same API surface, transparent to the rest of the server
-```
+**`app/src/services/spotifyPlayer.ts`**:
+- Add `setVolume(volume: number)` function that calls `player.setVolume(volume)`
+- Call it whenever volume changes
 
-### Key Design Decisions
+**`app/src/services/audioFallback.ts`**:
+- Update audio element volume when store volume changes
 
-- **better-sqlite3** chosen for synchronous API (simpler code, no async overhead for small writes)
-- **WAL mode** enables concurrent reads during writes, avoids lock contention
-- **Room serialization** -- Full GameEngine state serialized to JSON for storage; deserialized and hydrated on restore
-- **Automatic migration** -- On first startup, if legacy JSON account files exist, they are imported into SQLite and the JSON files are left in place as backups
+**`app/src/hooks/useSpotifyPlayer.ts`**:
+- Subscribe to volume changes, call `setVolume` on the Spotify player instance
 
----
-
-## Turn Timer (Implemented)
-
-### Architecture
-
-```
-Server emits turn-started:
-  -> Includes deadline timestamp (Date.now() + TURN_TIME_MS)
-  -> TURN_TIME_MS = 45000 (shared constant)
-
-Client renders circular countdown on the song card:
-  -> Blue (normal) -> Orange (10s remaining) -> Red (5s remaining)
-  -> Visible to all players
-
-On timeout:
-  -> Server auto-skips the turn (no token cost to the player)
-  -> Timer cleared when player places card or manually skips
-```
+**`app/src/components/Game.tsx`**:
+- Add volume slider next to the mute toggle button
+- Use `<input type="range" min="0" max="1" step="0.05">` styled with Tailwind
+- Show Volume2/Volume1/VolumeX icon based on level
+- Mute button sets volume to 0, remembers previous volume
 
 ---
 
-## Structured Logging (Implemented)
+## Feature 5: Disconnect Grace Period
 
-### Architecture
+**Goal:** If a player disconnects mid-game, give them 30-60s to rejoin before skipping their turn.
 
-```
-server/src/logger.ts:
-  -> JSON structured logger with debug/info/warn/error levels
-  -> LOG_LEVEL environment variable (default: "info")
-  -> Pretty-print format in development, JSON in production
+### Changes
 
-Request logging:
-  -> Express middleware logs method, path, status, and duration
-  -> Skips /health and /socket.io paths to reduce noise
-
-Game event logging:
-  -> Logs: game start, turn changes, card placements, challenges, game over
-  -> Includes room code and player info for traceability
+**`shared/src/constants.ts`**:
+```ts
+export const DISCONNECT_GRACE_MS = 30000; // 30 seconds
 ```
 
-### Health Check
+**`server/src/rooms.ts`**:
+- Add `disconnectTimers: Map<string, ReturnType<typeof setTimeout>>` — keyed by `roomCode:playerId`
+- In `handleLeave()`: instead of immediately calling `engine.handlePlayerDisconnect()`, start a grace period timer
+- Emit `player-disconnected` (with `gracePeriodMs`) to room instead of `player-left`
+- If player rejoins within grace period (in `rejoin-room`): clear the timer, emit `player-reconnected`
+- If timer expires: call `engine.handlePlayerDisconnect()`, emit `player-timed-out`
 
-- **GET /health** returns `{ status, uptime, rooms, players, version }`
-- Useful for load balancer health probes and monitoring dashboards
+**`shared/src/events.ts`** — New events:
+```ts
+// ServerToClientEvents:
+'player-disconnected': (data: { playerId: string; gracePeriodMs: number }) => void;
+'player-reconnected': (data: { playerId: string }) => void;
+'player-timed-out': (data: { playerId: string }) => void;
+```
+
+**`app/src/hooks/useSocket.ts`**:
+- Listen for new events, update player state
+
+**`app/src/components/Game.tsx`**:
+- Show "Player X disconnected — waiting 30s..." banner with countdown when a player disconnects
+- If it's the disconnected player's turn, show waiting state instead of timer
+- On reconnect, clear the banner
+
+---
+
+## Feature 6: Genre Packs, Decade Packs, Genre+Decade Combos
+
+**Goal:** Let host pick genre/decade filters from the lobby.
+
+### Changes
+
+**`data/songs.json`** — Add `genre` field to song entries:
+- Script to tag existing 500+ songs with genres: `data/tag-genres.ts`
+- Categories: rock, pop, hip-hop, r-and-b, country, electronic, jazz, classical, latin, other
+
+**`shared/src/types.ts`**:
+```ts
+export type SongGenre = 'rock' | 'pop' | 'hip-hop' | 'r-and-b' | 'country' | 'electronic' | 'jazz' | 'classical' | 'latin' | 'other';
+
+export interface SongData {
+  title: string;
+  artist: string;
+  year: number;
+  genre?: SongGenre;     // NEW
+  region?: string;       // NEW (for Feature 7)
+}
+
+export type SongPack = 'standard' | 'decades' | 'playlist' | 'genre' | 'genre-decade';
+
+export interface GameSettings {
+  mode: GameMode;
+  cardsToWin: number;
+  songPack: SongPack;
+  decades?: number[];
+  genres?: SongGenre[];       // NEW
+  playlistUrl?: string;
+}
+```
+
+**`server/src/songs.ts`**:
+- Update `selectGameDeck()` to accept `genres?: SongGenre[]` parameter
+- Filter by genre before decade-balanced selection
+- Combined genre+decade: filter by both
+
+**`server/src/rooms.ts`**:
+- Pass `genres` from settings to `selectGameDeck()`
+
+**`app/src/components/Lobby.tsx`**:
+- Add "Song Pack" selector with options: Standard, By Decade, By Genre, Genre+Decade, Playlist
+- Genre picker: multi-select chips for each genre
+- Decade picker already exists — show alongside genre picker for combo mode
+
+---
+
+## Feature 7: Regional Packs
+
+**Goal:** Add UK, Latin, K-pop, Bollywood song collections.
+
+### Changes
+
+**`data/songs-regional.json`** (new file) or extend `data/songs.json`**:
+- Add ~50-100 songs per region with `region` field:
+  - `"uk"` — British chart hits
+  - `"latin"` — Latin music (reggaeton, salsa, etc.)
+  - `"kpop"` — Korean pop
+  - `"bollywood"` — Indian film music
+- Each entry: `{ title, artist, year, genre, region }`
+
+**`shared/src/types.ts`**:
+```ts
+export type SongRegion = 'global' | 'uk' | 'latin' | 'kpop' | 'bollywood';
+
+export interface GameSettings {
+  // ... existing fields ...
+  regions?: SongRegion[];    // NEW
+}
+```
+
+**`server/src/songs.ts`**:
+- Load regional songs alongside main songs
+- Update `selectGameDeck()` to accept `regions?: SongRegion[]`
+- Default region for existing songs: `'global'`
+
+**`app/src/components/Lobby.tsx`**:
+- Add regional pack selector (multi-select chips)
+- Show alongside genre/decade pickers
+
+---
+
+## Feature 8: Better Waiting State
+
+**Goal:** When it's not your turn, show engaging content instead of an empty screen.
+
+### Changes
+
+**`app/src/components/WaitingState.tsx`** (new):
+- Rotating content shown to non-active players during `playing` phase:
+  1. **Music trivia question** — Random trivia from a static pool (e.g. "What year was the first Grammy awarded?" with multiple choice)
+  2. **Fun facts** — About the current decade being played, music history
+  3. **Audio visualizer** — Animated bars/waves synced to music (CSS animation, no actual audio analysis needed)
+  4. **Player standings** — Mini scoreboard showing current card counts
+- Cycle between these every 8-10 seconds with fade transitions
+- Touch/click to skip to next content
+
+**`app/src/data/trivia.ts`** (new):
+- Static array of ~50 trivia questions with answers
+- Structure: `{ question: string, options: string[], correctIndex: number, funFact: string }`
+
+**`app/src/components/Game.tsx`**:
+- When `!isMyTurn && phase === 'playing'`: render `<WaitingState />` instead of the current minimal waiting UI
+- Still show the turn timer and current player indicator above the waiting content
+
+---
+
+## Feature 9: Shareable Invite Links
+
+**Goal:** Generate links like `hitster.app/join/ABCD` for easy sharing.
+
+### Changes
+
+**`app/src/App.tsx`**:
+- Parse URL on load: if path matches `/join/:code`, auto-populate room code and navigate to join flow
+- Use `window.location.pathname` (no need for a router library)
+
+**`app/src/components/Lobby.tsx`**:
+- Add "Share Invite" button that copies link to clipboard
+- Use `navigator.clipboard.writeText()` with fallback
+- Show toast "Link copied!" on success
+- Link format: `${window.location.origin}/join/${roomCode}`
+
+**`app/src/components/Home.tsx`**:
+- Accept `initialRoomCode` prop
+- If provided, auto-switch to join mode and pre-fill the code
+
+**`server/src/index.ts`**:
+- The catch-all route `app.get('*')` already serves `index.html` for all paths in production
+- No server changes needed — client-side routing handles it
+
+---
+
+## Feature 10: "I Know This!" Buzz Button
+
+**Goal:** Non-active players can tap a button to signal they know the song (fun/bragging, no game effect).
+
+### Changes
+
+**`shared/src/events.ts`** — New events:
+```ts
+// ClientToServerEvents:
+'buzz': () => void;
+
+// ServerToClientEvents:
+'player-buzzed': (data: { playerId: string }) => void;
+```
+
+**`server/src/rooms.ts`** (or `game.ts`):
+- Handle `buzz` event: validate player is in room and not the active player
+- Broadcast `player-buzzed` to room
+- Rate limit: max 1 buzz per player per turn (track with a Set, clear on `startTurn`)
+
+**`app/src/store.ts`**:
+- Add `buzzedPlayers: string[]` to store
+- Clear on new turn
+
+**`app/src/hooks/useSocket.ts`**:
+- Listen for `player-buzzed`, add to `buzzedPlayers`
+
+**`app/src/components/Game.tsx`**:
+- When not active player and phase is `playing`:
+  - Show a "🎵 I Know This!" button (pulsing animation)
+  - On tap: emit `buzz`, disable button for this turn
+  - Show avatars/names of players who buzzed (animated pop-in)
+- Brief visual flash / confetti when someone buzzes
+
+---
+
+## Implementation Order (Recommended)
+
+### Phase 1 — Parallel batch (sub-agents can build simultaneously):
+| Agent | Feature | Estimated Complexity |
+|-------|---------|---------------------|
+| Agent A | Feature 1: Fuzzy matching | Small (server only) |
+| Agent B | Feature 4: Volume slider | Small (client only) |
+| Agent C | Feature 5: Disconnect grace | Medium (server + client) |
+| Agent D | Feature 9: Invite links | Small (client only) |
+
+### Phase 2 — Depends on song history infra:
+| Agent | Feature | Estimated Complexity |
+|-------|---------|---------------------|
+| Agent E | Feature 2: Song history | Medium (full stack) |
+| Agent F | Feature 3: End-game stats | Medium (full stack) |
+
+### Phase 3 — Content expansion (parallel):
+| Agent | Feature | Estimated Complexity |
+|-------|---------|---------------------|
+| Agent G | Feature 6: Genre/decade packs | Medium (data + full stack) |
+| Agent H | Feature 7: Regional packs | Medium (data + full stack) |
+
+### Phase 4 — UX polish (parallel):
+| Agent | Feature | Estimated Complexity |
+|-------|---------|---------------------|
+| Agent I | Feature 8: Waiting state | Medium (client only) |
+| Agent J | Feature 10: Buzz button | Small (full stack) |
+
+---
+
+## Shared Infrastructure Changes (Do First)
+
+Before launching parallel agents, these shared type changes should be committed:
+
+1. Update `shared/src/types.ts` with new types (PlayedSong, PlayerStats, GameStats, SongGenre, SongRegion)
+2. Update `shared/src/events.ts` with new events (song-history, game-stats, buzz, player-buzzed, disconnect events)
+3. Update `shared/src/constants.ts` with DISCONNECT_GRACE_MS
+
+This prevents merge conflicts between parallel agents.
