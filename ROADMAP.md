@@ -53,6 +53,10 @@ The game is fully playable as a real-time multiplayer experience with Spotify in
 - [x] Shareable invite links (/join/ABCD URLs with copy-to-clipboard)
 - [x] "I know this!" buzz button (non-active players signal they know the song)
 - [x] Better waiting state (music trivia, animated visualizer, buzz badges)
+- [x] Custom Spotify playlist import (URL validation, preset cards, genre pack presets)
+- [x] Leaderboards (global ranked table, medals, win rate, best streak)
+- [x] Game history tracking (per-player, saved to SQLite on game end)
+- [x] Player statistics profile (accuracy, streaks, challenges, songs named)
 
 ---
 
@@ -63,7 +67,7 @@ The game is fully playable as a real-time multiplayer experience with Spotify in
 
 ## Future: Content Expansion
 
-- [ ] **Custom playlists** -- Host imports a Spotify playlist as the song source
+(All content expansion items completed)
 
 ## Future: Social & UX Features
 
@@ -74,9 +78,10 @@ The game is fully playable as a real-time multiplayer experience with Spotify in
 ## Future: Persistence and Accounts
 
 - [x] **Persistent storage** -- SQLite database at data/hitster.db; rooms saved on state changes, restored on startup via restoreRoomsFromDatabase()
-- [ ] **Leaderboards** -- Global and friend-based rankings
-- [ ] **Game history** -- Track wins, streaks, and favourite decades
-- [ ] **Statistics** -- Which decades you're strongest at, most challenged songs, etc.
+- [x] **Leaderboards** -- Global ranked table with medals, win rate, best streak; accessible from Home screen
+- [x] **Game history** -- Per-player game history with mode, result, cards won; saved to SQLite on game end
+- [x] **Statistics** -- Player profile with stats cards (accuracy, streaks, challenges, songs named, fastest placement)
+- [x] **Custom playlists** -- Spotify playlist import with URL validation, preset cards (Summer Hits, Rock Classics, Hip-Hop, Latin, 90s, Indie, All-Time Greatest), album-art-style UI
 
 ## Future: Deployment and Infrastructure
 
