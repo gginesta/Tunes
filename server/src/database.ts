@@ -4,7 +4,7 @@ import { mkdirSync, existsSync } from 'fs';
 import type { Room, LeaderboardEntry, GameHistoryEntry } from '@hitster/shared';
 import type { Account } from './accounts';
 
-const DATA_DIR = join(__dirname, '..', '..', 'data');
+const DATA_DIR = process.env.DATA_DIR || join(__dirname, '..', '..', 'data');
 const DB_PATH = join(DATA_DIR, 'hitster.db');
 
 let db: Database.Database;

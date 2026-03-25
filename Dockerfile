@@ -49,11 +49,14 @@ COPY --from=build /app/server/dist/ server/dist/
 # Copy built client app
 COPY --from=build /app/app/dist/ app/dist/
 
-# Copy data directory
-COPY data/ data/
+# Copy data directory to a seed location (volume mount will shadow /app/data)
+COPY data/ data-seed/
+
+# Startup script: seed volume from data-seed if songs.json is missing
+RUN printf '#!/bin/sh\nif [ ! -f /app/data/songs.json ]; then\n  mkdir -p /app/data\n  cp -r /app/data-seed/* /app/data/\n  echo "Seeded /app/data from data-seed"\nfi\nexec node server/dist/index.js\n' > /app/start.sh && chmod +x /app/start.sh
 
 ENV NODE_ENV=production
 
 EXPOSE 3000
 
-CMD ["node", "server/dist/index.js"]
+CMD ["/app/start.sh"]

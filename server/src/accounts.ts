@@ -15,7 +15,7 @@ interface AccountStore {
   accounts: Record<string, Account>;
 }
 
-const DATA_DIR = join(__dirname, '..', '..', 'data');
+const DATA_DIR = process.env.DATA_DIR || join(__dirname, '..', '..', 'data');
 const ACCOUNTS_FILE = join(DATA_DIR, 'accounts.json');
 const MIGRATED_FILE = join(DATA_DIR, 'accounts.json.migrated');
 

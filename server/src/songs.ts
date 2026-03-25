@@ -21,10 +21,12 @@ export function loadSongs() {
   logger.debug('Song loader paths', { __dirname, cwd: process.cwd() });
 
   // Try multiple possible locations for songs.json
+  const dataDir = process.env.DATA_DIR;
   const candidates = [
-    path.join(__dirname, '..', '..', 'data', 'songs.json'),   // from server/src or server/dist
-    path.join(__dirname, '..', 'data', 'songs.json'),          // from server/
-    path.join(process.cwd(), 'data', 'songs.json'),            // from project root (npm workspaces)
+    ...(dataDir ? [path.join(dataDir, 'songs.json')] : []),    // from DATA_DIR env var (Railway volume)
+    path.join(__dirname, '..', '..', 'data', 'songs.json'),    // from server/src or server/dist
+    path.join(__dirname, '..', 'data', 'songs.json'),           // from server/
+    path.join(process.cwd(), 'data', 'songs.json'),             // from project root (npm workspaces)
   ];
 
   logger.debug('Song file candidates', {
