@@ -7,6 +7,10 @@ export interface SongData {
   year: number;
   genre?: SongGenre;
   region?: SongRegion;
+  /** Pre-baked from scripts/prebake-previews.ts; null means "attempted but unavailable" */
+  previewUrl?: string | null;
+  /** Pre-baked from scripts/prebake-previews.ts; null means "attempted but not found" */
+  spotifyTrackId?: string | null;
 }
 
 export interface SongCard extends SongData {

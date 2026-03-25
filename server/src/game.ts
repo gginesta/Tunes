@@ -282,9 +282,9 @@ export class GameEngine {
     }, TURN_TIME_MS);
 
     // Tell host to play the song
-    if (song.spotifyTrackId) {
+    if (song.spotifyTrackId || song.previewUrl) {
       this.io.to(this.room.code).emit('play-song', {
-        spotifyTrackId: song.spotifyTrackId,
+        spotifyTrackId: song.spotifyTrackId || '',
         previewUrl: song.previewUrl,
       });
     }

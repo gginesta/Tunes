@@ -223,11 +223,12 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
     playerToSocket.set(playerId, socket.id);
     socket.join(code);
 
+    const engine = new GameEngine(room, io);
+    setupGameEndHook(engine, code);
+    games.set(code, engine);
+
     if (spotifyAccessToken) {
-      const engine = new GameEngine(room, io);
-      setupGameEndHook(engine, code);
       engine.setSpotifyToken(spotifyAccessToken);
-      games.set(code, engine);
       roomSpotifyTokens.set(code, spotifyAccessToken);
     }
 

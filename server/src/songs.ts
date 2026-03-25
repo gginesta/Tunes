@@ -107,7 +107,9 @@ export function selectGameDeck(
     .map((song) => ({
       ...song,
       id: uuidv4(),
-      spotifyTrackId: undefined,
+      // Preserve pre-baked Spotify data from songs.json if available
+      spotifyTrackId: song.spotifyTrackId || undefined,
+      previewUrl: song.previewUrl || undefined,
     }));
 
   return deck;
