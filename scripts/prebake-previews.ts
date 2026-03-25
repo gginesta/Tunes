@@ -1,13 +1,15 @@
 /**
  * One-time script to pre-bake Spotify preview URLs into songs.json.
  *
- * Usage:
+ * Usage (Client Credentials — easiest, no user login needed):
+ *   npx tsx scripts/prebake-previews.ts --client-id=YOUR_ID --client-secret=YOUR_SECRET
+ *
+ * Usage (with an existing access token):
  *   npx tsx scripts/prebake-previews.ts <SPOTIFY_ACCESS_TOKEN>
  *
- * Or via environment variable:
+ * Or via environment variables:
+ *   SPOTIFY_CLIENT_ID=... SPOTIFY_CLIENT_SECRET=... npx tsx scripts/prebake-previews.ts
  *   SPOTIFY_TOKEN=<token> npx tsx scripts/prebake-previews.ts
- *
- * Get a token from: https://developer.spotify.com/console/
  */
 
 import * as fs from 'fs';
@@ -27,6 +29,47 @@ const SONGS_PATH = path.join(__dirname, '..', 'data', 'songs.json');
 const CONCURRENCY = 3;
 const BATCH_DELAY_MS = 200;
 const LOG_INTERVAL = 50;
+
+/**
+ * Get an access token using the Client Credentials flow.
+ * Only needs Client ID + Secret (no user login).
+ */
+async function getClientCredentialsToken(clientId: string, clientSecret: string): Promise<string> {
+  const res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+    },
+    body: 'grant_type=client_credentials',
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to get Spotify token: ${res.status} ${body}`);
+  }
+
+  const data = await res.json();
+  return data.access_token;
+}
+
+function parseArgs(): { clientId?: string; clientSecret?: string; token?: string } {
+  const args: Record<string, string> = {};
+  for (const arg of process.argv.slice(2)) {
+    if (arg.startsWith('--client-id=')) {
+      args.clientId = arg.slice('--client-id='.length);
+    } else if (arg.startsWith('--client-secret=')) {
+      args.clientSecret = arg.slice('--client-secret='.length);
+    } else if (!arg.startsWith('--')) {
+      args.token = arg;
+    }
+  }
+  return {
+    clientId: args.clientId || process.env.SPOTIFY_CLIENT_ID,
+    clientSecret: args.clientSecret || process.env.SPOTIFY_CLIENT_SECRET,
+    token: args.token || process.env.SPOTIFY_TOKEN,
+  };
+}
 
 async function searchSpotify(
   song: Song,
@@ -72,13 +115,23 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function main() {
-  const token = process.argv[2] || process.env.SPOTIFY_TOKEN;
+  const { clientId, clientSecret, token: directToken } = parseArgs();
 
-  if (!token) {
+  let token: string;
+
+  if (clientId && clientSecret) {
+    console.log('Authenticating with Spotify Client Credentials flow...');
+    token = await getClientCredentialsToken(clientId, clientSecret);
+    console.log('Got access token successfully.\n');
+  } else if (directToken) {
+    token = directToken;
+  } else {
     console.error(
-      'Usage: npx tsx scripts/prebake-previews.ts <SPOTIFY_ACCESS_TOKEN>\n' +
-      '  Or set SPOTIFY_TOKEN env var.\n' +
-      '  Get a token from: https://developer.spotify.com/console/',
+      'Usage:\n' +
+      '  npx tsx scripts/prebake-previews.ts --client-id=YOUR_ID --client-secret=YOUR_SECRET\n' +
+      '  npx tsx scripts/prebake-previews.ts <SPOTIFY_ACCESS_TOKEN>\n' +
+      '\n' +
+      'Get your Client ID and Secret from: https://developer.spotify.com/dashboard',
     );
     process.exit(1);
   }
