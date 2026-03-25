@@ -169,6 +169,7 @@ export function restoreRoomsFromDatabase(io: HitsterServer): void {
     // Recreate GameEngine for rooms that had active games
     if (room.gameState.phase !== 'lobby' && room.gameState.phase !== 'game_over') {
       const engine = new GameEngine(room, io);
+      setupGameEndHook(engine, room.code);
       if (spotifyToken) {
         engine.setSpotifyToken(spotifyToken);
       }
@@ -209,6 +210,7 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
 
     if (spotifyAccessToken) {
       const engine = new GameEngine(room, io);
+      setupGameEndHook(engine, code);
       engine.setSpotifyToken(spotifyAccessToken);
       games.set(code, engine);
       roomSpotifyTokens.set(code, spotifyAccessToken);
@@ -397,8 +399,12 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
     let engine = games.get(mapping.code);
     if (!engine) {
       engine = new GameEngine(room, io);
+      setupGameEndHook(engine, mapping.code);
       games.set(mapping.code, engine);
     }
+
+    // Re-register hook in case engine was reused from a previous game
+    setupGameEndHook(engine, mapping.code);
 
     engine.startGame(deck);
     persistRoom(mapping.code);
@@ -494,7 +500,49 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
     io.to(mapping.code).emit('player-buzzed', { playerId: mapping.playerId });
   });
 
+  socket.on('get-leaderboard', () => {
+    try {
+      const entries = getLeaderboard(20);
+      socket.emit('leaderboard', { entries });
+    } catch (err) {
+      logger.error('Failed to fetch leaderboard', { error: String(err) });
+    }
+  });
+
+  socket.on('get-my-stats', () => {
+    const username = socketToUsername.get(socket.id);
+    if (!username) {
+      socket.emit('my-stats', { stats: null });
+      return;
+    }
+    try {
+      const stats = getPlayerStats(username);
+      socket.emit('my-stats', { stats });
+    } catch (err) {
+      logger.error('Failed to fetch player stats', { error: String(err) });
+    }
+  });
+
+  socket.on('get-my-history', () => {
+    const username = socketToUsername.get(socket.id);
+    if (!username) {
+      socket.emit('my-history', { games: [] });
+      return;
+    }
+    try {
+      const games = getPlayerGameHistory(username, 20);
+      socket.emit('my-history', { games });
+    } catch (err) {
+      logger.error('Failed to fetch player history', { error: String(err) });
+    }
+  });
+
   socket.on('disconnect', () => {
+    // Clean up playerToSocket mapping
+    const mapping = socketToRoom.get(socket.id);
+    if (mapping) {
+      playerToSocket.delete(mapping.playerId);
+    }
     handleLeave(io, socket);
   });
 }

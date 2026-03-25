@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Music, Headphones, BookOpen, Wifi, WifiOff, Loader2, LogIn, LogOut, UserPlus } from 'lucide-react';
+import { Music, Headphones, BookOpen, Wifi, WifiOff, Loader2, LogIn, LogOut, UserPlus, Trophy, BarChart3 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getSocket } from '../services/socket';
 import { openSpotifyLogin, refreshAccessToken } from '../services/spotify';
@@ -353,6 +353,24 @@ export function Home() {
                 <BookOpen className="w-4 h-4" />
                 How to Play
               </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setScreen('leaderboard')}
+                  className="flex-1 text-gray-500 hover:text-yellow-400 font-medium text-sm py-3 flex items-center justify-center gap-2 transition-colors rounded-xl hover:bg-white/5 border border-white/[0.05]"
+                >
+                  <Trophy className="w-4 h-4" />
+                  Leaderboard
+                </button>
+                {signedInAs && (
+                  <button
+                    onClick={() => setScreen('profile')}
+                    className="flex-1 text-gray-500 hover:text-[#1DB954] font-medium text-sm py-3 flex items-center justify-center gap-2 transition-colors rounded-xl hover:bg-white/5 border border-white/[0.05]"
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                    My Stats
+                  </button>
+                )}
+              </div>
             </motion.div>
           ) : mode === 'host' ? (
             <motion.div

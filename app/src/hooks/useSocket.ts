@@ -188,6 +188,18 @@ export function useSocket() {
       playBuzzSound();
     });
 
+    socket.on('leaderboard', ({ entries }) => {
+      store.setLeaderboard(entries);
+    });
+
+    socket.on('my-stats', ({ stats }) => {
+      store.setMyStats(stats);
+    });
+
+    socket.on('my-history', ({ games }) => {
+      store.setMyHistory(games);
+    });
+
     return () => {
       socket.removeAllListeners();
       socket.disconnect();

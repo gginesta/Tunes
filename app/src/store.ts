@@ -3,13 +3,15 @@ import type {
   GamePhase,
   GameSettings,
   GameStats,
+  GameHistoryEntry,
+  LeaderboardEntry,
   PlayedSong,
   Player,
   SongCard,
   Room,
 } from '@hitster/shared';
 
-export type Screen = 'home' | 'lobby' | 'game' | 'results' | 'rules';
+export type Screen = 'home' | 'lobby' | 'game' | 'results' | 'rules' | 'leaderboard' | 'profile';
 
 interface ModeResult {
   placementCorrect: boolean;
@@ -91,6 +93,11 @@ interface GameStore {
   // Song history
   songHistory: PlayedSong[];
 
+  // Leaderboard & stats
+  leaderboard: LeaderboardEntry[];
+  myStats: LeaderboardEntry | null;
+  myHistory: GameHistoryEntry[];
+
   // Actions
   setScreen: (screen: Screen) => void;
   setMyId: (id: string) => void;
@@ -130,6 +137,9 @@ interface GameStore {
   setSongHistory: (history: PlayedSong[]) => void;
   addBuzzedPlayer: (id: string) => void;
   clearBuzzedPlayers: () => void;
+  setLeaderboard: (entries: LeaderboardEntry[]) => void;
+  setMyStats: (stats: LeaderboardEntry | null) => void;
+  setMyHistory: (games: GameHistoryEntry[]) => void;
   syncRoom: (room: Room) => void;
   reset: () => void;
 }
@@ -178,6 +188,9 @@ const initialState = {
   finalPlayers: {} as Record<string, Player>,
   gameStats: null as GameStats | null,
   songHistory: [] as PlayedSong[],
+  leaderboard: [] as LeaderboardEntry[],
+  myStats: null as LeaderboardEntry | null,
+  myHistory: [] as GameHistoryEntry[],
 };
 
 export const useGameStore = create<GameStore>((set) => ({
@@ -258,6 +271,9 @@ export const useGameStore = create<GameStore>((set) => ({
       buzzedPlayers: s.buzzedPlayers.includes(id) ? s.buzzedPlayers : [...s.buzzedPlayers, id],
     })),
   clearBuzzedPlayers: () => set({ buzzedPlayers: [] }),
+  setLeaderboard: (leaderboard) => set({ leaderboard }),
+  setMyStats: (myStats) => set({ myStats }),
+  setMyHistory: (myHistory) => set({ myHistory }),
   syncRoom: (room) =>
     set({
       players: room.players,
