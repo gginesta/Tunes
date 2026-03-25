@@ -241,7 +241,8 @@ function extractPlaylistId(input: string): string | null {
 
 export async function resolveSpotifyTrack(
   song: SongData,
-  accessToken: string
+  accessToken: string,
+  retryCount = 0,
 ): Promise<{ trackId: string; previewUrl?: string } | null> {
   try {
     const query = encodeURIComponent(`track:${song.title} artist:${song.artist}`);
@@ -249,6 +250,15 @@ export async function resolveSpotifyTrack(
       `https://api.spotify.com/v1/search?q=${query}&type=track&limit=1`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
+
+    // Handle rate limiting with retry
+    if (res.status === 429 && retryCount < 3) {
+      const retryAfter = Math.min(parseInt(res.headers.get('Retry-After') || '5', 10), 30);
+      logger.warn('Spotify rate limited, retrying', { retryAfter, title: song.title, attempt: retryCount + 1 });
+      await new Promise((r) => setTimeout(r, retryAfter * 1000));
+      return resolveSpotifyTrack(song, accessToken, retryCount + 1);
+    }
+
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       logger.warn('Spotify search failed', { status: res.status, title: song.title, artist: song.artist, body: body.slice(0, 200) });
@@ -274,7 +284,7 @@ export async function resolveTrackIds(
   deck: SongCard[],
   accessToken: string,
 ): Promise<SongCard[]> {
-  const CONCURRENCY = 5;
+  const CONCURRENCY = 3;
   let resolved = 0;
   let cached = 0;
 
@@ -310,7 +320,7 @@ export async function resolveTrackIds(
 
     // Brief pause between batches to be nice to rate limits
     if (i + CONCURRENCY < uncached.length) {
-      await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 500));
     }
   }
 
