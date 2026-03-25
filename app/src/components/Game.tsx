@@ -236,24 +236,33 @@ export function Game() {
   const autoplayBlocked = useGameStore((s) => s.autoplayBlocked);
   const { isHost: isSpotifyHost, spotifyReady, togglePlayback } = useSpotifyPlayer();
 
-  // Global click handler to unlock audio on first interaction
+  // Unlock audio on any user interaction (tap/click/keydown).
+  // iOS Safari requires audio to be triggered from a direct user gesture.
+  // We use capture phase to catch the event before anything else can swallow it.
+  const togglePlaybackRef = useRef(togglePlayback);
+  togglePlaybackRef.current = togglePlayback;
+
   useEffect(() => {
     if (!autoplayBlocked) return;
 
-    const unlockAudio = async () => {
-      await togglePlayback();
-      document.removeEventListener('click', unlockAudio);
-      document.removeEventListener('touchstart', unlockAudio);
+    const unlockAudio = () => {
+      togglePlaybackRef.current();
+      document.removeEventListener('click', unlockAudio, true);
+      document.removeEventListener('touchend', unlockAudio, true);
+      document.removeEventListener('keydown', unlockAudio, true);
     };
 
-    document.addEventListener('click', unlockAudio, { once: true });
-    document.addEventListener('touchstart', unlockAudio, { once: true });
+    // Use capture phase + touchend (not touchstart) for iOS compatibility
+    document.addEventListener('click', unlockAudio, true);
+    document.addEventListener('touchend', unlockAudio, true);
+    document.addEventListener('keydown', unlockAudio, true);
 
     return () => {
-      document.removeEventListener('click', unlockAudio);
-      document.removeEventListener('touchstart', unlockAudio);
+      document.removeEventListener('click', unlockAudio, true);
+      document.removeEventListener('touchend', unlockAudio, true);
+      document.removeEventListener('keydown', unlockAudio, true);
     };
-  }, [autoplayBlocked, togglePlayback]);
+  }, [autoplayBlocked]);
 
   const socket = getSocket();
   const isMyTurn = currentTurnPlayerId === myId;
@@ -350,8 +359,28 @@ export function Game() {
           </div>
         </div>
 
-        {/* Player score chips + mute */}
+        {/* Turn timer + Player score chips + mute */}
         <div className="flex items-center gap-2 flex-shrink-0">
+          {phase === 'playing' && turnCountdown !== null && turnCountdown > 0 && (
+            <div className="relative w-9 h-9 flex-shrink-0">
+              <svg className="w-9 h-9 -rotate-90" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="8" />
+                <circle
+                  cx="50" cy="50" r="42" fill="none"
+                  stroke={turnCountdown <= 5 ? '#ef4444' : turnCountdown <= 10 ? '#f97316' : '#3b82f6'}
+                  strokeWidth="8" strokeLinecap="round"
+                  strokeDasharray={`${2 * Math.PI * 42}`}
+                  strokeDashoffset={`${2 * Math.PI * 42 * (1 - turnCountdown / TURN_TIME_SECONDS)}`}
+                  className="transition-all duration-1000 ease-linear"
+                />
+              </svg>
+              <span className={`absolute inset-0 flex items-center justify-center text-[11px] font-black ${
+                turnCountdown <= 5 ? 'text-red-400' : turnCountdown <= 10 ? 'text-orange-400' : 'text-white'
+              }`}>
+                {turnCountdown}
+              </span>
+            </div>
+          )}
           <div className="flex gap-2 overflow-x-auto hide-scrollbar">
             {isCoop ? (
               <div className="flex flex-col items-center px-1">
@@ -462,42 +491,6 @@ export function Game() {
 
       {/* Center Area */}
       <div className="flex-1 flex flex-col items-center justify-center p-6 relative overflow-y-auto">
-        {/* Turn countdown timer - positioned above the mystery card */}
-        {phase === 'playing' && turnCountdown !== null && turnCountdown > 0 && (
-          <motion.div
-            key="turn-countdown"
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            className="mb-4 flex-shrink-0"
-          >
-            <div className="relative">
-              <svg className="w-14 h-14 -rotate-90" viewBox="0 0 100 100">
-                <circle
-                  cx="50" cy="50" r="42"
-                  fill="none"
-                  stroke="rgba(255,255,255,0.1)"
-                  strokeWidth="6"
-                />
-                <circle
-                  cx="50" cy="50" r="42"
-                  fill="none"
-                  stroke={turnCountdown <= 5 ? '#ef4444' : turnCountdown <= 10 ? '#f97316' : '#3b82f6'}
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                  strokeDasharray={`${2 * Math.PI * 42}`}
-                  strokeDashoffset={`${2 * Math.PI * 42 * (1 - turnCountdown / TURN_TIME_SECONDS)}`}
-                  className="transition-all duration-100"
-                />
-              </svg>
-              <span className={`absolute inset-0 flex items-center justify-center text-lg font-black ${
-                turnCountdown <= 5 ? 'text-red-400' : turnCountdown <= 10 ? 'text-orange-400' : 'text-white'
-              }`}>
-                {turnCountdown}
-              </span>
-            </div>
-          </motion.div>
-        )}
-
         <AnimatePresence mode="wait">
           {isRevealed ? (
             <motion.div

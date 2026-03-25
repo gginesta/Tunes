@@ -28,7 +28,7 @@ export function useSpotifyPlayer() {
   const spotifyReady = useGameStore((s) => s.spotifyReady);
   const volume = useGameStore((s) => s.volume);
 
-  const isHost = myId === hostId && !!spotifyToken;
+  const isHost = myId === hostId;
   const lastTrackRef = useRef<string | null>(null);
   const tokenRef = useRef<string | null>(spotifyToken);
   const usingFallbackRef = useRef(false);
@@ -56,9 +56,21 @@ export function useSpotifyPlayer() {
     return result.accessToken;
   }, [spotifyRefreshToken]);
 
-  // Initialize SDK player (host only)
+  // Initialize fallback audio for all hosts (preview mode needs it)
   useEffect(() => {
-    if (!isHost || isInitialized()) return;
+    if (!isHost) return;
+    initFallbackAudio({
+      onStateChange: (paused) => {
+        if (usingFallbackRef.current) {
+          useGameStore.setState({ isPlaying: !paused });
+        }
+      },
+    });
+  }, [isHost]);
+
+  // Initialize SDK player (host with Spotify only)
+  useEffect(() => {
+    if (!isHost || !spotifyToken || isInitialized()) return;
 
     initFallbackAudio({
       onStateChange: (paused) => {
@@ -169,17 +181,35 @@ export function useSpotifyPlayer() {
 
   // Auto-play when track changes and device is confirmed ready
   useEffect(() => {
-    if (!isHost || !spotifyReady || !currentTrackId) return;
+    if (!isHost || !currentTrackId) return;
     if (phase !== 'playing') return;
     if (currentTrackId === lastTrackRef.current) return;
 
+    // For SDK playback, wait until device is confirmed
+    if (spotifyToken && !spotifyReady) return;
+
     lastTrackRef.current = currentTrackId;
-    // activateElement should already have been called from a user gesture
-    // (Start Game click or first game screen interaction), but call it
-    // here too in case the element was deferred.
-    activateElement();
-    attemptPlayTrack(currentTrackId);
-  }, [isHost, spotifyReady, currentTrackId, phase, attemptPlayTrack]);
+
+    if (spotifyToken) {
+      // SDK path: activate element and play via Spotify
+      activateElement();
+      attemptPlayTrack(currentTrackId);
+    } else {
+      // Preview-only mode (no Spotify token): play via fallback audio
+      const previewUrl = useGameStore.getState().currentPreviewUrl;
+      if (previewUrl) {
+        usingFallbackRef.current = true;
+        playPreviewUrl(previewUrl).then((ok) => {
+          if (ok) {
+            useGameStore.setState({ isPlaying: true, autoplayBlocked: false });
+          } else {
+            // Browser blocked autoplay — show the banner
+            useGameStore.setState({ isPlaying: false, autoplayBlocked: true });
+          }
+        });
+      }
+    }
+  }, [isHost, spotifyToken, spotifyReady, currentTrackId, phase, attemptPlayTrack]);
 
   // Auto-pause on challenge/reveal/game_over
   useEffect(() => {
