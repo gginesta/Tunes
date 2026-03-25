@@ -37,6 +37,8 @@ const roomSpotifyTokens = new Map<string, string>();
 
 /** Reverse map: playerId -> socketId (for username lookups) */
 const playerToSocket = new Map<string, string>();
+/** Timers for delayed room cleanup when all players disconnect */
+const roomCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 const ALLOWED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 
@@ -280,6 +282,9 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
     playerToSocket.set(playerId, socket.id);
     socket.join(upperCode);
 
+    // Cancel any pending room cleanup (someone came back)
+    cancelRoomCleanup(upperCode);
+
     persistRoom(upperCode);
 
     socket.emit('room-joined', { room, playerId });
@@ -301,6 +306,9 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
     socketToRoom.set(socket.id, { code: upperCode, playerId });
     playerToSocket.set(playerId, socket.id);
     socket.join(upperCode);
+
+    // Cancel any pending room cleanup (player came back)
+    cancelRoomCleanup(upperCode);
 
     logger.info('Player rejoined', { code: upperCode, playerId, name: player.name });
 
@@ -641,6 +649,15 @@ function getEngine(socket: HitsterSocket): GameEngine | null {
   return games.get(mapping.code) || null;
 }
 
+function cancelRoomCleanup(code: string): void {
+  const timer = roomCleanupTimers.get(code);
+  if (timer) {
+    clearTimeout(timer);
+    roomCleanupTimers.delete(code);
+    logger.info('Room cleanup cancelled (player reconnected)', { code });
+  }
+}
+
 function handleLeave(io: HitsterServer, socket: HitsterSocket, voluntary: boolean = false) {
   const mapping = socketToRoom.get(socket.id);
   if (!mapping) return;
@@ -671,10 +688,27 @@ function handleLeave(io: HitsterServer, socket: HitsterSocket, voluntary: boolea
 
   const connectedPlayers = Object.values(room.players).filter((p) => p.connected);
   if (connectedPlayers.length === 0) {
-    logger.info('Room destroyed (no connected players)', { code: mapping.code });
-    rooms.delete(mapping.code);
-    games.delete(mapping.code);
-    deleteRoom(mapping.code);
+    // Don't destroy immediately — give players time to come back (e.g. tab switch)
+    const ROOM_CLEANUP_DELAY_MS = 5 * 60 * 1000; // 5 minutes
+    const code = mapping.code;
+    logger.info('All players disconnected, room cleanup scheduled', { code, delayMs: ROOM_CLEANUP_DELAY_MS });
+
+    // Store cleanup timer so it can be cancelled if someone reconnects
+    if (!roomCleanupTimers.has(code)) {
+      const timer = setTimeout(() => {
+        roomCleanupTimers.delete(code);
+        const currentRoom = rooms.get(code);
+        if (!currentRoom) return; // already cleaned up
+        const stillConnected = Object.values(currentRoom.players).filter((p) => p.connected);
+        if (stillConnected.length === 0) {
+          logger.info('Room destroyed (cleanup timer expired)', { code });
+          rooms.delete(code);
+          games.delete(code);
+          deleteRoom(code);
+        }
+      }, ROOM_CLEANUP_DELAY_MS);
+      roomCleanupTimers.set(code, timer);
+    }
   } else if (mapping.playerId === room.hostId) {
     const oldHost = room.players[mapping.playerId];
     if (oldHost) {
