@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Users, Crown, Settings, LogOut, Play, Music, ListMusic, Link, Share2, Check } from 'lucide-react';
+import { Users, Crown, Settings, LogOut, Play, Music, ListMusic, Link, Share2, Check, Globe } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getSocket, clearSession } from '../services/socket';
 import { useGameStore } from '../store';
 import { requestActivation } from '../services/spotifyPlayer';
-import type { GameMode, SongPack } from '@hitster/shared';
+import type { GameMode, SongPack, SongGenre, SongRegion } from '@hitster/shared';
 import { MIN_CARDS_TO_WIN, MAX_CARDS_TO_WIN, MIN_PLAYERS } from '@hitster/shared';
 
 const AVAILABLE_DECADES = [
@@ -16,6 +16,24 @@ const AVAILABLE_DECADES = [
   { value: 2000, label: '00s' },
   { value: 2010, label: '10s' },
   { value: 2020, label: '20s' },
+];
+
+const AVAILABLE_GENRES: { value: SongGenre; label: string }[] = [
+  { value: 'rock', label: 'Rock' },
+  { value: 'pop', label: 'Pop' },
+  { value: 'hip-hop', label: 'Hip-Hop' },
+  { value: 'r-and-b', label: 'R&B' },
+  { value: 'country', label: 'Country' },
+  { value: 'electronic', label: 'Electronic' },
+  { value: 'jazz', label: 'Jazz' },
+  { value: 'latin', label: 'Latin' },
+];
+
+const AVAILABLE_REGIONS: { value: SongRegion; label: string }[] = [
+  { value: 'uk', label: 'UK' },
+  { value: 'latin', label: 'Latin' },
+  { value: 'kpop', label: 'K-Pop' },
+  { value: 'bollywood', label: 'Bollywood' },
 ];
 
 /** Curated Spotify playlists for genre packs */
@@ -76,7 +94,7 @@ export function Lobby() {
   };
 
   const handleSetSongPack = (songPack: SongPack) => {
-    socket.emit('update-settings', { songPack, decades: undefined, playlistUrl: undefined });
+    socket.emit('update-settings', { songPack, decades: undefined, genres: undefined, playlistUrl: undefined });
   };
 
   const handleToggleDecade = (decade: number) => {
@@ -84,7 +102,24 @@ export function Lobby() {
     const next = current.includes(decade)
       ? current.filter((d) => d !== decade)
       : [...current, decade];
-    socket.emit('update-settings', { songPack: 'decades', decades: next });
+    const pack = settings.songPack === 'genre-decade' ? 'genre-decade' : 'decades';
+    socket.emit('update-settings', { songPack: pack, decades: next });
+  };
+
+  const handleToggleGenre = (genre: SongGenre) => {
+    const current = settings.genres || [];
+    const next = current.includes(genre)
+      ? current.filter((g) => g !== genre)
+      : [...current, genre];
+    socket.emit('update-settings', { genres: next });
+  };
+
+  const handleToggleRegion = (region: SongRegion) => {
+    const current = settings.regions || [];
+    const next = current.includes(region)
+      ? current.filter((r) => r !== region)
+      : [...current, region];
+    socket.emit('update-settings', { regions: next });
   };
 
   const handleSelectGenrePack = (playlistId: string) => {
@@ -109,7 +144,14 @@ export function Lobby() {
     ? 'Standard Mix'
     : settings.songPack === 'decades'
       ? `Decades: ${(settings.decades || []).sort().map(d => `${d}s`).join(', ') || 'None'}`
-      : 'Spotify Playlist';
+      : settings.songPack === 'genre'
+        ? `Genre: ${(settings.genres || []).join(', ') || 'None'}`
+        : settings.songPack === 'genre-decade'
+          ? `Genre+Decade`
+          : 'Spotify Playlist';
+
+  const needsGenreSelection = settings.songPack === 'genre' || settings.songPack === 'genre-decade';
+  const needsDecadeSelection = settings.songPack === 'decades' || settings.songPack === 'genre-decade';
 
   return (
     <div className="flex flex-col min-h-screen p-6 text-white bg-[#1a1a2e]">
@@ -301,6 +343,29 @@ export function Lobby() {
                 <span className="text-xs font-bold block">Decades</span>
               </button>
               <button
+                onClick={() => handleSetSongPack('genre')}
+                className={`py-3 px-2 rounded-xl text-center transition-all ${
+                  settings.songPack === 'genre'
+                    ? 'bg-[#1DB954] text-black'
+                    : 'bg-black/30 text-gray-300 hover:bg-black/50'
+                }`}
+              >
+                <Music className={`w-5 h-5 mx-auto mb-1 ${settings.songPack === 'genre' ? 'text-black' : ''}`} />
+                <span className="text-xs font-bold block">By Genre</span>
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => handleSetSongPack('genre-decade')}
+                className={`py-3 px-2 rounded-xl text-center transition-all ${
+                  settings.songPack === 'genre-decade'
+                    ? 'bg-[#1DB954] text-black'
+                    : 'bg-black/30 text-gray-300 hover:bg-black/50'
+                }`}
+              >
+                <span className={`text-xs font-bold block ${settings.songPack === 'genre-decade' ? 'text-black' : ''}`}>Genre + Decade</span>
+              </button>
+              <button
                 onClick={() => handleSetSongPack('playlist')}
                 className={`py-3 px-2 rounded-xl text-center transition-all ${
                   settings.songPack === 'playlist'
@@ -313,8 +378,39 @@ export function Lobby() {
               </button>
             </div>
 
+            {/* Genre chips */}
+            {needsGenreSelection && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="space-y-2"
+              >
+                <label className="text-xs text-gray-400 font-medium block">
+                  Select genres (pick at least one)
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {AVAILABLE_GENRES.map(({ value, label }) => {
+                    const selected = (settings.genres || []).includes(value);
+                    return (
+                      <button
+                        key={value}
+                        onClick={() => handleToggleGenre(value)}
+                        className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
+                          selected
+                            ? 'bg-[#1DB954] text-black'
+                            : 'bg-black/30 text-gray-300 hover:bg-black/50'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
+
             {/* Decade chips */}
-            {settings.songPack === 'decades' && (
+            {needsDecadeSelection && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
@@ -396,9 +492,38 @@ export function Lobby() {
 
             {settings.songPack === 'standard' && (
               <p className="text-xs text-gray-500">
-                500+ songs spanning 1950s–2020s, balanced across decades
+                500+ songs spanning 1950s-2020s, balanced across decades
               </p>
             )}
+
+            {/* Regional Packs — combine with any song pack */}
+            <div className="space-y-2 pt-2 border-t border-white/10">
+              <label className="text-xs text-gray-400 font-medium flex items-center gap-1.5">
+                <Globe className="w-3.5 h-3.5" />
+                Regional Packs (optional, combines with selection above)
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {AVAILABLE_REGIONS.map(({ value, label }) => {
+                  const selected = (settings.regions || []).includes(value);
+                  return (
+                    <button
+                      key={value}
+                      onClick={() => handleToggleRegion(value)}
+                      className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
+                        selected
+                          ? 'bg-[#1DB954] text-black'
+                          : 'bg-black/30 text-gray-300 hover:bg-black/50'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-gray-500">
+                Select regions to include songs from those regions. Leave empty to include all.
+              </p>
+            </div>
           </div>
         ) : isHost ? null : (
           /* Non-host: show what the host picked */
