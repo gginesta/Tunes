@@ -249,12 +249,17 @@ export async function resolveSpotifyTrack(
       `https://api.spotify.com/v1/search?q=${query}&type=track&limit=1`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      logger.warn('Spotify search failed', { status: res.status, title: song.title, artist: song.artist, body: body.slice(0, 200) });
+      return null;
+    }
     const data = await res.json();
     const track = data.tracks?.items?.[0];
     if (!track?.id) return null;
     return { trackId: track.id, previewUrl: track.preview_url || undefined };
-  } catch {
+  } catch (err) {
+    logger.warn('Spotify search error', { title: song.title, error: String(err) });
     return null;
   }
 }
@@ -310,12 +315,21 @@ export async function resolveTrackIds(
   }
 
   const playable = deck.filter((c) => c.spotifyTrackId);
+  const failed = deck.length - playable.length;
   logger.info('Track resolution complete', {
     resolved,
     total: deck.length,
     cached,
     playable: playable.length,
+    failed,
+    tokenPrefix: accessToken ? accessToken.slice(0, 10) + '...' : 'none',
   });
+
+  if (playable.length === 0 && deck.length > 0) {
+    logger.error('All tracks failed to resolve — likely token issue', {
+      sampleSong: deck[0] ? { title: deck[0].title, artist: deck[0].artist } : null,
+    });
+  }
 
   // Persist newly resolved preview URLs back to songs.json for preview mode
   persistPreviewUrls();
@@ -369,10 +383,8 @@ async function backgroundResolveUncached(accessToken: string): Promise<void> {
           if (result) {
             trackCache.set(key, result);
             resolved++;
-          } else {
-            // Mark as attempted so we don't retry on next game
-            trackCache.set(key, { trackId: '', previewUrl: undefined });
           }
+          // Don't cache failures — let them be retried on next game start
         }),
       );
       // Gentle delay to avoid rate limits

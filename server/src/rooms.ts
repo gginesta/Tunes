@@ -391,6 +391,12 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
       }
 
       const spotifyToken = roomSpotifyTokens.get(mapping.code);
+      logger.info('Starting game', {
+        code: mapping.code,
+        hasSpotifyToken: !!spotifyToken,
+        tokenPrefix: spotifyToken ? spotifyToken.slice(0, 10) + '...' : 'none',
+        songPack: room.settings.songPack,
+      });
       const { songPack, decades, genres, regions, playlistUrl } = room.settings;
       let deck: import('@hitster/shared').SongCard[];
 
