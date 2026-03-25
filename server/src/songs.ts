@@ -320,7 +320,72 @@ export async function resolveTrackIds(
   // Persist newly resolved preview URLs back to songs.json for preview mode
   persistPreviewUrls();
 
+  // Opportunistically resolve more uncached songs in the background
+  // so preview mode fills up faster (doesn't block the game start)
+  backgroundResolveUncached(accessToken);
+
   return playable;
+}
+
+/** Whether a background resolve is currently running */
+let backgroundResolveRunning = false;
+
+/**
+ * Resolve uncached songs in the background so preview mode fills up
+ * faster. Runs after each Spotify game start without blocking it.
+ * Resolves up to 100 songs per invocation.
+ */
+async function backgroundResolveUncached(accessToken: string): Promise<void> {
+  if (backgroundResolveRunning) return;
+  backgroundResolveRunning = true;
+
+  try {
+    const uncached = allSongs.filter(
+      (s) => !s.spotifyTrackId && s.spotifyTrackId !== null, // skip songs marked null (already attempted)
+    );
+
+    if (uncached.length === 0) {
+      logger.info('All songs already have Spotify data, nothing to background-resolve');
+      return;
+    }
+
+    const batch = uncached.slice(0, 100);
+    logger.info('Background-resolving uncached songs', {
+      batchSize: batch.length,
+      totalUncached: uncached.length,
+    });
+
+    const CONCURRENCY = 3;
+    let resolved = 0;
+
+    for (let i = 0; i < batch.length; i += CONCURRENCY) {
+      const chunk = batch.slice(i, i + CONCURRENCY);
+      await Promise.all(
+        chunk.map(async (song) => {
+          const key = cacheKey(song);
+          if (trackCache.has(key)) return;
+
+          const result = await resolveSpotifyTrack(song, accessToken);
+          if (result) {
+            trackCache.set(key, result);
+            resolved++;
+          } else {
+            // Mark as attempted so we don't retry on next game
+            trackCache.set(key, { trackId: '', previewUrl: undefined });
+          }
+        }),
+      );
+      // Gentle delay to avoid rate limits
+      await new Promise((r) => setTimeout(r, 300));
+    }
+
+    logger.info('Background resolve complete', { resolved, attempted: batch.length });
+    persistPreviewUrls();
+  } catch (err) {
+    logger.error('Background resolve failed', { error: String(err) });
+  } finally {
+    backgroundResolveRunning = false;
+  }
 }
 
 /**
@@ -334,13 +399,22 @@ function persistPreviewUrls(): void {
 
   let updated = 0;
   for (const song of allSongs) {
+    if (song.spotifyTrackId) continue; // already has data
+    if (song.spotifyTrackId === null) continue; // already marked as attempted
+
     const key = cacheKey(song);
     const cached = trackCache.get(key);
-    if (cached && !song.spotifyTrackId) {
+    if (!cached) continue;
+
+    if (cached.trackId) {
       song.spotifyTrackId = cached.trackId;
       song.previewUrl = cached.previewUrl ?? null;
-      updated++;
+    } else {
+      // Mark as attempted (failed to resolve)
+      song.spotifyTrackId = null;
+      song.previewUrl = null;
     }
+    updated++;
   }
 
   if (updated === 0) return;
