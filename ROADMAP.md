@@ -11,7 +11,7 @@ The game is fully playable as a real-time multiplayer experience with Spotify in
 - [x] Full game loop: turns, placement, challenges, reveals, scoring
 - [x] Token economy (skip, challenge, buy, name-song bonus)
 - [x] 4 game modes fully implemented (Original, Pro, Expert, Co-op)
-- [x] 500+ song database spanning 1930s-2020s
+- [x] 640+ song database spanning 1930s-2020s with genre/region metadata
 - [x] Decade-balanced deck selection
 - [x] Zustand state management with typed Socket.io events
 - [x] Connection tracking and host reassignment
@@ -42,33 +42,32 @@ The game is fully playable as a real-time multiplayer experience with Spotify in
 - [x] Challenge placement visibility (challengers see where card was placed)
 - [x] Spotify autoplay fix (pre-activate on user gesture, tap-to-play indicator)
 - [x] iOS keyboard fix (no sensitive text field behavior on inputs)
+- [x] Fuzzy song name matching (Levenshtein distance, article stripping, typo tolerance for Pro/Expert)
+- [x] Round recap / song history browser (scrollable modal on Game and Results screens)
+- [x] End-of-game stats and awards (Fastest Fingers, Sharpshooter, Hot Streak, Challenge King, Name That Tune)
+- [x] Volume control slider (music + SFX, persisted to localStorage)
+- [x] Disconnect grace period (30s to rejoin before turn skip, with countdown banner)
+- [x] Genre packs (Rock, Pop, Hip-Hop, R&B, Country, Electronic, Jazz, Latin) with multi-select
+- [x] Genre + decade combo filtering for themed game nights
+- [x] Regional packs (UK, Latin, K-Pop, Bollywood — 140 new songs)
+- [x] Shareable invite links (/join/ABCD URLs with copy-to-clipboard)
+- [x] "I know this!" buzz button (non-active players signal they know the song)
+- [x] Better waiting state (music trivia, animated visualizer, buzz badges)
 
 ---
 
 ## Future: Gameplay Improvements
 
-- [ ] **Fuzzy song name matching** -- Allow minor typos, missing "The", punctuation differences when guessing song names in Pro/Expert modes (e.g. "Beatles" ≈ "The Beatles", "dont stop" ≈ "Don't Stop")
 - [ ] **Streak bonus** -- Reward consecutive correct placements with bonus tokens or visual flair; adds excitement and a "hot hand" feeling
 - [ ] **Difficulty scaling** -- In Original mode, start with songs from widely different decades (easy to place) and gradually narrow the gaps as timelines grow; makes early game accessible and late game tense
-- [ ] **Round recap / song history** -- During or after a game, let players scroll through all songs that were played, showing which ones each player got right/wrong
-- [ ] **End-of-game stats** -- Beyond rankings: "Fastest correct placement", "Most challenges won", "Best decade accuracy", "Longest streak" on the results screen
-- [ ] **Volume control** -- Add a slider in the game screen for music volume (currently hardcoded to 0.8/0.35)
-- [ ] **Disconnect grace period** -- If a player disconnects mid-game, give them 30-60 seconds to rejoin before skipping their turn
 
 ## Future: Content Expansion
 
-- [ ] **Genre packs** -- Rock, Hip-Hop, Pop, Country, Electronic, etc.
-- [ ] **Decade packs** -- Focus on specific eras (60s, 80s, 2000s, etc.)
-- [ ] **Genre + decade combos** -- Curated packs like "80s Rock", "2000s Hip-Hop" for themed game nights
-- [ ] **Regional packs** -- UK hits, Latin music, K-pop, Bollywood
 - [ ] **Custom playlists** -- Host imports a Spotify playlist as the song source
 
 ## Future: Social & UX Features
 
-- [ ] **Shareable invite links** -- Generate a link like `hitster.app/join/ABCD` that players can share via messaging apps, instead of just a 4-letter code
 - [ ] **Spectator mode** -- Join a room as an observer without being in the turn order; great for parties where people arrive late
-- [ ] **"I know this!" buzz button** -- During another player's turn, let non-active players tap a button to signal they know the song (for fun/bragging, no game effect); adds engagement when waiting
-- [ ] **Better waiting state** -- When it's not your turn, show a mini music trivia question, fun fact about the current decade, or an animated visualization instead of an empty screen
 - [ ] **Chat / reactions** -- Quick reactions during gameplay
 - [ ] **Player avatars** -- Custom images or preset avatar selection
 
