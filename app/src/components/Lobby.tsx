@@ -3,7 +3,7 @@ import { Users, Crown, Settings, LogOut, Play, Music, ListMusic, Link, Share2, C
 import { motion } from 'motion/react';
 import { getSocket, clearSession } from '../services/socket';
 import { useGameStore } from '../store';
-import { requestActivation } from '../services/spotifyPlayer';
+import { requestActivation, preUnlockAudio } from '../services/spotifyPlayer';
 import { refreshAccessToken } from '../services/spotify';
 import type { GameMode, SongPack, SongGenre, SongRegion } from '@hitster/shared';
 import { MIN_CARDS_TO_WIN, MAX_CARDS_TO_WIN, MIN_PLAYERS } from '@hitster/shared';
@@ -99,6 +99,8 @@ export function Lobby() {
   };
 
   const handleStart = async () => {
+    // Pre-unlock audio synchronously from the click gesture BEFORE any async work
+    preUnlockAudio();
     requestActivation();
     setStarting(true);
     useGameStore.getState().setError(null);

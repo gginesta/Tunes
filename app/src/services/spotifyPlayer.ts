@@ -15,6 +15,41 @@ let sdkLoaded = false;
 let sdkReady: Promise<void> | null = null;
 let activated = false;
 let deviceConfirmed = false;
+let audioUnlocked = false;
+
+/**
+ * Pre-unlock the browser's audio context from a user gesture (click/tap).
+ * Must be called synchronously from a user interaction handler.
+ * This satisfies the browser autoplay policy so that later calls to
+ * activateElement() and Audio.play() succeed even outside gesture context.
+ */
+export function preUnlockAudio(): void {
+  if (audioUnlocked) return;
+  try {
+    // Method 1: Resume an AudioContext
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+    // Play a silent buffer to fully unlock
+    const buf = ctx.createBuffer(1, 1, 22050);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start(0);
+
+    // Method 2: Also play a silent HTML Audio element
+    const audio = new Audio();
+    audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+    audio.volume = 0;
+    audio.play().catch(() => {});
+
+    audioUnlocked = true;
+    console.log('[Hitster] Audio pre-unlocked from user gesture');
+  } catch (e) {
+    console.warn('[Hitster] preUnlockAudio failed:', e);
+  }
+}
 
 function loadSDK(): Promise<void> {
   if (sdkLoaded) return Promise.resolve();
@@ -120,7 +155,14 @@ export async function initPlayer(
     callbacks.onError('Failed to connect to Spotify');
   } else {
     console.log('[Hitster] Player connected, waiting for device registration...');
-    applyPendingActivation();
+    // Always activate the element once connected — audio should already be
+    // unlocked from the user's START click via preUnlockAudio()
+    if (!activated) {
+      player.activateElement();
+      activated = true;
+      pendingActivation = false;
+      console.log('[Hitster] activateElement() called after connect');
+    }
   }
 }
 
@@ -191,6 +233,8 @@ export function activateElement(): void {
 let pendingActivation = false;
 
 export function requestActivation(): void {
+  // Always pre-unlock audio from the user gesture, even if SDK isn't ready yet
+  preUnlockAudio();
   if (player) {
     activateElement();
   } else {

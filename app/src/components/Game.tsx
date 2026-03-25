@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { getSocket } from '../services/socket';
 import { useGameStore } from '../store';
 import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
+import { preUnlockAudio, activateElement } from '../services/spotifyPlayer';
 import { SKIP_COST, CHALLENGE_COST, BUY_CARD_COST, TURN_TIME_MS } from '@hitster/shared';
 import {
   playCorrectSound,
@@ -246,6 +247,8 @@ export function Game() {
     if (!autoplayBlocked) return;
 
     const unlockAudio = () => {
+      preUnlockAudio();
+      activateElement();
       togglePlaybackRef.current();
       document.removeEventListener('click', unlockAudio, true);
       document.removeEventListener('touchend', unlockAudio, true);
