@@ -514,11 +514,12 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
     persistRoom(mapping.code);
   });
 
-  socket.on('challenge', () => {
+  socket.on('challenge', (data) => {
     const engine = getEngine(socket);
     const mapping = socketToRoom.get(socket.id);
     if (!engine || !mapping) return;
-    engine.challenge(mapping.playerId);
+    const position = typeof data?.position === 'number' ? data.position : 0;
+    engine.challenge(mapping.playerId, position);
   });
 
   socket.on('name-song', (guess) => {

@@ -255,6 +255,14 @@ export function Game() {
     }
   }, [currentTurnPlayerId]);
 
+  // Clear guess inputs when turn changes
+  useEffect(() => {
+    setGuessTitle('');
+    setGuessArtist('');
+    setGuessYear('');
+    useGameStore.setState({ songNameResult: null });
+  }, [currentTurnPlayerId]);
+
   const needsPlayButton = isHost && phase === 'playing' && !musicStarted && !isPlayingMusic;
 
   const handlePlayTap = () => {
@@ -281,13 +289,13 @@ export function Game() {
 
   // Timeline to display:
   // - Co-op: shared timeline always
-  // - Challenge phase: show the active player's timeline so everyone can see the placement
-  // - Otherwise: show your own timeline
+  // - Your turn (playing): your own timeline (to place cards)
+  // - Not your turn: always show active player's timeline so you can prepare to challenge
   const displayTimeline = isCoop
     ? sharedTimeline
-    : phase === 'challenge' || (phase === 'reveal' && !isMyTurn)
-      ? activePlayer.timeline
-      : me.timeline;
+    : isMyTurn
+      ? me.timeline
+      : activePlayer.timeline;
 
   const handlePlaceCard = () => {
     if (selectedPosition === null) return;
@@ -303,8 +311,16 @@ export function Game() {
     useGameStore.setState({ songNameResult: null });
   };
 
+  const [challengePosition, setChallengePosition] = useState<number | null>(null);
+
+  // Reset challenge position when phase changes
+  useEffect(() => {
+    if (phase !== 'challenge') setChallengePosition(null);
+  }, [phase]);
+
   const handleChallenge = () => {
-    socket.emit('challenge');
+    if (challengePosition === null) return;
+    socket.emit('challenge', { position: challengePosition });
   };
 
   const handleNameSong = () => {
@@ -387,66 +403,29 @@ export function Game() {
         )}
       </AnimatePresence>
 
-      {/* Top Bar */}
-      <div className="flex justify-between items-center px-4 py-3 bg-black/40 backdrop-blur-xl border-b border-white/5 z-10">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold text-sm flex-shrink-0">
-            {activePlayer.name.charAt(0).toUpperCase()}
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <p className="text-[11px] text-gray-500 uppercase tracking-wider font-bold">
-                {deckSize} left
-              </p>
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${MODE_COLORS[mode]}`}>
-                {MODE_LABELS[mode]}
-              </span>
-            </div>
-            <p className="font-bold text-[#1DB954] text-sm truncate">
+      {/* Top Bar — Row 1: Turn info + controls */}
+      <div className="bg-black/40 backdrop-blur-xl border-b border-white/5 z-10">
+        <div className="flex justify-between items-center px-3 py-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <p className="font-bold text-[#1DB954] text-base truncate">
               {isMyTurn ? 'Your Turn' : `${activePlayer.name}'s Turn`}
             </p>
-          </div>
-        </div>
-
-        {/* Turn timer + Player score chips + mute */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="flex gap-2 overflow-x-auto hide-scrollbar">
-            {isCoop ? (
-              <div className="flex flex-col items-center px-1">
-                <span className="text-xs font-black tabular-nums">
-                  {sharedTimeline.length}/{settings.cardsToWin}
-                </span>
-                <span className="text-[9px] text-green-400 font-bold uppercase">Team</span>
-              </div>
-            ) : (
-              playerList.map((p) => (
-                <div
-                  key={p.id}
-                  className={`flex flex-col items-center px-1 transition-opacity ${
-                    p.id === currentTurnPlayerId ? 'opacity-100' : 'opacity-40'
-                  }`}
-                >
-                  <span className="text-xs font-black tabular-nums">
-                    {p.timeline.length}/{settings.cardsToWin}
-                  </span>
-                  <span className="text-[9px] text-gray-500 truncate max-w-[45px] font-medium">
-                    {p.id === myId ? 'You' : p.name}
-                  </span>
-                </div>
-              ))
-            )}
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0 ${MODE_COLORS[mode]}`}>
+              {MODE_LABELS[mode]}
+            </span>
+            <span className="text-xs text-gray-500 flex-shrink-0">{deckSize} left</span>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             <button
               onClick={() => setShowHistory(true)}
-              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
               title="Song History"
             >
               <Clock className="w-4 h-4" />
             </button>
             <button
               onClick={handleToggleMute}
-              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
             >
               <VolumeIcon className="w-4 h-4" />
             </button>
@@ -457,18 +436,53 @@ export function Game() {
               step="0.05"
               value={volume}
               onChange={handleVolumeChange}
-              className="w-16 h-1 accent-[#1DB954] bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#1DB954]"
+              className="w-14 h-1 accent-[#1DB954] bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#1DB954]"
             />
             {isHost && (
               <button
                 onClick={() => setShowStopConfirm(true)}
-                className="p-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-400 hover:text-red-300 transition-colors border border-red-500/30"
+                className="p-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400 hover:text-red-300 transition-colors border border-red-500/30"
                 title="Stop Game"
               >
-                <Square className="w-4 h-4" fill="currentColor" />
+                <Square className="w-3.5 h-3.5" fill="currentColor" />
               </button>
             )}
           </div>
+        </div>
+
+        {/* Row 2: Player scores with tokens */}
+        <div className="flex justify-center gap-1 px-3 pb-2 overflow-x-auto hide-scrollbar">
+          {isCoop ? (
+            <div className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-1">
+              <span className="text-sm font-black text-green-400 tabular-nums">
+                {sharedTimeline.length}/{settings.cardsToWin}
+              </span>
+              <span className="text-xs text-gray-400">Team</span>
+            </div>
+          ) : (
+            playerList.map((p) => (
+              <div
+                key={p.id}
+                className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-all ${
+                  p.id === currentTurnPlayerId
+                    ? 'bg-[#1DB954]/15 border border-[#1DB954]/30'
+                    : 'bg-white/5'
+                }`}
+              >
+                <span className={`font-bold truncate max-w-[60px] ${
+                  p.id === currentTurnPlayerId ? 'text-[#1DB954]' : 'text-gray-400'
+                }`}>
+                  {p.id === myId ? 'You' : p.name}
+                </span>
+                <span className="font-black tabular-nums text-white">
+                  {p.timeline.length}/{settings.cardsToWin}
+                </span>
+                <span className="text-yellow-400 tabular-nums" title="Tokens">
+                  {p.tokens}T
+                </span>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
@@ -718,27 +732,25 @@ export function Game() {
               </div>
             )}
             <input
-              type="text"
+              type="search"
+              name="song-title-guess"
               placeholder={songNamingRequired ? 'Song Title (Required)' : 'Guess Title (Optional, +1 token)'}
               value={guessTitle}
               onChange={(e) => setGuessTitle(e.target.value)}
-              autoComplete="on"
-              autoCorrect="on"
+              autoComplete="off"
               autoCapitalize="sentences"
-              spellCheck={true}
-              inputMode="text"
+              enterKeyHint="next"
               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#1DB954]"
             />
             <input
-              type="text"
+              type="search"
+              name="song-artist-guess"
               placeholder={songNamingRequired ? 'Artist (Required)' : 'Guess Artist (Optional)'}
               value={guessArtist}
               onChange={(e) => setGuessArtist(e.target.value)}
-              autoComplete="on"
-              autoCorrect="on"
+              autoComplete="off"
               autoCapitalize="sentences"
-              spellCheck={true}
-              inputMode="text"
+              enterKeyHint="done"
               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#1DB954]"
             />
             {mode === 'expert' && (
@@ -775,19 +787,22 @@ export function Game() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mt-8 text-center"
+            className="mt-8 text-center w-full max-w-sm"
           >
-            <p className="text-gray-400 mb-4">
-              {activePlayer.name} placed the card. Challenge?
+            <p className="text-gray-400 mb-2">
+              {activePlayer.name} placed the card. Think it's wrong?
+            </p>
+            <p className="text-xs text-gray-500 mb-4">
+              Pick where YOU think it belongs in the timeline below, then challenge.
             </p>
             <div className="flex gap-3 justify-center">
               <button
                 onClick={handleChallenge}
-                disabled={me.tokens < CHALLENGE_COST}
+                disabled={me.tokens < CHALLENGE_COST || challengePosition === null}
                 className="bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/30 font-bold py-3.5 px-6 rounded-2xl flex items-center gap-2 transition-all disabled:opacity-40 active:scale-[0.97]"
               >
                 <AlertTriangle className="w-5 h-5" />
-                Challenge! ({CHALLENGE_COST})
+                {challengePosition !== null ? `Challenge! (${CHALLENGE_COST})` : 'Pick a position first'}
               </button>
               <button
                 onClick={() => setNoChallengeClicked(true)}
@@ -839,44 +854,56 @@ export function Game() {
               ? 'Team Timeline'
               : isMyTurn
                 ? 'Your Timeline'
-                : phase === 'challenge'
-                  ? `${activePlayer.name}'s Timeline — Placed Card`
-                  : `${activePlayer.name}'s Timeline`}
+                : `${activePlayer.name}'s Timeline`}
           </h3>
         </div>
 
         {/* Timeline */}
-        <div className="flex overflow-x-auto pb-3 hide-scrollbar items-center min-h-[140px]">
-          {isMyTurn && phase === 'playing' && (
-            <DropZone
-              index={0}
-              selected={selectedPosition === 0}
-              onClick={() => setSelectedPosition(0)}
-            />
-          )}
+        {(() => {
+          const showPlacementDropZones = isMyTurn && phase === 'playing';
+          const showChallengeDropZones = !isMyTurn && phase === 'challenge' && !isCoop && !challengers.includes(myId) && !noChallengeClicked;
+          const showDropZones = showPlacementDropZones || showChallengeDropZones;
+          const dropSelection = showPlacementDropZones ? selectedPosition : challengePosition;
+          const dropOnClick = showPlacementDropZones
+            ? (i: number) => setSelectedPosition(i)
+            : (i: number) => setChallengePosition(i);
 
-          {/* Show pending placement indicator at position 0 */}
-          {phase === 'challenge' && pendingPlacement === 0 && <PendingCard />}
-
-          {displayTimeline.map((card, idx) => (
-            <div key={card.id} className="flex items-center">
-              <TimelineCard card={card} />
-              {isMyTurn && phase === 'playing' && (
+          return (
+            <div className="flex overflow-x-auto pb-3 hide-scrollbar items-center min-h-[140px]">
+              {showDropZones && (
                 <DropZone
-                  index={idx + 1}
-                  selected={selectedPosition === idx + 1}
-                  onClick={() => setSelectedPosition(idx + 1)}
+                  index={0}
+                  selected={dropSelection === 0}
+                  onClick={() => dropOnClick(0)}
+                  challenge={showChallengeDropZones}
                 />
               )}
-              {/* Show pending placement indicator after this card */}
-              {phase === 'challenge' && pendingPlacement === idx + 1 && <PendingCard />}
-            </div>
-          ))}
 
-          {displayTimeline.length === 0 && !isMyTurn && phase !== 'challenge' && (
-            <p className="text-gray-500 text-sm italic mx-auto">No cards yet</p>
-          )}
-        </div>
+              {/* Show pending placement indicator at position 0 */}
+              {phase === 'challenge' && pendingPlacement === 0 && <PendingCard />}
+
+              {displayTimeline.map((card, idx) => (
+                <div key={card.id} className="flex items-center">
+                  <TimelineCard card={card} />
+                  {showDropZones && (
+                    <DropZone
+                      index={idx + 1}
+                      selected={dropSelection === idx + 1}
+                      onClick={() => dropOnClick(idx + 1)}
+                      challenge={showChallengeDropZones}
+                    />
+                  )}
+                  {/* Show pending placement indicator after this card */}
+                  {phase === 'challenge' && pendingPlacement === idx + 1 && <PendingCard />}
+                </div>
+              ))}
+
+              {displayTimeline.length === 0 && !showDropZones && phase !== 'challenge' && (
+                <p className="text-gray-500 text-sm italic mx-auto">No cards yet</p>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Action buttons */}
         {isMyTurn && phase === 'playing' && (
@@ -957,10 +984,12 @@ function DropZone({
   index,
   selected,
   onClick,
+  challenge,
 }: {
   index: number;
   selected: boolean;
   onClick: () => void;
+  challenge?: boolean;
 }) {
   return (
     <motion.button
@@ -969,15 +998,23 @@ function DropZone({
       whileTap={{ scale: 0.9 }}
       className={`flex-shrink-0 w-10 h-28 mx-1 rounded-xl border-2 border-dashed flex items-center justify-center transition-all cursor-pointer ${
         selected
-          ? 'border-[#1DB954] bg-[#1DB954]/20 shadow-[0_0_15px_rgba(29,185,84,0.3)]'
-          : 'border-white/15 hover:border-[#1DB954]/70 hover:bg-[#1DB954]/5'
+          ? challenge
+            ? 'border-red-400 bg-red-500/20 shadow-[0_0_15px_rgba(239,68,68,0.3)]'
+            : 'border-[#1DB954] bg-[#1DB954]/20 shadow-[0_0_15px_rgba(29,185,84,0.3)]'
+          : challenge
+            ? 'border-red-400/30 hover:border-red-400/70 hover:bg-red-500/10'
+            : 'border-white/15 hover:border-[#1DB954]/70 hover:bg-[#1DB954]/5'
       }`}
     >
       <div
         className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
           selected
-            ? 'bg-[#1DB954] text-black'
-            : 'bg-white/10 text-white/40'
+            ? challenge
+              ? 'bg-red-500 text-white'
+              : 'bg-[#1DB954] text-black'
+            : challenge
+              ? 'bg-red-500/20 text-red-400'
+              : 'bg-white/10 text-white/40'
         }`}
       >
         +

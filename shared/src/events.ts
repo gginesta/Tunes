@@ -18,7 +18,7 @@ export interface ClientToServerEvents {
   'update-settings': (settings: Partial<GameSettings>) => void;
   'start-game': (data?: { spotifyAccessToken?: string }) => void;
   'place-card': (data: { position: number }) => void;
-  'challenge': () => void;
+  'challenge': (data?: { position: number }) => void;
   'name-song': (guess: SongGuess) => void;
   'skip-song': () => void;
   'buy-card': () => void;
@@ -43,7 +43,7 @@ export interface ServerToClientEvents {
   'turn-started': (data: { turnPlayerId: string; turnDeadline: number }) => void;
   'play-song': (data: { spotifyTrackId: string; previewUrl?: string }) => void;
   'card-placed': (data: { playerId: string; position: number; challengeDeadline?: number }) => void;
-  'challenge-made': (data: { challengerId: string }) => void;
+  'challenge-made': (data: { challengerId: string; position?: number }) => void;
   'reveal': (data: {
     song: SongCard;
     correct: boolean;
