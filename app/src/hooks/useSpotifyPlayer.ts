@@ -6,6 +6,7 @@ import {
   activateElement,
   playTrack,
   pause,
+  resume,
   togglePlay,
   isInitialized,
   requestActivation,
@@ -220,7 +221,12 @@ export function useSpotifyPlayer() {
     }
   }, [isHost, phase]);
 
-  // Play button handler — called on user gesture (click)
+  // Play button handler — called on user gesture (click).
+  // This is the critical path for unlocking audio. It must:
+  // 1. Call activateElement() to unlock the SDK's AudioContext (every time, not just once)
+  // 2. Call player.resume() directly — this goes through the SDK's own AudioContext
+  //    from within the user gesture call stack, which browsers trust
+  // 3. Then also try the REST API path as a backup
   const togglePlayback = useCallback(async () => {
     activateElement();
     useGameStore.setState({ autoplayBlocked: false });
@@ -238,6 +244,11 @@ export function useSpotifyPlayer() {
         await togglePlay();
       }
     } else {
+      // First try resume() — this uses the SDK's internal AudioContext
+      // directly from the gesture context, which is the most reliable way
+      // to satisfy browser autoplay policy
+      await resume().catch(() => {});
+
       if (trackId) {
         await attemptPlayTrack(trackId);
       } else {

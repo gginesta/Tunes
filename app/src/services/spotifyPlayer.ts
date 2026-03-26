@@ -218,7 +218,7 @@ async function pollForDevice(
 }
 
 export function activateElement(): void {
-  if (player && !activated) {
+  if (player) {
     player.activateElement();
     activated = true;
     console.log('[Hitster] activateElement() called');

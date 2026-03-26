@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { getSocket } from '../services/socket';
 import { useGameStore } from '../store';
 import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
-import { preUnlockAudio, activateElement } from '../services/spotifyPlayer';
+import { preUnlockAudio, activateElement, resume } from '../services/spotifyPlayer';
 import { SKIP_COST, CHALLENGE_COST, BUY_CARD_COST, TURN_TIME_MS } from '@hitster/shared';
 import {
   playCorrectSound,
@@ -259,8 +259,14 @@ export function Game() {
   const needsPlayButton = isHost && phase === 'playing' && !musicStarted && !isPlayingMusic;
 
   const handlePlayTap = () => {
+    // Call everything synchronously from the gesture context:
+    // 1. Pre-unlock a generic AudioContext
     preUnlockAudio();
+    // 2. Unlock the SDK's internal AudioContext (can be called multiple times)
     activateElement();
+    // 3. Resume the SDK player directly (goes through SDK's AudioContext)
+    resume().catch(() => {});
+    // 4. Then try the full playback flow (REST API + fallbacks)
     togglePlayback();
   };
 
