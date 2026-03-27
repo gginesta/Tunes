@@ -587,6 +587,18 @@ export class GameEngine {
 
     gs.phase = 'reveal';
 
+    // Build per-challenger result feedback
+    const challengeResults: Record<string, { position: number; correct: boolean }> = {};
+    for (const cid of gs.challengers) {
+      const pos = this.challengerPositions.get(cid);
+      if (pos != null) {
+        challengeResults[cid] = {
+          position: pos,
+          correct: this.isPlacementCorrect(timeline, song, pos),
+        };
+      }
+    }
+
     this.io.to(this.room.code).emit('reveal', {
       song,
       correct,
@@ -597,6 +609,7 @@ export class GameEngine {
         songNamed: activePlayerNamedSong,
         yearCorrect,
       },
+      challengeResults: Object.keys(challengeResults).length > 0 ? challengeResults : undefined,
     });
 
     // Record song history entry

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Disc, Check, X, SkipForward, AlertTriangle, ShoppingCart, Star, Play, Pause, Volume2, Volume1, VolumeX, Clock, Square } from 'lucide-react';
+import { Disc, Check, X, SkipForward, AlertTriangle, ShoppingCart, Star, Play, Pause, Volume2, Volume1, VolumeX, Clock, Square, ArrowLeftRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getSocket } from '../services/socket';
 import { useGameStore } from '../store';
@@ -105,6 +105,14 @@ export function Game() {
   const [guessYear, setGuessYear] = useState('');
   const [selectedPosition, setSelectedPosition] = useState<number | null>(null);
   const songNameResult = useGameStore((s) => s.songNameResult);
+
+  // Timeline toggle: view own vs active player's timeline
+  const [viewingOwnTimeline, setViewingOwnTimeline] = useState(false);
+  // Auto-reset to active player's timeline on turn change
+  useEffect(() => { setViewingOwnTimeline(false); }, [currentTurnPlayerId]);
+
+  // Timeline scroll ref for auto-scroll
+  const timelineRef = useRef<HTMLDivElement>(null);
 
   // Reset "no challenge" when phase changes
   useEffect(() => {
@@ -289,13 +297,15 @@ export function Game() {
 
   // Timeline to display:
   // - Co-op: shared timeline always
-  // - Your turn (playing): your own timeline (to place cards)
-  // - Not your turn: always show active player's timeline so you can prepare to challenge
+  // - Your turn: your own timeline (to place cards)
+  // - Not your turn: active player's timeline by default, togglable to your own
   const displayTimeline = isCoop
     ? sharedTimeline
     : isMyTurn
       ? me.timeline
-      : activePlayer.timeline;
+      : viewingOwnTimeline
+        ? me.timeline
+        : activePlayer.timeline;
 
   const handlePlaceCard = () => {
     if (selectedPosition === null) return;
@@ -317,6 +327,17 @@ export function Game() {
   useEffect(() => {
     if (phase !== 'challenge') setChallengePosition(null);
   }, [phase]);
+
+  // Auto-scroll timeline when a card is placed or a position is selected
+  useEffect(() => {
+    const container = timelineRef.current;
+    if (!container) return;
+    const targetPos = pendingPlacement ?? selectedPosition ?? challengePosition;
+    if (targetPos === null) return;
+    const cardWidth = 120;
+    const scrollTarget = targetPos * cardWidth - container.clientWidth / 2 + cardWidth / 2;
+    container.scrollTo({ left: Math.max(0, scrollTarget), behavior: 'smooth' });
+  }, [pendingPlacement, selectedPosition, challengePosition]);
 
   const handleChallenge = () => {
     if (challengePosition === null) return;
@@ -570,16 +591,20 @@ export function Game() {
                   : 'from-red-500 to-rose-700 shadow-red-500/40'
               }`}
             >
-              <div className="absolute -right-12 -bottom-12 opacity-20">
-                <Disc className="w-48 h-48" />
-              </div>
+              {revealedSong!.albumArtUrl ? (
+                <img src={revealedSong!.albumArtUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30 rounded-3xl" />
+              ) : (
+                <div className="absolute -right-12 -bottom-12 opacity-20">
+                  <Disc className="w-48 h-48" />
+                </div>
+              )}
               <motion.div
                 initial={{ rotateY: 90 }}
                 animate={{ rotateY: 0 }}
                 className="text-center z-10"
               >
-                <h2 className="text-5xl font-black mb-2">{revealedSong!.year}</h2>
-                <p className="text-lg font-bold leading-tight">{revealedSong!.title}</p>
+                <h2 className="text-5xl font-black mb-2 drop-shadow-lg">{revealedSong!.year}</h2>
+                <p className="text-lg font-bold leading-tight drop-shadow-md">{revealedSong!.title}</p>
                 <p className="text-sm text-white/80">{revealedSong!.artist}</p>
 
                 <div className="mt-4 space-y-2">
@@ -698,6 +723,23 @@ export function Game() {
           >
             <Clock className="w-5 h-5" />
             <span>{countdown}s to challenge</span>
+          </motion.div>
+        )}
+
+        {/* Challenge result feedback */}
+        {phase === 'reveal' && lastReveal?.challengeResults && myId in lastReveal.challengeResults && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`mt-4 px-5 py-2.5 rounded-xl text-sm font-bold border ${
+              lastReveal.challengeResults[myId].correct
+                ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                : 'bg-red-500/20 text-red-400 border-red-500/30'
+            }`}
+          >
+            {lastReveal.challengeResults[myId].correct
+              ? 'Your challenge position was correct!'
+              : 'Your challenge position was wrong'}
           </motion.div>
         )}
 
@@ -854,14 +896,25 @@ export function Game() {
               ? 'Team Timeline'
               : isMyTurn
                 ? 'Your Timeline'
-                : `${activePlayer.name}'s Timeline`}
+                : viewingOwnTimeline
+                  ? 'Your Timeline'
+                  : `${activePlayer.name}'s Timeline`}
           </h3>
+          {!isMyTurn && !isCoop && phase !== 'reveal' && (
+            <button
+              onClick={() => setViewingOwnTimeline((v) => !v)}
+              className="flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 px-2.5 py-1 rounded-lg transition-colors"
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5" />
+              {viewingOwnTimeline ? 'Show Theirs' : 'Show Mine'}
+            </button>
+          )}
         </div>
 
         {/* Timeline */}
         {(() => {
           const showPlacementDropZones = isMyTurn && phase === 'playing';
-          const showChallengeDropZones = !isMyTurn && phase === 'challenge' && !isCoop && !challengers.includes(myId) && !noChallengeClicked;
+          const showChallengeDropZones = !isMyTurn && phase === 'challenge' && !isCoop && !challengers.includes(myId) && !noChallengeClicked && !viewingOwnTimeline;
           const showDropZones = showPlacementDropZones || showChallengeDropZones;
           const dropSelection = showPlacementDropZones ? selectedPosition : challengePosition;
           const dropOnClick = showPlacementDropZones
@@ -869,7 +922,7 @@ export function Game() {
             : (i: number) => setChallengePosition(i);
 
           return (
-            <div className="flex overflow-x-auto pb-3 hide-scrollbar items-center min-h-[140px]">
+            <div ref={timelineRef} className="flex overflow-x-auto pb-3 hide-scrollbar items-center min-h-[140px]">
               {showDropZones && (
                 <DropZone
                   index={0}

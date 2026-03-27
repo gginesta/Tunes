@@ -147,6 +147,16 @@ export function playBuzzSound(): void {
   ]);
 }
 
+/** Your turn notification — distinct rising two-tone alert */
+export function playTurnSound(): void {
+  playTones([
+    { frequency: NOTE.E4, type: 'sine', duration: 0.15, startTime: 0, volume: 0.7 },
+    { frequency: NOTE.A5, type: 'sine', duration: 0.25, startTime: 0.18, volume: 0.7 },
+  ]);
+  // Vibrate on mobile (no-op on desktop)
+  navigator.vibrate?.(200);
+}
+
 /** Game start — ascending arpeggio (C4 → E4 → G4 → C5), sine wave, 100ms each */
 export function playStartSound(): void {
   playTones([

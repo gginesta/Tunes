@@ -55,6 +55,7 @@ export interface ServerToClientEvents {
       yearCorrect?: boolean;
       coopPenalty?: boolean;
     };
+    challengeResults?: Record<string, { position: number; correct: boolean }>;
   }) => void;
   'shared-timeline-updated': (data: { timeline: SongCard[] }) => void;
   'tokens-updated': (data: { playerId: string; tokens: number }) => void;

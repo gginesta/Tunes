@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { getSocket, saveSession, getSession, clearSession } from '../services/socket';
 import { useGameStore } from '../store';
-import { playBuzzSound } from '../services/sounds';
+import { playBuzzSound, playTurnSound } from '../services/sounds';
 
 export function useSocket() {
   useEffect(() => {
@@ -70,6 +70,11 @@ export function useSocket() {
       store.setDeckSize(gameState.deckSize);
       store.setLastReveal(null);
       store.setScreen('game');
+
+      // Request notification permission for background turn alerts
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
     });
 
     socket.on('new-turn', ({ turnPlayerId, songCard }) => {
@@ -81,6 +86,14 @@ export function useSocket() {
       store.setLastReveal(null);
       useGameStore.setState({ songNameResult: null, turnDeadline: null, challengers: [] });
       store.clearBuzzedPlayers();
+
+      // Notify player when it's their turn (sound + vibrate + background notification)
+      if (turnPlayerId === store.myId) {
+        playTurnSound();
+        if (document.hidden && Notification.permission === 'granted') {
+          new Notification('Hitster', { body: "It's your turn!", icon: '/favicon.ico' });
+        }
+      }
     });
 
     socket.on('turn-started', ({ turnDeadline }) => {

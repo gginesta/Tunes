@@ -84,11 +84,23 @@ export function Lobby() {
   const handleCopyInviteLink = async () => {
     const link = `${window.location.origin}/join/${roomCode}`;
     try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      // Use native share sheet on mobile — opens as overlay, no app switch needed
+      if (navigator.share) {
+        await navigator.share({ title: 'Join my Hitster game!', text: `Room code: ${roomCode}`, url: link });
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } else {
+        await navigator.clipboard.writeText(link);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
     } catch {
-      // Fallback: do nothing
+      // User cancelled share or clipboard failed — try clipboard as fallback
+      try {
+        await navigator.clipboard.writeText(link);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch { /* nothing */ }
     }
   };
 

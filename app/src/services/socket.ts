@@ -12,9 +12,17 @@ export function getSocket(): GameSocket {
       transports: ['websocket', 'polling'],
       autoConnect: false,
       reconnection: true,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 10000,
+    });
+
+    // When tab becomes visible again, force reconnect if disconnected
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && socket && !socket.connected) {
+        console.log('[Hitster] Tab visible again — reconnecting socket');
+        socket.connect();
+      }
     });
   }
   return socket;

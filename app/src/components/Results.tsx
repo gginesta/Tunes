@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Trophy, Home, RotateCcw, Medal, Coins, Zap, Target, Flame, Swords, Music, Clock } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Trophy, Home, RotateCcw, Medal, Coins, Zap, Target, Flame, Swords, Music, Clock, MapPin } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getSocket } from '../services/socket';
 import { clearSession } from '../services/socket';
@@ -8,6 +8,42 @@ import type { GameStats, PlayerStats } from '@hitster/shared';
 import { SongHistory } from './SongHistory';
 
 const ORDINALS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
+
+const CONFETTI_COLORS = ['#FFD700', '#1DB954', '#FF6B6B', '#4ECDC4', '#A78BFA', '#F97316', '#EC4899'];
+
+function Confetti() {
+  const [pieces] = useState(() =>
+    Array.from({ length: 50 }, (_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      delay: Math.random() * 2,
+      duration: 2 + Math.random() * 2,
+      color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+      size: 6 + Math.random() * 8,
+      rotation: Math.random() * 360,
+    }))
+  );
+
+  return (
+    <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">
+      {pieces.map((p) => (
+        <motion.div
+          key={p.id}
+          initial={{ y: -20, x: `${p.x}vw`, opacity: 1, rotate: 0 }}
+          animate={{ y: '110vh', opacity: 0, rotate: p.rotation + 720 }}
+          transition={{ duration: p.duration, delay: p.delay, ease: 'easeIn' }}
+          style={{
+            position: 'absolute',
+            width: p.size,
+            height: p.size * 0.6,
+            backgroundColor: p.color,
+            borderRadius: 2,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
 
 const MEDAL_STYLES: Record<number, { bg: string; border: string; badge: string; text: string }> = {
   0: {
@@ -73,6 +109,7 @@ export function Results() {
 
   return (
     <div className="flex flex-col min-h-screen p-6 text-white bg-[#1a1a2e] bg-pattern overflow-y-auto">
+      <Confetti />
       {/* Winner announcement */}
       <motion.div
         initial={{ scale: 0.8, opacity: 0 }}
@@ -293,6 +330,34 @@ function Awards({ gameStats, players }: { gameStats: GameStats; players: Record<
     }
   }
 
+  // Decade Expert — best accuracy in any single decade (min 2 placements)
+  let decadeExpertId: string | null = null;
+  let bestDecade = '';
+  let bestDecadeRatio = -1;
+  for (const id of playerIds) {
+    const da = stats[id].decadeAccuracy;
+    for (const [decade, acc] of Object.entries(da)) {
+      if (acc.total >= 2) {
+        const ratio = acc.correct / acc.total;
+        if (ratio > bestDecadeRatio) {
+          bestDecadeRatio = ratio;
+          bestDecade = `${decade}s`;
+          decadeExpertId = id;
+        }
+      }
+    }
+  }
+
+  // Most Cards — most correctPlacements overall
+  let mostCardsId: string | null = null;
+  let mostCards = 0;
+  for (const id of playerIds) {
+    if (stats[id].correctPlacements > mostCards) {
+      mostCards = stats[id].correctPlacements;
+      mostCardsId = id;
+    }
+  }
+
   const awards: AwardDef[] = [
     {
       id: 'fastest',
@@ -325,6 +390,22 @@ function Awards({ gameStats, players }: { gameStats: GameStats; players: Record<
       gradient: 'from-purple-500/20 to-violet-500/5',
       playerId: mostWon > 0 ? challengeId : null,
       detail: mostWon > 0 ? `${mostWon} won` : '',
+    },
+    {
+      id: 'decade',
+      label: 'Decade Expert',
+      icon: <MapPin className="w-5 h-5" />,
+      gradient: 'from-pink-500/20 to-rose-500/5',
+      playerId: decadeExpertId && bestDecadeRatio > 0 ? decadeExpertId : null,
+      detail: decadeExpertId && bestDecadeRatio > 0 ? `${bestDecade} — ${Math.round(bestDecadeRatio * 100)}%` : '',
+    },
+    {
+      id: 'mostcards',
+      label: 'Card Collector',
+      icon: <Medal className="w-5 h-5" />,
+      gradient: 'from-teal-500/20 to-emerald-500/5',
+      playerId: mostCards > 0 ? mostCardsId : null,
+      detail: mostCards > 0 ? `${mostCards} correct` : '',
     },
     {
       id: 'tune',
