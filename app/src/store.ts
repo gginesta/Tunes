@@ -26,6 +26,7 @@ interface RevealData {
   winnerId: string | null;
   stolenBy: string | null;
   modeResult?: ModeResult;
+  challengeResults?: Record<string, { position: number; correct: boolean }>;
 }
 
 interface GameStore {

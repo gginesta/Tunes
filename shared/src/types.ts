@@ -11,6 +11,7 @@ export interface SongData {
   previewUrl?: string | null;
   /** Pre-baked from scripts/prebake-previews.ts; null means "attempted but not found" */
   spotifyTrackId?: string | null;
+  albumArtUrl?: string;
 }
 
 export interface SongCard extends SongData {

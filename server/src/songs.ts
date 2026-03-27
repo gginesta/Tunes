@@ -11,7 +11,7 @@ let allSongs: SongData[] = [];
 let songsFilePath: string | null = null;
 
 // In-memory cache: "title::artist" → { trackId, previewUrl }
-const trackCache = new Map<string, { trackId: string; previewUrl?: string }>();
+const trackCache = new Map<string, { trackId: string; previewUrl?: string; albumArtUrl?: string }>();
 
 function cacheKey(song: SongData): string {
   return `${song.title.toLowerCase()}::${song.artist.toLowerCase()}`;
@@ -141,7 +141,7 @@ export async function fetchPlaylistDeck(
   let totalItemsSeen = 0;
   let skippedNoTrack = 0;
   let skippedNoDate = 0;
-  let url: string | null = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?fields=items(track(id,name,artists,album(release_date),preview_url)),next&limit=100`;
+  let url: string | null = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?fields=items(track(id,name,artists,album(release_date,images),preview_url)),next&limit=100`;
 
   while (url && cards.length < count * 2) {
     try {
@@ -175,6 +175,9 @@ export async function fetchPlaylistDeck(
 
         const artist = track.artists?.map((a: { name: string }) => a.name).join(', ') || 'Unknown';
 
+        // Pick a medium-size album image (300px) or fallback to first available
+        const albumArtUrl = track.album?.images?.[1]?.url || track.album?.images?.[0]?.url || undefined;
+
         cards.push({
           id: uuidv4(),
           title: track.name,
@@ -182,6 +185,7 @@ export async function fetchPlaylistDeck(
           year,
           spotifyTrackId: track.id,
           previewUrl: track.preview_url || undefined,
+          albumArtUrl,
         });
       }
 
@@ -221,7 +225,7 @@ interface PlaylistItem {
     id: string;
     name: string;
     artists: { name: string }[];
-    album: { release_date: string };
+    album: { release_date: string; images?: { url: string; width?: number; height?: number }[] };
     preview_url: string | null;
   } | null;
 }
@@ -245,7 +249,7 @@ export async function resolveSpotifyTrack(
   song: SongData,
   accessToken: string,
   retryCount = 0,
-): Promise<{ trackId: string; previewUrl?: string } | null> {
+): Promise<{ trackId: string; previewUrl?: string; albumArtUrl?: string } | null> {
   try {
     const query = encodeURIComponent(`track:${song.title} artist:${song.artist}`);
     const res = await fetch(
@@ -269,7 +273,8 @@ export async function resolveSpotifyTrack(
     const data = await res.json();
     const track = data.tracks?.items?.[0];
     if (!track?.id) return null;
-    return { trackId: track.id, previewUrl: track.preview_url || undefined };
+    const albumArtUrl = track.album?.images?.[1]?.url || track.album?.images?.[0]?.url || undefined;
+    return { trackId: track.id, previewUrl: track.preview_url || undefined, albumArtUrl };
   } catch (err) {
     logger.warn('Spotify search error', { title: song.title, error: String(err) });
     return null;
@@ -297,6 +302,7 @@ export async function resolveTrackIds(
     if (cachedEntry) {
       card.spotifyTrackId = cachedEntry.trackId;
       card.previewUrl = cachedEntry.previewUrl;
+      card.albumArtUrl = cachedEntry.albumArtUrl;
       cached++;
       resolved++;
     }
@@ -314,6 +320,7 @@ export async function resolveTrackIds(
         if (result) {
           card.spotifyTrackId = result.trackId;
           card.previewUrl = result.previewUrl;
+          card.albumArtUrl = result.albumArtUrl;
           trackCache.set(cacheKey(card), result);
           resolved++;
         }
@@ -433,6 +440,7 @@ function persistPreviewUrls(): void {
     if (cached.trackId) {
       song.spotifyTrackId = cached.trackId;
       song.previewUrl = cached.previewUrl ?? null;
+      song.albumArtUrl = cached.albumArtUrl;
     } else {
       // Mark as attempted (failed to resolve)
       song.spotifyTrackId = null;

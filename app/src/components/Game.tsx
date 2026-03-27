@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Disc, Check, X, SkipForward, AlertTriangle, ShoppingCart, Star, Play, Pause, Volume2, Volume1, VolumeX, Clock, Square } from 'lucide-react';
+import { Disc, Check, X, SkipForward, AlertTriangle, ShoppingCart, Star, Play, Pause, Volume2, Volume1, VolumeX, Clock, Square, ArrowLeftRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getSocket } from '../services/socket';
 import { useGameStore } from '../store';
 import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
 import { preUnlockAudio, activateElement, resume } from '../services/spotifyPlayer';
-import { SKIP_COST, CHALLENGE_COST, BUY_CARD_COST, TURN_TIME_MS } from '@hitster/shared';
+import { SKIP_COST, CHALLENGE_COST, BUY_CARD_COST } from '@hitster/shared';
 import {
   playCorrectSound,
   playWrongSound,
@@ -56,18 +56,13 @@ function Equalizer({ animate }: { animate: boolean }) {
   return (
     <div className="flex items-end gap-[3px] h-6">
       {[0, 1, 2, 3, 4].map((i) => (
-        <motion.div
+        <div
           key={i}
-          className="w-[3px] bg-[#1DB954] rounded-full"
-          animate={animate ? {
-            height: [6, 18, 10, 22, 8],
-          } : { height: 6 }}
-          transition={animate ? {
-            duration: 0.8,
-            repeat: Infinity,
-            repeatType: 'reverse',
-            delay: i * 0.1,
-          } : {}}
+          className={`w-[3px] bg-[#1DB954] rounded-full ${animate ? 'animate-equalizer' : ''}`}
+          style={{
+            height: animate ? undefined : 6,
+            animationDelay: animate ? `${i * 0.12}s` : undefined,
+          }}
         />
       ))}
     </div>
@@ -106,6 +101,14 @@ export function Game() {
   const [selectedPosition, setSelectedPosition] = useState<number | null>(null);
   const songNameResult = useGameStore((s) => s.songNameResult);
 
+  // Timeline toggle: view own vs active player's timeline
+  const [viewingOwnTimeline, setViewingOwnTimeline] = useState(false);
+  // Auto-reset to active player's timeline on turn change
+  useEffect(() => { setViewingOwnTimeline(false); }, [currentTurnPlayerId]);
+
+  // Timeline scroll ref for auto-scroll
+  const timelineRef = useRef<HTMLDivElement>(null);
+
   // Reset "no challenge" when phase changes
   useEffect(() => {
     if (phase !== 'challenge') setNoChallengeClicked(false);
@@ -123,12 +126,11 @@ export function Game() {
       setCountdown(remaining);
     };
     tick();
-    const interval = setInterval(tick, 100);
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
   }, [phase, challengeDeadline]);
 
   // Countdown timer for turn (playing phase)
-  const TURN_TIME_SECONDS = TURN_TIME_MS / 1000;
   const [turnCountdown, setTurnCountdown] = useState<number | null>(null);
   useEffect(() => {
     if (phase !== 'playing' || !turnDeadline) {
@@ -140,7 +142,7 @@ export function Game() {
       setTurnCountdown(remaining);
     };
     tick();
-    const interval = setInterval(tick, 100);
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
   }, [phase, turnDeadline]);
 
@@ -160,7 +162,7 @@ export function Game() {
       setDisconnectCountdowns(countdowns);
     };
     tick();
-    const interval = setInterval(tick, 500);
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
   }, [disconnectedPlayers]);
 
@@ -256,6 +258,14 @@ export function Game() {
     }
   }, [currentTurnPlayerId]);
 
+  // Clear guess inputs when turn changes
+  useEffect(() => {
+    setGuessTitle('');
+    setGuessArtist('');
+    setGuessYear('');
+    useGameStore.setState({ songNameResult: null });
+  }, [currentTurnPlayerId]);
+
   const needsPlayButton = isHost && phase === 'playing' && !musicStarted && !isPlayingMusic;
 
   const handlePlayTap = () => {
@@ -282,13 +292,15 @@ export function Game() {
 
   // Timeline to display:
   // - Co-op: shared timeline always
-  // - Challenge phase: show the active player's timeline so everyone can see the placement
-  // - Otherwise: show your own timeline
+  // - Your turn: your own timeline (to place cards)
+  // - Not your turn: active player's timeline by default, togglable to your own
   const displayTimeline = isCoop
     ? sharedTimeline
-    : phase === 'challenge' || (phase === 'reveal' && !isMyTurn)
-      ? activePlayer.timeline
-      : me.timeline;
+    : isMyTurn
+      ? me.timeline
+      : viewingOwnTimeline
+        ? me.timeline
+        : activePlayer.timeline;
 
   const handlePlaceCard = () => {
     if (selectedPosition === null) return;
@@ -304,8 +316,27 @@ export function Game() {
     useGameStore.setState({ songNameResult: null });
   };
 
+  const [challengePosition, setChallengePosition] = useState<number | null>(null);
+
+  // Reset challenge position when phase changes
+  useEffect(() => {
+    if (phase !== 'challenge') setChallengePosition(null);
+  }, [phase]);
+
+  // Auto-scroll timeline when a card is placed or a position is selected
+  useEffect(() => {
+    const container = timelineRef.current;
+    if (!container) return;
+    const targetPos = pendingPlacement ?? selectedPosition ?? challengePosition;
+    if (targetPos === null) return;
+    const cardWidth = 120;
+    const scrollTarget = targetPos * cardWidth - container.clientWidth / 2 + cardWidth / 2;
+    container.scrollTo({ left: Math.max(0, scrollTarget), behavior: 'smooth' });
+  }, [pendingPlacement, selectedPosition, challengePosition]);
+
   const handleChallenge = () => {
-    socket.emit('challenge');
+    if (challengePosition === null) return;
+    socket.emit('challenge', { position: challengePosition });
   };
 
   const handleNameSong = () => {
@@ -388,86 +419,29 @@ export function Game() {
         )}
       </AnimatePresence>
 
-      {/* Top Bar */}
-      <div className="flex justify-between items-center px-4 py-3 bg-black/40 backdrop-blur-xl border-b border-white/5 z-10">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold text-sm flex-shrink-0">
-            {activePlayer.name.charAt(0).toUpperCase()}
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <p className="text-[11px] text-gray-500 uppercase tracking-wider font-bold">
-                {deckSize} left
-              </p>
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${MODE_COLORS[mode]}`}>
-                {MODE_LABELS[mode]}
-              </span>
-            </div>
-            <p className="font-bold text-[#1DB954] text-sm truncate">
+      {/* Top Bar — Row 1: Turn info + controls */}
+      <div className="bg-black/60 border-b border-white/5 z-10">
+        <div className="flex justify-between items-center px-3 py-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <p className="font-bold text-[#1DB954] text-base truncate">
               {isMyTurn ? 'Your Turn' : `${activePlayer.name}'s Turn`}
             </p>
-          </div>
-        </div>
-
-        {/* Turn timer + Player score chips + mute */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {phase === 'playing' && turnCountdown !== null && turnCountdown > 0 && (
-            <div className="relative w-9 h-9 flex-shrink-0">
-              <svg className="w-9 h-9 -rotate-90" viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="8" />
-                <circle
-                  cx="50" cy="50" r="42" fill="none"
-                  stroke={turnCountdown <= 5 ? '#ef4444' : turnCountdown <= 10 ? '#f97316' : '#3b82f6'}
-                  strokeWidth="8" strokeLinecap="round"
-                  strokeDasharray={`${2 * Math.PI * 42}`}
-                  strokeDashoffset={`${2 * Math.PI * 42 * (1 - turnCountdown / TURN_TIME_SECONDS)}`}
-                  className="transition-all duration-1000 ease-linear"
-                />
-              </svg>
-              <span className={`absolute inset-0 flex items-center justify-center text-[11px] font-black ${
-                turnCountdown <= 5 ? 'text-red-400' : turnCountdown <= 10 ? 'text-orange-400' : 'text-white'
-              }`}>
-                {turnCountdown}
-              </span>
-            </div>
-          )}
-          <div className="flex gap-2 overflow-x-auto hide-scrollbar">
-            {isCoop ? (
-              <div className="flex flex-col items-center px-1">
-                <span className="text-xs font-black tabular-nums">
-                  {sharedTimeline.length}/{settings.cardsToWin}
-                </span>
-                <span className="text-[9px] text-green-400 font-bold uppercase">Team</span>
-              </div>
-            ) : (
-              playerList.map((p) => (
-                <div
-                  key={p.id}
-                  className={`flex flex-col items-center px-1 transition-opacity ${
-                    p.id === currentTurnPlayerId ? 'opacity-100' : 'opacity-40'
-                  }`}
-                >
-                  <span className="text-xs font-black tabular-nums">
-                    {p.timeline.length}/{settings.cardsToWin}
-                  </span>
-                  <span className="text-[9px] text-gray-500 truncate max-w-[45px] font-medium">
-                    {p.id === myId ? 'You' : p.name}
-                  </span>
-                </div>
-              ))
-            )}
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0 ${MODE_COLORS[mode]}`}>
+              {MODE_LABELS[mode]}
+            </span>
+            <span className="text-xs text-gray-500 flex-shrink-0">{deckSize} left</span>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             <button
               onClick={() => setShowHistory(true)}
-              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
               title="Song History"
             >
               <Clock className="w-4 h-4" />
             </button>
             <button
               onClick={handleToggleMute}
-              className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
             >
               <VolumeIcon className="w-4 h-4" />
             </button>
@@ -478,18 +452,53 @@ export function Game() {
               step="0.05"
               value={volume}
               onChange={handleVolumeChange}
-              className="w-16 h-1 accent-[#1DB954] bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#1DB954]"
+              className="w-14 h-1 accent-[#1DB954] bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#1DB954]"
             />
             {isHost && (
               <button
                 onClick={() => setShowStopConfirm(true)}
-                className="p-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-400 hover:text-red-300 transition-colors border border-red-500/30"
+                className="p-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-400 hover:text-red-300 transition-colors border border-red-500/30"
                 title="Stop Game"
               >
-                <Square className="w-4 h-4" fill="currentColor" />
+                <Square className="w-3.5 h-3.5" fill="currentColor" />
               </button>
             )}
           </div>
+        </div>
+
+        {/* Row 2: Player scores with tokens */}
+        <div className="flex justify-center gap-1 px-3 pb-2 overflow-x-auto hide-scrollbar">
+          {isCoop ? (
+            <div className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-1">
+              <span className="text-sm font-black text-green-400 tabular-nums">
+                {sharedTimeline.length}/{settings.cardsToWin}
+              </span>
+              <span className="text-xs text-gray-400">Team</span>
+            </div>
+          ) : (
+            playerList.map((p) => (
+              <div
+                key={p.id}
+                className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-all ${
+                  p.id === currentTurnPlayerId
+                    ? 'bg-[#1DB954]/15 border border-[#1DB954]/30'
+                    : 'bg-white/5'
+                }`}
+              >
+                <span className={`font-bold truncate max-w-[60px] ${
+                  p.id === currentTurnPlayerId ? 'text-[#1DB954]' : 'text-gray-400'
+                }`}>
+                  {p.id === myId ? 'You' : p.name}
+                </span>
+                <span className="font-black tabular-nums text-white">
+                  {p.timeline.length}/{settings.cardsToWin}
+                </span>
+                <span className="text-yellow-400 tabular-nums" title="Tokens">
+                  {p.tokens}T
+                </span>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
@@ -547,16 +556,12 @@ export function Game() {
                   : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'
               }`}
             >
-              <motion.div
-                animate={{ opacity: [1, 0.6, 1] }}
-                transition={{ duration: 2, repeat: Infinity }}
-                className="flex items-center justify-center gap-2"
-              >
+              <div className="flex items-center justify-center gap-2 animate-blink">
                 <AlertTriangle className="w-4 h-4 flex-shrink-0" />
                 <span>
                   {dcPlayer.name} disconnected{isTheirTurn ? ' (their turn)' : ''} &mdash; waiting {secs}s...
                 </span>
-              </motion.div>
+              </div>
             </motion.div>
           );
         })}
@@ -577,16 +582,20 @@ export function Game() {
                   : 'from-red-500 to-rose-700 shadow-red-500/40'
               }`}
             >
-              <div className="absolute -right-12 -bottom-12 opacity-20">
-                <Disc className="w-48 h-48" />
-              </div>
+              {revealedSong!.albumArtUrl ? (
+                <img src={revealedSong!.albumArtUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30 rounded-3xl" />
+              ) : (
+                <div className="absolute -right-12 -bottom-12 opacity-20">
+                  <Disc className="w-48 h-48" />
+                </div>
+              )}
               <motion.div
                 initial={{ rotateY: 90 }}
                 animate={{ rotateY: 0 }}
                 className="text-center z-10"
               >
-                <h2 className="text-5xl font-black mb-2">{revealedSong!.year}</h2>
-                <p className="text-lg font-bold leading-tight">{revealedSong!.title}</p>
+                <h2 className="text-5xl font-black mb-2 drop-shadow-lg">{revealedSong!.year}</h2>
+                <p className="text-lg font-bold leading-tight drop-shadow-md">{revealedSong!.title}</p>
                 <p className="text-sm text-white/80">{revealedSong!.artist}</p>
 
                 <div className="mt-4 space-y-2">
@@ -677,42 +686,6 @@ export function Game() {
                 <h2 className="text-6xl font-black text-white/90 mt-4">?</h2>
               )}
 
-              {/* Countdown timer during challenge phase */}
-              {phase === 'challenge' && countdown !== null && countdown > 0 && (
-                <motion.div
-                  key="countdown"
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  className="absolute inset-0 flex items-center justify-center z-20"
-                >
-                  <div className="relative">
-                    <svg className="w-40 h-40 -rotate-90" viewBox="0 0 100 100">
-                      <circle
-                        cx="50" cy="50" r="42"
-                        fill="none"
-                        stroke="rgba(255,255,255,0.1)"
-                        strokeWidth="6"
-                      />
-                      <circle
-                        cx="50" cy="50" r="42"
-                        fill="none"
-                        stroke={countdown <= 5 ? '#ef4444' : '#f59e0b'}
-                        strokeWidth="6"
-                        strokeLinecap="round"
-                        strokeDasharray={`${2 * Math.PI * 42}`}
-                        strokeDashoffset={`${2 * Math.PI * 42 * (1 - countdown / 8)}`}
-                        className="transition-all duration-100"
-                      />
-                    </svg>
-                    <span className={`absolute inset-0 flex items-center justify-center text-6xl font-black drop-shadow-lg ${
-                      countdown <= 3 ? 'text-red-400' : 'text-amber-400'
-                    }`}>
-                      {countdown}
-                    </span>
-                  </div>
-                </motion.div>
-              )}
-
               <p className="text-white/50 font-medium mt-3 text-sm">
                 {phase === 'challenge'
                   ? (isCoop ? 'Checking placement...' : 'Waiting for challenges...')
@@ -729,6 +702,37 @@ export function Game() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Challenge countdown timer — shown below the card */}
+        {phase === 'challenge' && countdown !== null && countdown > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`mt-4 flex items-center justify-center gap-3 px-6 py-3 rounded-2xl font-bold text-lg ${
+              countdown <= 3 ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+            }`}
+          >
+            <Clock className="w-5 h-5" />
+            <span>{countdown}s to challenge</span>
+          </motion.div>
+        )}
+
+        {/* Challenge result feedback */}
+        {phase === 'reveal' && lastReveal?.challengeResults && myId in lastReveal.challengeResults && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`mt-4 px-5 py-2.5 rounded-xl text-sm font-bold border ${
+              lastReveal.challengeResults[myId].correct
+                ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                : 'bg-red-500/20 text-red-400 border-red-500/30'
+            }`}
+          >
+            {lastReveal.challengeResults[myId].correct
+              ? 'Your challenge position was correct!'
+              : 'Your challenge position was wrong'}
+          </motion.div>
+        )}
 
         {/* Reveal: Continue button */}
         {phase === 'reveal' && (
@@ -761,25 +765,25 @@ export function Game() {
               </div>
             )}
             <input
-              type="text"
+              type="search"
+              name="song-title-guess"
               placeholder={songNamingRequired ? 'Song Title (Required)' : 'Guess Title (Optional, +1 token)'}
               value={guessTitle}
               onChange={(e) => setGuessTitle(e.target.value)}
               autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
+              autoCapitalize="sentences"
+              enterKeyHint="next"
               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#1DB954]"
             />
             <input
-              type="text"
+              type="search"
+              name="song-artist-guess"
               placeholder={songNamingRequired ? 'Artist (Required)' : 'Guess Artist (Optional)'}
               value={guessArtist}
               onChange={(e) => setGuessArtist(e.target.value)}
               autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
+              autoCapitalize="sentences"
+              enterKeyHint="done"
               className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#1DB954]"
             />
             {mode === 'expert' && (
@@ -816,19 +820,22 @@ export function Game() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mt-8 text-center"
+            className="mt-8 text-center w-full max-w-sm"
           >
-            <p className="text-gray-400 mb-4">
-              {activePlayer.name} placed the card. Challenge?
+            <p className="text-gray-400 mb-2">
+              {activePlayer.name} placed the card. Think it's wrong?
+            </p>
+            <p className="text-xs text-gray-500 mb-4">
+              Pick where YOU think it belongs in the timeline below, then challenge.
             </p>
             <div className="flex gap-3 justify-center">
               <button
                 onClick={handleChallenge}
-                disabled={me.tokens < CHALLENGE_COST}
+                disabled={me.tokens < CHALLENGE_COST || challengePosition === null}
                 className="bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/30 font-bold py-3.5 px-6 rounded-2xl flex items-center gap-2 transition-all disabled:opacity-40 active:scale-[0.97]"
               >
                 <AlertTriangle className="w-5 h-5" />
-                Challenge! ({CHALLENGE_COST})
+                {challengePosition !== null ? `Challenge! (${CHALLENGE_COST})` : 'Pick a position first'}
               </button>
               <button
                 onClick={() => setNoChallengeClicked(true)}
@@ -870,7 +877,7 @@ export function Game() {
 
       {/* Bottom: Timeline + Actions */}
       <div
-        className={`bg-black/40 backdrop-blur-xl border-t border-white/10 p-4 transition-opacity duration-500 ${
+        className={`bg-black/60 border-t border-white/10 p-4 transition-opacity duration-500 ${
           !isMyTurn && phase !== 'reveal' && phase !== 'challenge' ? 'opacity-60' : ''
         }`}
       >
@@ -880,44 +887,67 @@ export function Game() {
               ? 'Team Timeline'
               : isMyTurn
                 ? 'Your Timeline'
-                : phase === 'challenge'
-                  ? `${activePlayer.name}'s Timeline — Placed Card`
+                : viewingOwnTimeline
+                  ? 'Your Timeline'
                   : `${activePlayer.name}'s Timeline`}
           </h3>
+          {!isMyTurn && !isCoop && phase !== 'reveal' && (
+            <button
+              onClick={() => setViewingOwnTimeline((v) => !v)}
+              className="flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 px-2.5 py-1 rounded-lg transition-colors"
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5" />
+              {viewingOwnTimeline ? 'Show Theirs' : 'Show Mine'}
+            </button>
+          )}
         </div>
 
         {/* Timeline */}
-        <div className="flex overflow-x-auto pb-3 hide-scrollbar items-center min-h-[140px]">
-          {isMyTurn && phase === 'playing' && (
-            <DropZone
-              index={0}
-              selected={selectedPosition === 0}
-              onClick={() => setSelectedPosition(0)}
-            />
-          )}
+        {(() => {
+          const showPlacementDropZones = isMyTurn && phase === 'playing';
+          const showChallengeDropZones = !isMyTurn && phase === 'challenge' && !isCoop && !challengers.includes(myId) && !noChallengeClicked && !viewingOwnTimeline;
+          const showDropZones = showPlacementDropZones || showChallengeDropZones;
+          const dropSelection = showPlacementDropZones ? selectedPosition : challengePosition;
+          const dropOnClick = showPlacementDropZones
+            ? (i: number) => setSelectedPosition(i)
+            : (i: number) => setChallengePosition(i);
 
-          {/* Show pending placement indicator at position 0 */}
-          {phase === 'challenge' && pendingPlacement === 0 && <PendingCard />}
-
-          {displayTimeline.map((card, idx) => (
-            <div key={card.id} className="flex items-center">
-              <TimelineCard card={card} />
-              {isMyTurn && phase === 'playing' && (
+          return (
+            <div ref={timelineRef} className="flex overflow-x-auto pb-3 hide-scrollbar items-center min-h-[140px]">
+              {showDropZones && (
                 <DropZone
-                  index={idx + 1}
-                  selected={selectedPosition === idx + 1}
-                  onClick={() => setSelectedPosition(idx + 1)}
+                  index={0}
+                  selected={dropSelection === 0}
+                  onClick={() => dropOnClick(0)}
+                  challenge={showChallengeDropZones}
                 />
               )}
-              {/* Show pending placement indicator after this card */}
-              {phase === 'challenge' && pendingPlacement === idx + 1 && <PendingCard />}
-            </div>
-          ))}
 
-          {displayTimeline.length === 0 && !isMyTurn && phase !== 'challenge' && (
-            <p className="text-gray-500 text-sm italic mx-auto">No cards yet</p>
-          )}
-        </div>
+              {/* Show pending placement indicator at position 0 */}
+              {phase === 'challenge' && pendingPlacement === 0 && <PendingCard />}
+
+              {displayTimeline.map((card, idx) => (
+                <div key={card.id} className="flex items-center">
+                  <TimelineCard card={card} />
+                  {showDropZones && (
+                    <DropZone
+                      index={idx + 1}
+                      selected={dropSelection === idx + 1}
+                      onClick={() => dropOnClick(idx + 1)}
+                      challenge={showChallengeDropZones}
+                    />
+                  )}
+                  {/* Show pending placement indicator after this card */}
+                  {phase === 'challenge' && pendingPlacement === idx + 1 && <PendingCard />}
+                </div>
+              ))}
+
+              {displayTimeline.length === 0 && !showDropZones && phase !== 'challenge' && (
+                <p className="text-gray-500 text-sm italic mx-auto">No cards yet</p>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Action buttons */}
         {isMyTurn && phase === 'playing' && (
@@ -998,10 +1028,12 @@ function DropZone({
   index,
   selected,
   onClick,
+  challenge,
 }: {
   index: number;
   selected: boolean;
   onClick: () => void;
+  challenge?: boolean;
 }) {
   return (
     <motion.button
@@ -1010,15 +1042,23 @@ function DropZone({
       whileTap={{ scale: 0.9 }}
       className={`flex-shrink-0 w-10 h-28 mx-1 rounded-xl border-2 border-dashed flex items-center justify-center transition-all cursor-pointer ${
         selected
-          ? 'border-[#1DB954] bg-[#1DB954]/20 shadow-[0_0_15px_rgba(29,185,84,0.3)]'
-          : 'border-white/15 hover:border-[#1DB954]/70 hover:bg-[#1DB954]/5'
+          ? challenge
+            ? 'border-red-400 bg-red-500/20 shadow-[0_0_15px_rgba(239,68,68,0.3)]'
+            : 'border-[#1DB954] bg-[#1DB954]/20 shadow-[0_0_15px_rgba(29,185,84,0.3)]'
+          : challenge
+            ? 'border-red-400/30 hover:border-red-400/70 hover:bg-red-500/10'
+            : 'border-white/15 hover:border-[#1DB954]/70 hover:bg-[#1DB954]/5'
       }`}
     >
       <div
         className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
           selected
-            ? 'bg-[#1DB954] text-black'
-            : 'bg-white/10 text-white/40'
+            ? challenge
+              ? 'bg-red-500 text-white'
+              : 'bg-[#1DB954] text-black'
+            : challenge
+              ? 'bg-red-500/20 text-red-400'
+              : 'bg-white/10 text-white/40'
         }`}
       >
         +

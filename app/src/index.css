@@ -73,6 +73,46 @@ input[type="range"]::-moz-range-track {
   background: rgba(255,255,255,0.08);
 }
 
+/* Equalizer bar animation — pure CSS, GPU-composited */
+@keyframes equalizer {
+  0%, 100% { height: 6px; }
+  25% { height: 18px; }
+  50% { height: 10px; }
+  75% { height: 22px; }
+}
+.animate-equalizer {
+  animation: equalizer 0.8s ease-in-out infinite alternate;
+}
+
+/* Music visualizer bar animation */
+@keyframes visualizer {
+  0%, 100% { height: 8px; }
+  25% { height: 28px; }
+  50% { height: 12px; }
+  75% { height: 32px; }
+}
+.animate-visualizer {
+  animation: visualizer 1.2s ease-in-out infinite alternate;
+}
+
+/* Buzz button pulse — CSS instead of framer-motion infinite */
+@keyframes buzz-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(234, 179, 8, 0); }
+  50% { transform: scale(1.03); box-shadow: 0 0 20px 4px rgba(234, 179, 8, 0.3); }
+}
+.animate-buzz-pulse {
+  animation: buzz-pulse 2s ease-in-out infinite;
+}
+
+/* Disconnect banner blink */
+@keyframes blink-opacity {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.animate-blink {
+  animation: blink-opacity 2s ease-in-out infinite;
+}
+
 /* Subtle background pattern */
 .bg-pattern {
   background-image: radial-gradient(circle at 20% 50%, rgba(29, 185, 84, 0.03) 0%, transparent 50%),

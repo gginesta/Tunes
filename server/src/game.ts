@@ -52,6 +52,8 @@ export class GameEngine {
   private roundNumber: number = 0;
   /** Callback invoked after game ends */
   private onGameEndCallback: (() => void) | null = null;
+  /** Challenger's proposed positions for the current round */
+  private challengerPositions = new Map<string, number>();
 
   constructor(room: Room, io: HitsterServer) {
     this.room = room;
@@ -122,6 +124,7 @@ export class GameEngine {
     this.deck = [];
     this.songNamed.clear();
     this.songNameCorrect.clear();
+    this.challengerPositions.clear();
     this.yearGuess = null;
     this.songHistory = [];
     this.roundNumber = 0;
@@ -245,6 +248,7 @@ export class GameEngine {
     this.room.gameState.deckSize = this.deck.length;
     this.songNamed.clear();
     this.songNameCorrect.clear();
+    this.challengerPositions.clear();
     this.yearGuess = null;
     this.turnStartTime = Date.now();
     this.roundNumber++;
@@ -330,7 +334,7 @@ export class GameEngine {
     }
   }
 
-  challenge(challengerId: string) {
+  challenge(challengerId: string, position: number) {
     const gs = this.room.gameState;
     if (gs.phase !== 'challenge') return;
     if (challengerId === gs.currentTurnPlayerId) return;
@@ -340,17 +344,24 @@ export class GameEngine {
     const player = this.room.players[challengerId];
     if (!player || player.tokens < CHALLENGE_COST) return;
 
+    // Validate position against the active player's timeline
+    const activePlayerId = gs.currentTurnPlayerId!;
+    const timeline = this.room.players[activePlayerId]?.timeline;
+    if (!timeline || position < 0 || position > timeline.length) return;
+
     if (!gs.challengers.includes(challengerId)) {
       gs.challengers.push(challengerId);
       player.tokens -= CHALLENGE_COST;
+      this.challengerPositions.set(challengerId, position);
 
       logger.info('Challenge made', {
         roomCode: this.room.code,
         challengerName: player.name,
         activePlayerId: gs.currentTurnPlayerId,
+        challengePosition: position,
       });
 
-      this.io.to(this.room.code).emit('challenge-made', { challengerId });
+      this.io.to(this.room.code).emit('challenge-made', { challengerId, position });
       this.io.to(this.room.code).emit('tokens-updated', {
         playerId: challengerId,
         tokens: player.tokens,
@@ -540,17 +551,27 @@ export class GameEngine {
       activePlayer.timeline.splice(position, 0, song);
       winnerId = activePlayerId;
     } else if (gs.challengers.length > 0) {
-      // First challenger gets the card
-      const stealerId = gs.challengers[0];
-      const stealer = this.room.players[stealerId];
-      this.insertCardInTimeline(stealer.timeline, song);
-      stolenBy = stealerId;
-      winnerId = stealerId;
+      // Find the first challenger who picked the correct position
+      let stealerId: string | null = null;
+      for (const cid of gs.challengers) {
+        const challengePos = this.challengerPositions.get(cid);
+        if (challengePos != null && this.isPlacementCorrect(timeline, song, challengePos)) {
+          stealerId = cid;
+          break;
+        }
+      }
+      if (stealerId) {
+        const stealer = this.room.players[stealerId];
+        this.insertCardInTimeline(stealer.timeline, song);
+        stolenBy = stealerId;
+        winnerId = stealerId;
 
-      this.io.to(this.room.code).emit('timeline-updated', {
-        playerId: stealerId,
-        timeline: stealer.timeline,
-      });
+        this.io.to(this.room.code).emit('timeline-updated', {
+          playerId: stealerId,
+          timeline: stealer.timeline,
+        });
+      }
+      // If no challenger picked the correct position, card is discarded
     }
     // If incorrect and no challengers, card is discarded
 
@@ -566,6 +587,18 @@ export class GameEngine {
 
     gs.phase = 'reveal';
 
+    // Build per-challenger result feedback
+    const challengeResults: Record<string, { position: number; correct: boolean }> = {};
+    for (const cid of gs.challengers) {
+      const pos = this.challengerPositions.get(cid);
+      if (pos != null) {
+        challengeResults[cid] = {
+          position: pos,
+          correct: this.isPlacementCorrect(timeline, song, pos),
+        };
+      }
+    }
+
     this.io.to(this.room.code).emit('reveal', {
       song,
       correct,
@@ -576,6 +609,7 @@ export class GameEngine {
         songNamed: activePlayerNamedSong,
         yearCorrect,
       },
+      challengeResults: Object.keys(challengeResults).length > 0 ? challengeResults : undefined,
     });
 
     // Record song history entry
