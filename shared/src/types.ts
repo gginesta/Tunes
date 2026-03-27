@@ -59,6 +59,7 @@ export interface Room {
   code: string;
   players: Record<string, Player>;
   hostId: string;
+  originalHostId: string;
   settings: GameSettings;
   gameState: GameState;
 }

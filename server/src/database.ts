@@ -156,6 +156,7 @@ export function loadRoom(code: string): { room: Room; spotifyToken: string | nul
     room: {
       code: row.code,
       hostId: row.host_id,
+      originalHostId: row.host_id,
       settings: JSON.parse(row.settings),
       gameState: JSON.parse(row.game_state),
       players: JSON.parse(row.players),
@@ -171,6 +172,7 @@ export function loadAllRooms(): { room: Room; spotifyToken: string | null }[] {
     room: {
       code: row.code,
       hostId: row.host_id,
+      originalHostId: row.host_id,
       settings: JSON.parse(row.settings),
       gameState: JSON.parse(row.game_state),
       players: JSON.parse(row.players),

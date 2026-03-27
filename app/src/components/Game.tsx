@@ -568,7 +568,7 @@ export function Game() {
       </AnimatePresence>
 
       {/* Center Area */}
-      <div className="flex-1 flex flex-col items-center justify-center p-6 relative overflow-y-auto">
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-3 relative overflow-y-auto">
         <AnimatePresence mode="wait">
           {isRevealed ? (
             <motion.div
@@ -576,7 +576,7 @@ export function Game() {
               initial={{ scale: 0.8, opacity: 0, y: 50 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.8, opacity: 0, y: -50 }}
-              className={`w-60 aspect-square rounded-3xl p-6 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl bg-gradient-to-br ${
+              className={`w-52 aspect-square rounded-3xl p-5 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl bg-gradient-to-br ${
                 lastReveal!.correct
                   ? 'from-green-500 to-emerald-700 shadow-green-500/40'
                   : 'from-red-500 to-rose-700 shadow-red-500/40'
@@ -649,7 +649,7 @@ export function Game() {
               initial={{ scale: 0.8, opacity: 0, y: 50 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.8, opacity: 0, y: -50 }}
-              className="w-60 aspect-square rounded-3xl p-6 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl shadow-indigo-900/50 bg-gradient-to-br from-blue-600 to-indigo-900"
+              className="w-52 aspect-square rounded-3xl p-5 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl shadow-indigo-900/50 bg-gradient-to-br from-blue-600 to-indigo-900"
             >
               <div className="absolute -right-12 -bottom-12 opacity-20">
                 <Disc className="w-48 h-48" />
@@ -751,7 +751,7 @@ export function Game() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mt-8 w-full max-w-xs space-y-3"
+            className="mt-5 w-full max-w-xs space-y-3"
           >
             {songNamingRequired && (
               <div className={`text-center text-xs font-bold px-3 py-1.5 rounded-xl border ${
@@ -820,7 +820,7 @@ export function Game() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mt-8 text-center w-full max-w-sm"
+            className="mt-5 text-center w-full max-w-sm"
           >
             <p className="text-gray-400 mb-2">
               {activePlayer.name} placed the card. Think it's wrong?
@@ -849,16 +849,16 @@ export function Game() {
         )}
 
         {!isMyTurn && phase === 'challenge' && !isCoop && challengers.includes(myId) && (
-          <p className="mt-8 text-[#1DB954] font-medium">Challenge submitted!</p>
+          <p className="mt-5 text-[#1DB954] font-medium">Challenge submitted!</p>
         )}
 
         {!isMyTurn && phase === 'challenge' && !isCoop && noChallengeClicked && !challengers.includes(myId) && (
-          <p className="mt-8 text-gray-500 font-medium">No challenge — waiting for timer...</p>
+          <p className="mt-5 text-gray-500 font-medium">No challenge — waiting for timer...</p>
         )}
 
         {/* Active player sees countdown too during challenge */}
         {isMyTurn && phase === 'challenge' && !isCoop && (
-          <p className="mt-8 text-gray-400 font-medium">
+          <p className="mt-5 text-gray-400 font-medium">
             Waiting for challenges...
           </p>
         )}
@@ -877,12 +877,12 @@ export function Game() {
 
       {/* Bottom: Timeline + Actions */}
       <div
-        className={`bg-black/60 border-t border-white/10 p-4 transition-opacity duration-500 ${
+        className={`bg-black/60 border-t border-white/10 px-4 pt-3 pb-4 transition-opacity duration-500 ${
           !isMyTurn && phase !== 'reveal' && phase !== 'challenge' ? 'opacity-60' : ''
         }`}
       >
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-gray-300 uppercase tracking-widest text-sm">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-bold text-gray-300 uppercase tracking-widest text-xs">
             {isCoop
               ? 'Team Timeline'
               : isMyTurn
@@ -910,11 +910,18 @@ export function Game() {
           const dropSelection = showPlacementDropZones ? selectedPosition : challengePosition;
           const dropOnClick = showPlacementDropZones
             ? (i: number) => setSelectedPosition(i)
-            : (i: number) => setChallengePosition(i);
+            : (i: number) => {
+                // Don't allow challenging at the same position as the active player's placement
+                if (pendingPlacement !== null && i === pendingPlacement) return;
+                setChallengePosition(i);
+              };
+
+          // During challenge, hide the drop zone at the active player's placement position
+          const isBlockedPosition = (i: number) => showChallengeDropZones && pendingPlacement !== null && i === pendingPlacement;
 
           return (
             <div ref={timelineRef} className="flex overflow-x-auto pb-3 hide-scrollbar items-center min-h-[140px]">
-              {showDropZones && (
+              {showDropZones && !isBlockedPosition(0) && (
                 <DropZone
                   index={0}
                   selected={dropSelection === 0}
@@ -929,7 +936,7 @@ export function Game() {
               {displayTimeline.map((card, idx) => (
                 <div key={card.id} className="flex items-center">
                   <TimelineCard card={card} />
-                  {showDropZones && (
+                  {showDropZones && !isBlockedPosition(idx + 1) && (
                     <DropZone
                       index={idx + 1}
                       selected={dropSelection === idx + 1}

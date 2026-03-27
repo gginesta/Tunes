@@ -216,6 +216,7 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
       code,
       players: { [playerId]: player },
       hostId: playerId,
+      originalHostId: playerId,
       settings: { mode: 'original', cardsToWin: DEFAULT_CARDS_TO_WIN, songPack: 'standard' },
       gameState: createDefaultGameState(),
     };
@@ -309,6 +310,17 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
 
     // Cancel any pending room cleanup (player came back)
     cancelRoomCleanup(upperCode);
+
+    // Restore host role if this is the original host (e.g. they have Spotify connected)
+    if (playerId === room.originalHostId && room.hostId !== playerId) {
+      const currentHost = room.players[room.hostId];
+      if (currentHost) {
+        currentHost.isHost = false;
+      }
+      room.hostId = playerId;
+      player.isHost = true;
+      logger.info('Original host restored', { code: upperCode, playerId, name: player.name });
+    }
 
     logger.info('Player rejoined', { code: upperCode, playerId, name: player.name });
 

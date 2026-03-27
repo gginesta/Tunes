@@ -86,7 +86,7 @@ export function WaitingState() {
   };
 
   return (
-    <div className="mt-6 flex flex-col items-center w-full max-w-md mx-auto px-4">
+    <div className="mt-4 flex flex-col items-center w-full max-w-md mx-auto px-4">
       {/* Music visualizer */}
       <MusicVisualizer />
 
