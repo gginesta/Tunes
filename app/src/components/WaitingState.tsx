@@ -14,19 +14,10 @@ function MusicVisualizer() {
   return (
     <div className="flex items-end justify-center gap-1 h-10 mb-4">
       {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
-        <motion.div
+        <div
           key={i}
-          className="w-1.5 rounded-full bg-gradient-to-t from-purple-500 to-pink-400"
-          animate={{
-            height: [8, 28 + Math.random() * 12, 12, 32 + Math.random() * 8, 10],
-          }}
-          transition={{
-            duration: 1.2,
-            repeat: Infinity,
-            repeatType: 'reverse',
-            delay: i * 0.08,
-            ease: 'easeInOut',
-          }}
+          className="w-1.5 rounded-full bg-gradient-to-t from-purple-500 to-pink-400 animate-visualizer"
+          style={{ animationDelay: `${i * 0.08}s` }}
         />
       ))}
     </div>
@@ -130,35 +121,18 @@ export function WaitingState() {
       </div>
 
       {/* Buzz button */}
-      <motion.button
+      <button
         onClick={handleBuzz}
         disabled={hasBuzzed}
         className={`w-full py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 border-2 transition-all duration-200 ${
           hasBuzzed
             ? 'bg-yellow-500/20 border-yellow-500/40 text-yellow-400/60 cursor-not-allowed'
-            : 'bg-gradient-to-r from-yellow-500 to-orange-500 border-yellow-400 text-black hover:from-yellow-400 hover:to-orange-400'
+            : 'bg-gradient-to-r from-yellow-500 to-orange-500 border-yellow-400 text-black hover:from-yellow-400 hover:to-orange-400 animate-buzz-pulse'
         }`}
-        animate={
-          !hasBuzzed
-            ? {
-                scale: [1, 1.03, 1],
-                boxShadow: [
-                  '0 0 0 0 rgba(234, 179, 8, 0)',
-                  '0 0 20px 4px rgba(234, 179, 8, 0.3)',
-                  '0 0 0 0 rgba(234, 179, 8, 0)',
-                ],
-              }
-            : {}
-        }
-        transition={
-          !hasBuzzed
-            ? { duration: 2, repeat: Infinity, ease: 'easeInOut' }
-            : {}
-        }
       >
         <Zap className="w-6 h-6" />
         {hasBuzzed ? 'Buzzed!' : 'I Know This!'}
-      </motion.button>
+      </button>
 
       {/* Buzzed players */}
       {buzzedPlayers.length > 0 && (

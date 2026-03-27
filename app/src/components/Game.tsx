@@ -56,18 +56,13 @@ function Equalizer({ animate }: { animate: boolean }) {
   return (
     <div className="flex items-end gap-[3px] h-6">
       {[0, 1, 2, 3, 4].map((i) => (
-        <motion.div
+        <div
           key={i}
-          className="w-[3px] bg-[#1DB954] rounded-full"
-          animate={animate ? {
-            height: [6, 18, 10, 22, 8],
-          } : { height: 6 }}
-          transition={animate ? {
-            duration: 0.8,
-            repeat: Infinity,
-            repeatType: 'reverse',
-            delay: i * 0.1,
-          } : {}}
+          className={`w-[3px] bg-[#1DB954] rounded-full ${animate ? 'animate-equalizer' : ''}`}
+          style={{
+            height: animate ? undefined : 6,
+            animationDelay: animate ? `${i * 0.12}s` : undefined,
+          }}
         />
       ))}
     </div>
@@ -131,7 +126,7 @@ export function Game() {
       setCountdown(remaining);
     };
     tick();
-    const interval = setInterval(tick, 100);
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
   }, [phase, challengeDeadline]);
 
@@ -147,7 +142,7 @@ export function Game() {
       setTurnCountdown(remaining);
     };
     tick();
-    const interval = setInterval(tick, 100);
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
   }, [phase, turnDeadline]);
 
@@ -167,7 +162,7 @@ export function Game() {
       setDisconnectCountdowns(countdowns);
     };
     tick();
-    const interval = setInterval(tick, 500);
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
   }, [disconnectedPlayers]);
 
@@ -425,7 +420,7 @@ export function Game() {
       </AnimatePresence>
 
       {/* Top Bar — Row 1: Turn info + controls */}
-      <div className="bg-black/40 backdrop-blur-xl border-b border-white/5 z-10">
+      <div className="bg-black/60 border-b border-white/5 z-10">
         <div className="flex justify-between items-center px-3 py-2">
           <div className="flex items-center gap-2 min-w-0">
             <p className="font-bold text-[#1DB954] text-base truncate">
@@ -561,16 +556,12 @@ export function Game() {
                   : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'
               }`}
             >
-              <motion.div
-                animate={{ opacity: [1, 0.6, 1] }}
-                transition={{ duration: 2, repeat: Infinity }}
-                className="flex items-center justify-center gap-2"
-              >
+              <div className="flex items-center justify-center gap-2 animate-blink">
                 <AlertTriangle className="w-4 h-4 flex-shrink-0" />
                 <span>
                   {dcPlayer.name} disconnected{isTheirTurn ? ' (their turn)' : ''} &mdash; waiting {secs}s...
                 </span>
-              </motion.div>
+              </div>
             </motion.div>
           );
         })}
@@ -886,7 +877,7 @@ export function Game() {
 
       {/* Bottom: Timeline + Actions */}
       <div
-        className={`bg-black/40 backdrop-blur-xl border-t border-white/10 p-4 transition-opacity duration-500 ${
+        className={`bg-black/60 border-t border-white/10 p-4 transition-opacity duration-500 ${
           !isMyTurn && phase !== 'reveal' && phase !== 'challenge' ? 'opacity-60' : ''
         }`}
       >
