@@ -466,35 +466,35 @@ export function Game() {
           </div>
         </div>
 
-        {/* Row 2: Player scores with tokens */}
-        <div className="flex justify-center gap-1 px-3 pb-2 overflow-x-auto hide-scrollbar">
+        {/* Row 2: Player scores — large and readable */}
+        <div className="flex justify-center gap-2 px-3 pb-2 overflow-x-auto hide-scrollbar">
           {isCoop ? (
-            <div className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-1">
-              <span className="text-sm font-black text-green-400 tabular-nums">
+            <div className="flex items-center gap-2 bg-white/5 rounded-xl px-4 py-2">
+              <span className="text-lg font-black text-green-400 tabular-nums">
                 {sharedTimeline.length}/{settings.cardsToWin}
               </span>
-              <span className="text-xs text-gray-400">Team</span>
+              <span className="text-sm text-gray-400">Team</span>
             </div>
           ) : (
             playerList.map((p) => (
               <div
                 key={p.id}
-                className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-all ${
+                className={`flex flex-col items-center rounded-xl px-3 py-1.5 min-w-[60px] transition-all ${
                   p.id === currentTurnPlayerId
                     ? 'bg-[#1DB954]/15 border border-[#1DB954]/30'
                     : 'bg-white/5'
                 }`}
               >
-                <span className={`font-bold truncate max-w-[60px] ${
+                <span className={`text-xs font-bold truncate max-w-[70px] ${
                   p.id === currentTurnPlayerId ? 'text-[#1DB954]' : 'text-gray-400'
                 }`}>
                   {p.id === myId ? 'You' : p.name}
                 </span>
-                <span className="font-black tabular-nums text-white">
-                  {p.timeline.length}/{settings.cardsToWin}
+                <span className="text-lg font-black tabular-nums text-white leading-tight">
+                  {p.timeline.length}<span className="text-white/40 text-sm">/{settings.cardsToWin}</span>
                 </span>
-                <span className="text-yellow-400 tabular-nums" title="Tokens">
-                  {p.tokens}T
+                <span className="text-[10px] text-yellow-400 font-bold tabular-nums leading-tight" title="Tokens">
+                  {p.tokens} tokens
                 </span>
               </div>
             ))

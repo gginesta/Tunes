@@ -467,6 +467,8 @@ export class GameEngine {
 
   confirmReveal(playerId: string) {
     if (this.room.gameState.phase === 'reveal' && playerId === this.room.hostId) {
+      // Set phase immediately to prevent double-tap from calling advanceTurn twice
+      this.room.gameState.phase = 'playing';
       this.advanceTurn();
     }
   }

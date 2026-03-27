@@ -212,10 +212,10 @@ export function useSpotifyPlayer() {
     }
   }, [isHost, spotifyToken, spotifyReady, currentTrackId, phase, attemptPlayTrack]);
 
-  // Auto-pause on challenge/reveal/game_over
+  // Auto-pause on reveal/game_over (keep music playing during challenge)
   useEffect(() => {
     if (!isHost) return;
-    if (phase === 'challenge' || phase === 'reveal' || phase === 'game_over') {
+    if (phase === 'reveal' || phase === 'game_over') {
       pause();
       pauseFallback();
     }

@@ -29,6 +29,7 @@ export function WaitingState() {
   const buzzedPlayers = useGameStore((s) => s.buzzedPlayers);
   const myId = useGameStore((s) => s.myId);
   const currentTurnPlayerId = useGameStore((s) => s.currentTurnPlayerId);
+  const triviaScore = useGameStore((s) => s.triviaScore);
 
   const [question, setQuestion] = useState<TriviaQuestion>(() => getRandomQuestion());
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
@@ -60,6 +61,7 @@ export function WaitingState() {
     if (showResult) return;
     setSelectedAnswer(index);
     setShowResult(true);
+    useGameStore.getState().addTriviaAnswer(index === question.correctIndex);
     triviaTimeoutRef.current = setTimeout(loadNextQuestion, 2000);
   };
 
@@ -90,9 +92,14 @@ export function WaitingState() {
 
       {/* Trivia section */}
       <div className="w-full bg-white/5 rounded-2xl border border-white/10 p-5 mb-5">
-        <p className="text-xs uppercase tracking-widest text-purple-400 font-semibold mb-3">
-          Music Trivia
-        </p>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs uppercase tracking-widest text-purple-400 font-semibold">
+            Music Trivia
+          </p>
+          <span className="text-xs font-bold text-purple-400/70 tabular-nums">
+            {triviaScore.correct}/{triviaScore.total}
+          </span>
+        </div>
         <AnimatePresence mode="wait">
           <motion.div
             key={question.question}

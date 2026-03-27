@@ -157,6 +157,17 @@ export function playTurnSound(): void {
   navigator.vibrate?.(200);
 }
 
+/** Annoying buzz alert for active player — obnoxious repeated buzzer */
+export function playBuzzAlertSound(): void {
+  playTones([
+    { frequency: NOTE.E5, type: 'sawtooth', duration: 0.08, startTime: 0, volume: 0.6 },
+    { frequency: NOTE.E5, type: 'sawtooth', duration: 0.08, startTime: 0.12, volume: 0.6 },
+    { frequency: NOTE.E5, type: 'sawtooth', duration: 0.08, startTime: 0.24, volume: 0.6 },
+  ]);
+  // Annoying vibration pattern: buzz-buzz-buzz
+  navigator.vibrate?.([100, 50, 100, 50, 100]);
+}
+
 /** Game start — ascending arpeggio (C4 → E4 → G4 → C5), sine wave, 100ms each */
 export function playStartSound(): void {
   playTones([

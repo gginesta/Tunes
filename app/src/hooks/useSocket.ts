@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { getSocket, saveSession, getSession, clearSession } from '../services/socket';
 import { useGameStore } from '../store';
-import { playBuzzSound, playTurnSound } from '../services/sounds';
+import { playBuzzSound, playBuzzAlertSound, playTurnSound } from '../services/sounds';
 
 export function useSocket() {
   useEffect(() => {
@@ -69,6 +69,7 @@ export function useSocket() {
       store.setCurrentTurnPlayerId(gameState.currentTurnPlayerId);
       store.setDeckSize(gameState.deckSize);
       store.setLastReveal(null);
+      useGameStore.setState({ triviaScore: { correct: 0, total: 0 } });
       store.setScreen('game');
 
       // Request notification permission for background turn alerts
@@ -203,8 +204,14 @@ export function useSocket() {
     });
 
     socket.on('player-buzzed', ({ playerId }) => {
-      useGameStore.getState().addBuzzedPlayer(playerId);
-      playBuzzSound();
+      const store = useGameStore.getState();
+      store.addBuzzedPlayer(playerId);
+      // Annoying alert for the active player, normal sound for others
+      if (store.currentTurnPlayerId === store.myId) {
+        playBuzzAlertSound();
+      } else {
+        playBuzzSound();
+      }
     });
 
     socket.on('leaderboard', ({ entries }) => {

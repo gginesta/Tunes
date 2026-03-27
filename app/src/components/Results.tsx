@@ -82,6 +82,7 @@ export function Results() {
   const hostId = useGameStore((s) => s.hostId);
   const reset = useGameStore((s) => s.reset);
   const gameStats = useGameStore((s) => s.gameStats);
+  const triviaScore = useGameStore((s) => s.triviaScore);
 
   const [showHistory, setShowHistory] = useState(false);
 
@@ -222,6 +223,33 @@ export function Results() {
 
       {/* Awards */}
       {gameStats && <Awards gameStats={gameStats} players={finalPlayers} />}
+
+      {/* Trivia score — useless but fun */}
+      {triviaScore.total > 0 && (
+        <div className="w-full max-w-md mx-auto mt-6">
+          <div className="flex items-center gap-3 p-4 rounded-2xl border border-purple-500/20 bg-gradient-to-r from-purple-500/10 to-pink-500/5">
+            <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center shrink-0 text-purple-400">
+              🧠
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs text-gray-400 font-semibold uppercase tracking-wide">
+                Useless Trivia Score
+              </div>
+              <div className="font-bold text-sm text-purple-300">
+                {triviaScore.correct}/{triviaScore.total} correct
+                {triviaScore.total >= 3 && (
+                  <span className="text-gray-500 ml-1">
+                    ({Math.round((triviaScore.correct / triviaScore.total) * 100)}%)
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="text-xs text-gray-500 font-bold whitespace-nowrap">
+              Worth nothing
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Action buttons */}
       <div className="mt-8 w-full max-w-md mx-auto space-y-3 pb-4">

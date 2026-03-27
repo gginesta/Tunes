@@ -79,6 +79,9 @@ interface GameStore {
   currentPreviewUrl: string | null;
 
 
+  // Trivia
+  triviaScore: { correct: number; total: number };
+
   // Buzz
   buzzedPlayers: string[];
   // Disconnect grace period
@@ -138,6 +141,7 @@ interface GameStore {
   setSongHistory: (history: PlayedSong[]) => void;
   addBuzzedPlayer: (id: string) => void;
   clearBuzzedPlayers: () => void;
+  addTriviaAnswer: (correct: boolean) => void;
   setLeaderboard: (entries: LeaderboardEntry[]) => void;
   setMyStats: (stats: LeaderboardEntry | null) => void;
   setMyHistory: (games: GameHistoryEntry[]) => void;
@@ -181,6 +185,7 @@ const initialState = {
   autoplayBlocked: false,
   currentTrackId: null as string | null,
   currentPreviewUrl: null as string | null,
+  triviaScore: { correct: 0, total: 0 },
   buzzedPlayers: [] as string[],
   disconnectedPlayers: {} as Record<string, number>,
   lastReveal: null,
@@ -272,6 +277,13 @@ export const useGameStore = create<GameStore>((set) => ({
       buzzedPlayers: s.buzzedPlayers.includes(id) ? s.buzzedPlayers : [...s.buzzedPlayers, id],
     })),
   clearBuzzedPlayers: () => set({ buzzedPlayers: [] }),
+  addTriviaAnswer: (correct) =>
+    set((s) => ({
+      triviaScore: {
+        correct: s.triviaScore.correct + (correct ? 1 : 0),
+        total: s.triviaScore.total + 1,
+      },
+    })),
   setLeaderboard: (leaderboard) => set({ leaderboard }),
   setMyStats: (myStats) => set({ myStats }),
   setMyHistory: (myHistory) => set({ myHistory }),
