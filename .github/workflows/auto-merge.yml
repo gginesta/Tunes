@@ -1,7 +1,7 @@
 name: Auto-merge feature branch
 on:
   push:
-    branches: [claude/hitster-spotify-game-*]
+    branches: [claude/tunes-*]
 jobs:
   merge:
     runs-on: ubuntu-latest
