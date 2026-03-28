@@ -340,7 +340,7 @@ export interface GameSettings {
 
 ## Feature 9: Shareable Invite Links
 
-**Goal:** Generate links like `hitster.app/join/ABCD` for easy sharing.
+**Goal:** Generate links like `tunes.app/join/ABCD` for easy sharing.
 
 ### Changes
 
