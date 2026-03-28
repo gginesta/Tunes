@@ -19,7 +19,7 @@ export async function playPreviewUrl(url: string): Promise<boolean> {
       audio.addEventListener('pause', () => onStateChange?.(true));
       audio.addEventListener('ended', () => onStateChange?.(true));
       audio.addEventListener('error', (e) => {
-        console.error('[Hitster] Audio fallback error:', e);
+        console.error('[Tunes] Audio fallback error:', e);
         onStateChange?.(true);
       });
     }
@@ -28,10 +28,10 @@ export async function playPreviewUrl(url: string): Promise<boolean> {
     audio.currentTime = 0;
     audio.volume = currentVolume;
     await audio.play();
-    console.log('[Hitster] Fallback audio playing preview URL');
+    console.log('[Tunes] Fallback audio playing preview URL');
     return true;
   } catch (err) {
-    console.error('[Hitster] Fallback audio play failed:', err);
+    console.error('[Tunes] Fallback audio play failed:', err);
     return false;
   }
 }

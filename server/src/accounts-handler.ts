@@ -1,14 +1,14 @@
 import { Socket } from 'socket.io';
-import type { ClientToServerEvents, ServerToClientEvents } from '@hitster/shared';
+import type { ClientToServerEvents, ServerToClientEvents } from '@tunes/shared';
 import { createAccount, login } from './accounts';
 import { logger } from './logger';
 
-type HitsterSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
+type TunesSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
 /** Maps socket IDs to authenticated usernames */
 export const socketToUsername = new Map<string, string>();
 
-export function registerAuthHandlers(socket: HitsterSocket) {
+export function registerAuthHandlers(socket: TunesSocket) {
   socket.on('register', ({ username, password, displayName }) => {
     const result = createAccount(username, password, displayName);
     if (result.success) {
