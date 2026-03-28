@@ -56,10 +56,10 @@ export default function App() {
     initPlayer(getToken, {
       onReady: (_deviceId) => {
         useGameStore.setState({ spotifyDeviceId: _deviceId, spotifyError: null });
-        console.log('[Hitster] SDK ready (early init), waiting for device confirmation...');
+        console.log('[Tunes] SDK ready (early init), waiting for device confirmation...');
       },
       onDeviceConfirmed: () => {
-        console.log('[Hitster] Device confirmed (early init) — ready to play!');
+        console.log('[Tunes] Device confirmed (early init) — ready to play!');
         useGameStore.setState({ spotifyReady: true, spotifyError: null });
       },
       onNotReady: () => {

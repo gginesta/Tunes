@@ -6,7 +6,7 @@ import { openSpotifyLogin, refreshAccessToken } from '../services/spotify';
 import { useGameStore } from '../store';
 
 export function Home() {
-  const [name, setName] = useState(() => localStorage.getItem('hitster_display_name') || '');
+  const [name, setName] = useState(() => localStorage.getItem('tunes_display_name') || '');
   const [mode, setMode] = useState<'idle' | 'host' | 'join'>('idle');
   const [code, setCode] = useState(['', '', '', '']);
   const [connecting, setConnecting] = useState(false);
@@ -14,7 +14,7 @@ export function Home() {
   const [authUsername, setAuthUsername] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
-  const [signedInAs, setSignedInAs] = useState<string | null>(() => localStorage.getItem('hitster_username'));
+  const [signedInAs, setSignedInAs] = useState<string | null>(() => localStorage.getItem('tunes_username'));
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
   const error = useGameStore((s) => s.error);
   const connected = useGameStore((s) => s.connected);
@@ -26,11 +26,11 @@ export function Home() {
   const handleAuthResult = useCallback((data: { success: boolean; error?: string; displayName?: string }) => {
     setAuthLoading(false);
     if (data.success) {
-      localStorage.setItem('hitster_username', authUsername);
+      localStorage.setItem('tunes_username', authUsername);
       setSignedInAs(authUsername);
       if (data.displayName) {
         setName(data.displayName);
-        localStorage.setItem('hitster_display_name', data.displayName);
+        localStorage.setItem('tunes_display_name', data.displayName);
       }
       setAuthMode('none');
       setAuthPassword('');
@@ -74,8 +74,8 @@ export function Home() {
   };
 
   const handleSignOut = () => {
-    localStorage.removeItem('hitster_username');
-    localStorage.removeItem('hitster_display_name');
+    localStorage.removeItem('tunes_username');
+    localStorage.removeItem('tunes_display_name');
     setSignedInAs(null);
     setName('');
     setError(null);
@@ -174,7 +174,7 @@ export function Home() {
           <Music className="w-20 h-20 text-[#1DB954] relative z-10" />
         </div>
         <h1 className="text-5xl font-black tracking-tighter bg-gradient-to-r from-white via-white to-gray-400 bg-clip-text text-transparent">
-          HITSTER
+          TUNES
         </h1>
         <p className="text-gray-500 mt-1 font-medium tracking-widest uppercase text-xs">
           The Music Party Game

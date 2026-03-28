@@ -5,8 +5,8 @@ import { getSocket, clearSession } from '../services/socket';
 import { useGameStore } from '../store';
 import { requestActivation, preUnlockAudio } from '../services/spotifyPlayer';
 import { refreshAccessToken } from '../services/spotify';
-import type { GameMode, SongPack, SongGenre, SongRegion } from '@hitster/shared';
-import { MIN_CARDS_TO_WIN, MAX_CARDS_TO_WIN, MIN_PLAYERS } from '@hitster/shared';
+import type { GameMode, SongPack, SongGenre, SongRegion } from '@tunes/shared';
+import { MIN_CARDS_TO_WIN, MAX_CARDS_TO_WIN, MIN_PLAYERS } from '@tunes/shared';
 
 const AVAILABLE_DECADES = [
   { value: 1950, label: '50s' },
@@ -86,7 +86,7 @@ export function Lobby() {
     try {
       // Use native share sheet on mobile — opens as overlay, no app switch needed
       if (navigator.share) {
-        await navigator.share({ title: 'Join my Hitster game!', text: `Room code: ${roomCode}`, url: link });
+        await navigator.share({ title: 'Join my Tunes game!', text: `Room code: ${roomCode}`, url: link });
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       } else {

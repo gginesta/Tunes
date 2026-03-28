@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import type { SongCard, SongData } from '@hitster/shared';
-import { DECK_SIZE } from '@hitster/shared';
+import type { SongCard, SongData } from '@tunes/shared';
+import { DECK_SIZE } from '@tunes/shared';
 import { logger } from './logger';
 import { fisherYatesShuffle } from './shuffle';
 

@@ -14,7 +14,7 @@ export function useSocket() {
       // Auto-rejoin room after reconnect
       const session = getSession();
       if (session) {
-        console.log('[Hitster] Reconnected — attempting rejoin', session.roomCode);
+        console.log('[Tunes] Reconnected — attempting rejoin', session.roomCode);
         socket.emit('rejoin-room', {
           code: session.roomCode,
           playerId: session.playerId,
@@ -92,7 +92,7 @@ export function useSocket() {
       if (turnPlayerId === store.myId) {
         playTurnSound();
         if (document.hidden && Notification.permission === 'granted') {
-          new Notification('Hitster', { body: "It's your turn!", icon: '/favicon.ico' });
+          new Notification('Tunes', { body: "It's your turn!", icon: '/favicon.ico' });
         }
       }
     });

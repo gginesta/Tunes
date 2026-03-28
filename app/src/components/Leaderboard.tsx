@@ -7,7 +7,7 @@ import { useGameStore } from '../store';
 export function Leaderboard() {
   const leaderboard = useGameStore((s) => s.leaderboard);
   const setScreen = useGameStore((s) => s.setScreen);
-  const signedInAs = localStorage.getItem('hitster_username');
+  const signedInAs = localStorage.getItem('tunes_username');
 
   useEffect(() => {
     const socket = getSocket();

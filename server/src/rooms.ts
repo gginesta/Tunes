@@ -7,7 +7,7 @@ import type {
   Player,
   GameState,
   GameSettings,
-} from '@hitster/shared';
+} from '@tunes/shared';
 import {
   MAX_PLAYERS,
   MIN_PLAYERS,
@@ -16,8 +16,8 @@ import {
   DEFAULT_CARDS_TO_WIN,
   MIN_CARDS_TO_WIN,
   MAX_CARDS_TO_WIN,
-} from '@hitster/shared';
-import type { GameMode } from '@hitster/shared';
+} from '@tunes/shared';
+import type { GameMode } from '@tunes/shared';
 
 const VALID_GAME_MODES: GameMode[] = ['original', 'pro', 'expert', 'coop'];
 import { GameEngine } from './game';
@@ -27,8 +27,8 @@ import type { SaveGameParticipant } from './database';
 import { socketToUsername } from './accounts-handler';
 import { logger } from './logger';
 
-type HitsterSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
-type HitsterServer = Server<ClientToServerEvents, ServerToClientEvents>;
+type TunesSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
+type TunesServer = Server<ClientToServerEvents, ServerToClientEvents>;
 
 const rooms = new Map<string, Room>();
 const games = new Map<string, GameEngine>();
@@ -160,7 +160,7 @@ function setupGameEndHook(engine: GameEngine, roomCode: string): void {
  * Load all rooms from the database on server startup.
  * GameEngine instances are recreated for rooms with active games.
  */
-export function restoreRoomsFromDatabase(io: HitsterServer): void {
+export function restoreRoomsFromDatabase(io: TunesServer): void {
   const saved = loadAllRooms();
   for (const { room, spotifyToken } of saved) {
     rooms.set(room.code, room);
@@ -192,7 +192,7 @@ export function restoreRoomsFromDatabase(io: HitsterServer): void {
   logger.info('Room restoration complete', { count: saved.length });
 }
 
-export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
+export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
   socket.on('create-room', ({ playerName, spotifyAccessToken }) => {
     const trimmedName = (playerName || '').trim();
     if (trimmedName.length < 1 || trimmedName.length > 30) {
@@ -435,7 +435,7 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
         songPack: room.settings.songPack,
       });
       const { songPack, decades, genres, regions, playlistUrl } = room.settings;
-      let deck: import('@hitster/shared').SongCard[];
+      let deck: import('@tunes/shared').SongCard[];
 
       if (songPack === 'playlist') {
         // Validate playlist URL is provided
@@ -656,7 +656,7 @@ export function registerRoomHandlers(io: HitsterServer, socket: HitsterSocket) {
   });
 }
 
-function getEngine(socket: HitsterSocket): GameEngine | null {
+function getEngine(socket: TunesSocket): GameEngine | null {
   const mapping = socketToRoom.get(socket.id);
   if (!mapping) return null;
   return games.get(mapping.code) || null;
@@ -671,7 +671,7 @@ function cancelRoomCleanup(code: string): void {
   }
 }
 
-function handleLeave(io: HitsterServer, socket: HitsterSocket, voluntary: boolean = false) {
+function handleLeave(io: TunesServer, socket: TunesSocket, voluntary: boolean = false) {
   const mapping = socketToRoom.get(socket.id);
   if (!mapping) return;
 

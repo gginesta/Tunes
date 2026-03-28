@@ -1,6 +1,6 @@
-# Hitster
+# Tunes
 
-A real-time multiplayer music party game where players compete to build a chronological timeline of hit songs. Inspired by the popular Hitster card game, powered by Spotify.
+A real-time multiplayer music party game where players compete to build a chronological timeline of hit songs. Inspired by the popular Tunes card game, powered by Spotify.
 
 ## How It Works
 
@@ -49,7 +49,7 @@ A real-time multiplayer music party game where players compete to build a chrono
 ## Project Structure
 
 ```
-hitster/
+tunes/
 ├── app/                    # React frontend
 │   └── src/
 │       ├── components/     # Home, Lobby, Game, Results, Rules screens
@@ -73,7 +73,7 @@ hitster/
 │       └── events.ts       # Typed client/server Socket.io events
 └── data/
     ├── songs.json          # Song database
-    └── hitster.db          # SQLite database (created at runtime)
+    └── tunes.db          # SQLite database (created at runtime)
 ```
 
 ## Getting Started

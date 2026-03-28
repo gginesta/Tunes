@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 import { getSocket } from '../services/socket';
 import { clearSession } from '../services/socket';
 import { useGameStore } from '../store';
-import type { GameStats, PlayerStats } from '@hitster/shared';
+import type { GameStats, PlayerStats } from '@tunes/shared';
 import { SongHistory } from './SongHistory';
 
 const ORDINALS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];

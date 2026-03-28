@@ -5,7 +5,7 @@ import { getSocket } from '../services/socket';
 import { useGameStore } from '../store';
 import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
 import { preUnlockAudio, activateElement, resume } from '../services/spotifyPlayer';
-import { SKIP_COST, CHALLENGE_COST, BUY_CARD_COST } from '@hitster/shared';
+import { SKIP_COST, CHALLENGE_COST, BUY_CARD_COST } from '@tunes/shared';
 import {
   playCorrectSound,
   playWrongSound,
@@ -16,7 +16,7 @@ import {
   isMuted,
   toggleMute,
 } from '../services/sounds';
-import type { SongCard, GameMode } from '@hitster/shared';
+import type { SongCard, GameMode } from '@tunes/shared';
 import { SongHistory } from './SongHistory';
 import { WaitingState } from './WaitingState';
 

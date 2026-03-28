@@ -82,7 +82,7 @@ The game is fully playable as a real-time multiplayer experience with Spotify in
 
 ## Future: Persistence and Accounts
 
-- [x] **Persistent storage** -- SQLite database at data/hitster.db; rooms saved on state changes, restored on startup via restoreRoomsFromDatabase()
+- [x] **Persistent storage** -- SQLite database at data/tunes.db; rooms saved on state changes, restored on startup via restoreRoomsFromDatabase()
 - [x] **Leaderboards** -- Global ranked table with medals, win rate, best streak; accessible from Home screen
 - [x] **Game history** -- Per-player game history with mode, result, cards won; saved to SQLite on game end
 - [x] **Statistics** -- Player profile with stats cards (accuracy, streaks, challenges, songs named, fastest placement)

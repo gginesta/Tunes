@@ -3,7 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
-import type { ClientToServerEvents, ServerToClientEvents } from '@hitster/shared';
+import type { ClientToServerEvents, ServerToClientEvents } from '@tunes/shared';
 import { registerRoomHandlers, restoreRoomsFromDatabase, getRoomCount, getTotalPlayerCount } from './rooms';
 import { registerAuthHandlers } from './accounts-handler';
 import { migrateAccountsFromJson } from './accounts';
@@ -80,5 +80,5 @@ if (process.env.NODE_ENV === 'production') {
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
-  logger.info('Hitster server started', { port: PORT });
+  logger.info('Tunes server started', { port: PORT });
 });

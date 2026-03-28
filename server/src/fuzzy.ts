@@ -1,4 +1,4 @@
-import { FUZZY_THRESHOLD_RATIO } from '@hitster/shared';
+import { FUZZY_THRESHOLD_RATIO } from '@tunes/shared';
 
 /**
  * Compute the Levenshtein (edit) distance between two strings using

@@ -11,7 +11,7 @@
     "noEmit": true,
     "strict": true,
     "paths": {
-      "@hitster/shared": ["../shared/src"]
+      "@tunes/shared": ["../shared/src"]
     }
   },
   "include": ["src"],

@@ -1,5 +1,5 @@
 {
-  "name": "@hitster/app",
+  "name": "@tunes/app",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -10,7 +10,7 @@
     "start": "vite --port=5173 --host=0.0.0.0"
   },
   "dependencies": {
-    "@hitster/shared": "*",
+    "@tunes/shared": "*",
     "lucide-react": "^0.460.0",
     "motion": "^11.15.0",
     "react": "19.1.0",

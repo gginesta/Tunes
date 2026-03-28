@@ -1,7 +1,7 @@
 // Sound effects service using Web Audio API
 // All sounds are generated programmatically — no audio files needed.
 
-const STORAGE_KEY = 'hitster-muted';
+const STORAGE_KEY = 'tunes-muted';
 
 let audioCtx: AudioContext | null = null;
 let muted = localStorage.getItem(STORAGE_KEY) === 'true';

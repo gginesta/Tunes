@@ -88,23 +88,23 @@ export function useSpotifyPlayer() {
           spotifyError: null,
         });
         // Don't set spotifyReady yet — wait for device to be confirmed
-        console.log('[Hitster] SDK ready, waiting for device confirmation...');
+        console.log('[Tunes] SDK ready, waiting for device confirmation...');
       },
       onDeviceConfirmed: () => {
         // Device is now confirmed in Spotify's device list — safe to play
-        console.log('[Hitster] Device confirmed — ready to play!');
+        console.log('[Tunes] Device confirmed — ready to play!');
         useGameStore.setState({ spotifyReady: true, spotifyError: null });
       },
       onNotReady: () => {
         useGameStore.setState({ spotifyDeviceId: null });
-        console.log('[Hitster] Device went offline, waiting for reconnection...');
+        console.log('[Tunes] Device went offline, waiting for reconnection...');
       },
       onError: (message) => {
         useGameStore.setState({ spotifyError: message });
       },
       onAutoplayFailed: () => {
         useGameStore.setState({ isPlaying: false, autoplayBlocked: true });
-        console.log('[Hitster] Autoplay blocked — user must tap to unlock audio');
+        console.log('[Tunes] Autoplay blocked — user must tap to unlock audio');
       },
       onStateChange: (paused) => {
         if (!usingFallbackRef.current) {
@@ -113,7 +113,7 @@ export function useSpotifyPlayer() {
       },
       onActive: (active) => {
         if (!active) {
-          console.log('[Hitster] Player state null — device not yet active');
+          console.log('[Tunes] Player state null — device not yet active');
         }
       },
     });
@@ -134,7 +134,7 @@ export function useSpotifyPlayer() {
     try {
       token = await getToken();
     } catch {
-      console.warn('[Hitster] Could not get token for playback');
+      console.warn('[Tunes] Could not get token for playback');
       return tryFallback();
     }
 
@@ -143,14 +143,14 @@ export function useSpotifyPlayer() {
     if (success) return true;
 
     // Token might be expired — refresh and retry
-    console.log('[Hitster] Refreshing token and retrying...');
+    console.log('[Tunes] Refreshing token and retrying...');
     try {
       tokenRef.current = null;
       token = await getToken();
       const retrySuccess = await playTrack(trackId, token);
       if (retrySuccess) return true;
     } catch {
-      console.warn('[Hitster] Token refresh failed');
+      console.warn('[Tunes] Token refresh failed');
     }
 
     return tryFallback();
@@ -159,7 +159,7 @@ export function useSpotifyPlayer() {
   const tryFallback = useCallback(async (): Promise<boolean> => {
     const previewUrl = useGameStore.getState().currentPreviewUrl;
     if (previewUrl) {
-      console.log('[Hitster] Trying preview URL fallback');
+      console.log('[Tunes] Trying preview URL fallback');
       usingFallbackRef.current = true;
       const ok = await playPreviewUrl(previewUrl);
       if (ok) {
@@ -167,7 +167,7 @@ export function useSpotifyPlayer() {
         return true;
       }
     }
-    console.error('[Hitster] All playback methods failed');
+    console.error('[Tunes] All playback methods failed');
     useGameStore.setState({
       spotifyError: 'Could not play this song. Try clicking the play button.',
     });

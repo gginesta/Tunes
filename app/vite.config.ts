@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      '@hitster/shared': path.resolve(__dirname, '../shared/src'),
+      '@tunes/shared': path.resolve(__dirname, '../shared/src'),
     },
   },
   server: {

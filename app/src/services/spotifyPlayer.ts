@@ -7,7 +7,7 @@
  * until our device appears in the list before attempting playback.
  */
 
-const PLAYER_NAME = 'Hitster Game';
+const PLAYER_NAME = 'Tunes Game';
 
 let player: Spotify.Player | null = null;
 let deviceId: string | null = null;
@@ -45,9 +45,9 @@ export function preUnlockAudio(): void {
     audio.play().catch(() => {});
 
     audioUnlocked = true;
-    console.log('[Hitster] Audio pre-unlocked from user gesture');
+    console.log('[Tunes] Audio pre-unlocked from user gesture');
   } catch (e) {
-    console.warn('[Hitster] preUnlockAudio failed:', e);
+    console.warn('[Tunes] preUnlockAudio failed:', e);
   }
 }
 
@@ -103,7 +103,7 @@ export async function initPlayer(
   player.addListener('ready', ({ device_id }) => {
     deviceId = device_id;
     deviceConfirmed = false;
-    console.log('[Hitster] SDK ready, device:', device_id);
+    console.log('[Tunes] SDK ready, device:', device_id);
     callbacks.onReady(device_id);
 
     // Start polling to confirm the device is registered with Spotify's servers
@@ -111,33 +111,33 @@ export async function initPlayer(
   });
 
   player.addListener('not_ready', ({ device_id }) => {
-    console.warn('[Hitster] Device offline:', device_id);
+    console.warn('[Tunes] Device offline:', device_id);
     deviceId = null;
     deviceConfirmed = false;
     callbacks.onNotReady();
   });
 
   player.addListener('authentication_error', (err) => {
-    console.error('[Hitster] Auth error:', err.message);
+    console.error('[Tunes] Auth error:', err.message);
     callbacks.onError('Spotify authentication failed. Try reconnecting.');
   });
 
   player.addListener('initialization_error', (err) => {
-    console.error('[Hitster] Init error:', err.message);
+    console.error('[Tunes] Init error:', err.message);
     callbacks.onError('Failed to initialize Spotify player');
   });
 
   player.addListener('account_error', (err) => {
-    console.error('[Hitster] Account error:', err.message);
+    console.error('[Tunes] Account error:', err.message);
     callbacks.onError('Spotify Premium is required to play music');
   });
 
   player.addListener('playback_error', (err) => {
-    console.error('[Hitster] Playback error:', err.message);
+    console.error('[Tunes] Playback error:', err.message);
   });
 
   player.addListener('autoplay_failed', () => {
-    console.warn('[Hitster] Autoplay blocked by browser');
+    console.warn('[Tunes] Autoplay blocked by browser');
     callbacks.onAutoplayFailed();
   });
 
@@ -154,14 +154,14 @@ export async function initPlayer(
   if (!connected) {
     callbacks.onError('Failed to connect to Spotify');
   } else {
-    console.log('[Hitster] Player connected, waiting for device registration...');
+    console.log('[Tunes] Player connected, waiting for device registration...');
     // Always activate the element once connected — audio should already be
     // unlocked from the user's START click via preUnlockAudio()
     if (!activated) {
       player.activateElement();
       activated = true;
       pendingActivation = false;
-      console.log('[Hitster] activateElement() called after connect');
+      console.log('[Tunes] activateElement() called after connect');
     }
   }
 }
@@ -191,13 +191,13 @@ async function pollForDevice(
       if (res.ok) {
         const data = await res.json();
         const devices: { name: string; id: string }[] = data.devices || [];
-        console.log(`[Hitster] Devices poll ${i + 1}/${MAX_POLLS}:`,
+        console.log(`[Tunes] Devices poll ${i + 1}/${MAX_POLLS}:`,
           devices.map((d) => `${d.name} (${d.id.slice(0, 8)}...)`));
 
         // Match by NAME, not by ID — the SDK's device_id differs from the API's
         const found = devices.find((d) => d.name === PLAYER_NAME);
         if (found) {
-          console.log('[Hitster] Device found in API! SDK id:', _sdkDeviceId.slice(0, 8), '→ API id:', found.id.slice(0, 8));
+          console.log('[Tunes] Device found in API! SDK id:', _sdkDeviceId.slice(0, 8), '→ API id:', found.id.slice(0, 8));
           // Use the API's device ID for REST calls, not the SDK's
           deviceId = found.id;
           deviceConfirmed = true;
@@ -206,13 +206,13 @@ async function pollForDevice(
         }
       }
     } catch (err) {
-      console.warn('[Hitster] Device poll error:', err);
+      console.warn('[Tunes] Device poll error:', err);
     }
 
     await new Promise((r) => setTimeout(r, POLL_INTERVAL));
   }
 
-  console.warn('[Hitster] Device never appeared after', MAX_POLLS, 'polls — trying with SDK device ID');
+  console.warn('[Tunes] Device never appeared after', MAX_POLLS, 'polls — trying with SDK device ID');
   deviceConfirmed = true;
   callbacks.onDeviceConfirmed();
 }
@@ -221,7 +221,7 @@ export function activateElement(): void {
   if (player) {
     player.activateElement();
     activated = true;
-    console.log('[Hitster] activateElement() called');
+    console.log('[Tunes] activateElement() called');
   }
 }
 
@@ -247,7 +247,7 @@ export function applyPendingActivation(): void {
     player.activateElement();
     activated = true;
     pendingActivation = false;
-    console.log('[Hitster] Deferred activateElement() applied');
+    console.log('[Tunes] Deferred activateElement() applied');
   }
 }
 
@@ -262,17 +262,17 @@ export async function playTrack(
   accessToken: string,
 ): Promise<boolean> {
   if (!deviceId) {
-    console.error('[Hitster] playTrack: no deviceId');
+    console.error('[Tunes] playTrack: no deviceId');
     return false;
   }
 
   activateElement();
 
-  console.log('[Hitster] playTrack:', trackId, 'device:', deviceId, 'confirmed:', deviceConfirmed);
+  console.log('[Tunes] playTrack:', trackId, 'device:', deviceId, 'confirmed:', deviceConfirmed);
 
   // If device isn't confirmed yet, wait briefly
   if (!deviceConfirmed) {
-    console.log('[Hitster] Waiting for device confirmation...');
+    console.log('[Tunes] Waiting for device confirmation...');
     await sleep(3000);
   }
 
@@ -299,24 +299,24 @@ export async function playTrack(
   // Try up to 3 times with delays
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) {
-      console.log(`[Hitster] playTrack retry ${attempt}, waiting ${attempt * 2000}ms...`);
+      console.log(`[Tunes] playTrack retry ${attempt}, waiting ${attempt * 2000}ms...`);
       await sleep(attempt * 2000);
     }
 
     const res = await doPlay();
 
     if (res.ok || res.status === 204) {
-      console.log('[Hitster] playTrack success');
+      console.log('[Tunes] playTrack success');
       return true;
     }
 
     if (res.status === 401) {
-      console.warn('[Hitster] playTrack: token expired (401)');
+      console.warn('[Tunes] playTrack: token expired (401)');
       return false;
     }
 
     const body = await res.text().catch(() => '');
-    console.warn(`[Hitster] playTrack attempt ${attempt + 1} failed:`, res.status, body);
+    console.warn(`[Tunes] playTrack attempt ${attempt + 1} failed:`, res.status, body);
   }
 
   return false;
@@ -325,7 +325,7 @@ export async function playTrack(
 export async function pause(): Promise<void> {
   if (player) {
     await player.pause().catch((err) => {
-      console.warn('[Hitster] pause failed:', err);
+      console.warn('[Tunes] pause failed:', err);
     });
   }
 }
@@ -334,7 +334,7 @@ export async function resume(): Promise<void> {
   if (player) {
     activateElement();
     await player.resume().catch((err) => {
-      console.warn('[Hitster] resume failed:', err);
+      console.warn('[Tunes] resume failed:', err);
     });
   }
 }
@@ -343,7 +343,7 @@ export async function togglePlay(): Promise<void> {
   if (player) {
     activateElement();
     await player.togglePlay().catch((err) => {
-      console.warn('[Hitster] togglePlay failed:', err);
+      console.warn('[Tunes] togglePlay failed:', err);
     });
   }
 }
@@ -356,7 +356,7 @@ export async function getCurrentState(): Promise<Spotify.PlaybackState | null> {
 export async function setPlayerVolume(vol: number): Promise<void> {
   if (player) {
     await player.setVolume(vol).catch((err) => {
-      console.warn('[Hitster] setVolume failed:', err);
+      console.warn('[Tunes] setVolume failed:', err);
     });
   }
 }
