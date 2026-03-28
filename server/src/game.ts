@@ -8,7 +8,7 @@ import type {
   PlayedSong,
   PlayerStats,
   GameStats,
-} from '@hitster/shared';
+} from '@tunes/shared';
 import {
   STARTING_TOKENS,
   MAX_TOKENS,
@@ -19,16 +19,16 @@ import {
   TURN_TIME_MS,
   COOP_WRONG_PENALTY,
   DISCONNECT_GRACE_MS,
-} from '@hitster/shared';
+} from '@tunes/shared';
 import { logger } from './logger';
 import { fuzzyMatch } from './fuzzy';
 import { fisherYatesShuffle } from './shuffle';
 
-type HitsterServer = Server<ClientToServerEvents, ServerToClientEvents>;
+type TunesServer = Server<ClientToServerEvents, ServerToClientEvents>;
 
 export class GameEngine {
   private room: Room;
-  private io: HitsterServer;
+  private io: TunesServer;
   private deck: SongCard[] = [];
   private spotifyAccessToken: string | null = null;
   private challengeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -55,7 +55,7 @@ export class GameEngine {
   /** Challenger's proposed positions for the current round */
   private challengerPositions = new Map<string, number>();
 
-  constructor(room: Room, io: HitsterServer) {
+  constructor(room: Room, io: TunesServer) {
     this.room = room;
     this.io = io;
   }
