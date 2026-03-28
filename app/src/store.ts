@@ -9,7 +9,7 @@ import type {
   Player,
   SongCard,
   Room,
-} from '@hitster/shared';
+} from '@tunes/shared';
 
 export type Screen = 'home' | 'lobby' | 'game' | 'results' | 'rules' | 'leaderboard' | 'profile';
 
@@ -169,7 +169,7 @@ const initialState = {
   challengeDeadline: null as number | null,
   turnDeadline: null as number | null,
   volume: (() => {
-    const stored = localStorage.getItem('hitster-volume');
+    const stored = localStorage.getItem('tunes-volume');
     if (stored !== null) {
       const v = parseFloat(stored);
       if (!isNaN(v) && v >= 0 && v <= 1) return v;
@@ -246,7 +246,7 @@ export const useGameStore = create<GameStore>((set) => ({
     }),
   setVolume: (v) => {
     const volume = Math.max(0, Math.min(1, v));
-    localStorage.setItem('hitster-volume', String(volume));
+    localStorage.setItem('tunes-volume', String(volume));
     set({ volume });
   },
   setSpotifyToken: (spotifyToken) => set({ spotifyToken }),
