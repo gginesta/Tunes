@@ -518,6 +518,26 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
     }
   });
 
+  socket.on('play-anchor', ({ index }) => {
+    const engine = getEngine(socket);
+    const mapping = socketToRoom.get(socket.id);
+    if (!engine || !mapping) return;
+    const room = rooms.get(mapping.code.toUpperCase());
+    if (room && mapping.playerId === room.hostId) {
+      engine.playAnchor(index);
+    }
+  });
+
+  socket.on('skip-anchors', () => {
+    const engine = getEngine(socket);
+    const mapping = socketToRoom.get(socket.id);
+    if (!engine || !mapping) return;
+    const room = rooms.get(mapping.code.toUpperCase());
+    if (room && mapping.playerId === room.hostId) {
+      engine.skipAnchors();
+    }
+  });
+
   socket.on('place-card', ({ position }) => {
     const engine = getEngine(socket);
     const mapping = socketToRoom.get(socket.id);
