@@ -21,7 +21,7 @@ export interface SongCard extends SongData {
 }
 
 export type GameMode = 'original' | 'pro' | 'expert' | 'coop';
-export type GamePhase = 'lobby' | 'playing' | 'challenge' | 'reveal' | 'game_over';
+export type GamePhase = 'lobby' | 'anchor_preview' | 'playing' | 'challenge' | 'reveal' | 'game_over';
 export type SongPack = 'standard' | 'decades' | 'playlist' | 'genre' | 'genre-decade';
 
 export interface GameSettings {

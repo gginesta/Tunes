@@ -20,6 +20,8 @@ export interface ClientToServerEvents {
   'place-card': (data: { position: number }) => void;
   'challenge': (data?: { position: number }) => void;
   'name-song': (guess: SongGuess) => void;
+  'play-anchor': (data: { index: number }) => void;
+  'skip-anchors': () => void;
   'skip-song': () => void;
   'buy-card': () => void;
   'confirm-reveal': () => void;
