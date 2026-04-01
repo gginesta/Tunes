@@ -16,7 +16,7 @@ A real-time multiplayer music party game where players compete to build a chrono
 - **Real-time multiplayer** -- 2-10 players per room via Socket.io
 - **Spotify integration** -- Web Playback SDK with PKCE OAuth for the host; HTML5 Audio fallback using preview URLs
 - **Device polling** -- Matches playback device by name (not SDK device ID) for reliable device targeting
-- **500+ songs** spanning 1930s-2020s with decade-balanced deck selection
+- **640+ songs** spanning 1930s-2020s with decade-balanced deck selection
 - **4 fully implemented game modes** -- Original, Pro, Expert, and Co-op
 - **Token economy** -- Skip songs (1 token), challenge placements (1 token), buy cards (3 tokens), or earn tokens by naming songs
 - **Challenge system** -- 15-second countdown window with circular timer (turns red at 5s, synced from server); "No Challenge" button alongside Challenge button
@@ -31,7 +31,19 @@ A real-time multiplayer music party game where players compete to build a chrono
 - **Structured logging** -- JSON structured logger with debug/info/warn/error levels; LOG_LEVEL env var; pretty-print in dev, JSON in production; request and game event logging
 - **Health check** -- GET /health returns status, uptime, room/player counts, and version
 - **Optional accounts** -- Username/password stored in SQLite; guest fallback
-- **Connection handling** -- Tracks player online/offline status with automatic host reassignment
+- **Connection handling** -- Tracks player online/offline status with automatic host reassignment and 30-second disconnect grace period
+- **Anchor card animation** -- Starting cards dealt with a flip animation before the first turn
+- **Fuzzy song matching** -- Levenshtein distance with typo tolerance for song naming in Pro/Expert modes
+- **Genre & decade packs** -- Filter songs by genre, decade, or both for themed game nights
+- **Regional packs** -- UK, Latin, K-Pop, and Bollywood song collections (140 songs)
+- **Custom playlists** -- Import any Spotify playlist as a game deck
+- **Shareable invite links** -- /join/CODE URLs with copy-to-clipboard and native share
+- **"I know this!" buzz** -- Non-active players can signal they know the song
+- **Waiting state** -- Music trivia, animated visualizer, and buzz badges between turns
+- **Leaderboards & stats** -- Global ranked table, personal stats, and game history
+- **Duplicate song dedup** -- Ensures no duplicate songs appear in the same game deck
+- **Preview Mode** -- Host without Spotify using 30-second preview clips (no account needed)
+- **End-of-game awards** -- Fastest Fingers, Sharpshooter, Hot Streak, Challenge King, Name That Tune
 - **Responsive UI** -- Tailwind CSS 4 with Motion animations
 
 ## Tech Stack

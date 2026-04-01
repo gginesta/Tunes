@@ -84,6 +84,7 @@ export function Game() {
   const spotifyError = useGameStore((s) => s.spotifyError);
   const pendingPlacement = useGameStore((s) => s.pendingPlacement);
 
+  const anchorCards = useGameStore((s) => s.anchorCards);
   const disconnectedPlayers = useGameStore((s) => s.disconnectedPlayers);
   const isHost = myId === hostId;
 
@@ -415,6 +416,61 @@ export function Game() {
                 </button>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Anchor card dealing animation */}
+      <AnimatePresence>
+        {anchorCards && Object.keys(anchorCards).length > 0 && (
+          <motion.div
+            key="anchor-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-40 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center gap-4 p-4"
+          >
+            <motion.h2
+              initial={{ y: -20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              className="text-xl font-bold text-white mb-2"
+            >
+              Starting Cards
+            </motion.h2>
+            <div className="flex flex-wrap justify-center gap-3">
+              {Object.entries(anchorCards).map(([key, card], i) => {
+                const label = key === '__shared__'
+                  ? 'Team'
+                  : players[key]?.id === myId
+                    ? 'You'
+                    : players[key]?.name || 'Player';
+                return (
+                  <motion.div
+                    key={key}
+                    initial={{ scale: 0, rotateY: 180, opacity: 0 }}
+                    animate={{ scale: 1, rotateY: 0, opacity: 1 }}
+                    transition={{ delay: 0.3 + i * 0.3, type: 'spring', stiffness: 200, damping: 20 }}
+                    className={`flex flex-col items-center gap-1.5 rounded-xl p-3 bg-gradient-to-b ${getCardColor(card.year)} border border-white/20 shadow-lg min-w-[100px]`}
+                  >
+                    <span className="text-[10px] font-bold text-white/70 uppercase tracking-wider">{label}</span>
+                    <span className="text-sm font-bold text-white text-center leading-tight">{card.title}</span>
+                    <span className="text-xs text-white/60">{card.artist}</span>
+                    <span className="text-lg font-black text-white/90">{card.year}</span>
+                  </motion.div>
+                );
+              })}
+            </div>
+            {isHost && (
+              <motion.button
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 1.5 }}
+                onClick={() => getSocket().emit('skip-anchors')}
+                className="mt-4 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white/70 text-sm font-medium transition-colors"
+              >
+                Skip
+              </motion.button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

@@ -62,6 +62,8 @@ The game is fully playable as a real-time multiplayer experience with Spotify in
 - [x] Auto-caching of preview URLs from Spotify games (background-resolves 100 uncached songs per game)
 - [x] Autoplay fix for iOS Safari (capture phase + touchend, keydown unlock, fallback audio init for preview mode)
 - [x] Turn timer moved to top bar (compact ring next to score chips)
+- [x] Anchor card dealing animation (starting cards shown with flip animation before first turn, host can skip)
+- [x] Duplicate song dedup in deck selection (prevents same song appearing twice)
 
 ---
 

@@ -1,6 +1,6 @@
 # Implementation Plan — Feature Sprint
 
-## Status: COMPLETE (14 features + audit + preview mode + bug fixes)
+## Status: COMPLETE (14 features + anchor cards + audit + preview mode + bug fixes)
 
 ---
 
@@ -427,6 +427,40 @@ export interface GameSettings {
 |-------|---------|---------------------|
 | Agent I | Feature 8: Waiting state | Medium (client only) |
 | Agent J | Feature 10: Buzz button | Small (full stack) |
+
+---
+
+## Feature 11: Anchor Card Dealing Animation
+
+**Goal:** Show each player's starting card with a visual dealing animation before the first turn begins.
+
+### Changes
+
+**`server/src/game.ts`**:
+- In `startGame()`: collect anchor cards (per-player in competitive, `__shared__` in co-op)
+- Emit `anchorCards` alongside `game-started` event
+- Delay first turn by 3.5s (`anchorTimer`) to allow animation to play
+- `skipAnchors()`: host can cancel the delay and start immediately
+- `playAnchor(index)`: reserved for future audio preview of anchor cards
+- `anchorTimer` cleared in `resetGame()`
+
+**`shared/src/events.ts`**:
+- `game-started` event type includes optional `anchorCards: Record<string, SongCard>`
+
+**`shared/src/types.ts`**:
+- `GamePhase` includes `'anchor_preview'`
+
+**`app/src/store.ts`**:
+- `anchorCards: Record<string, SongCard> | null` state with setter
+
+**`app/src/hooks/useSocket.ts`**:
+- Extract `anchorCards` from `game-started` and store it
+- Clear on `new-turn`
+
+**`app/src/components/Game.tsx`**:
+- Full-screen overlay with spring-animated card flip for each anchor card
+- Shows player name, song title, artist, and year with decade-colored background
+- Host gets a "Skip" button to jump to the first turn immediately
 
 ---
 

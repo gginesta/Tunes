@@ -63,12 +63,13 @@ export function useSocket() {
       useGameStore.getState().setSettings(settings);
     });
 
-    socket.on('game-started', ({ gameState }) => {
+    socket.on('game-started', ({ gameState, anchorCards }) => {
       const store = useGameStore.getState();
       store.setPhase(gameState.phase);
       store.setCurrentTurnPlayerId(gameState.currentTurnPlayerId);
       store.setDeckSize(gameState.deckSize);
       store.setLastReveal(null);
+      store.setAnchorCards(anchorCards ?? null);
       useGameStore.setState({ triviaScore: { correct: 0, total: 0 } });
       store.setScreen('game');
 
@@ -85,6 +86,7 @@ export function useSocket() {
       store.setPhase('playing');
       store.setPendingPlacement(null);
       store.setLastReveal(null);
+      store.setAnchorCards(null);
       useGameStore.setState({ songNameResult: null, turnDeadline: null, challengers: [] });
       store.clearBuzzedPlayers();
 

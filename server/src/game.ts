@@ -33,6 +33,7 @@ export class GameEngine {
   private spotifyAccessToken: string | null = null;
   private challengeTimer: ReturnType<typeof setTimeout> | null = null;
   private turnTimer: ReturnType<typeof setTimeout> | null = null;
+  private anchorTimer: ReturnType<typeof setTimeout> | null = null;
   private songNamed = new Set<string>();
   /** Tracks whether each player's song name guess was correct this round */
   private songNameCorrect = new Map<string, boolean>();
@@ -113,6 +114,10 @@ export class GameEngine {
       clearTimeout(this.turnTimer);
       this.turnTimer = null;
     }
+    if (this.anchorTimer) {
+      clearTimeout(this.anchorTimer);
+      this.anchorTimer = null;
+    }
 
     // Clear disconnect timers
     for (const timer of this.disconnectTimers.values()) {
@@ -150,6 +155,26 @@ export class GameEngine {
       deckSize: 0,
       sharedTimeline: [],
     };
+  }
+
+  /**
+   * Skip the anchor card preview phase and start the first turn immediately.
+   * Called by the host via the 'skip-anchors' socket event.
+   */
+  skipAnchors() {
+    if (!this.anchorTimer) return;
+    clearTimeout(this.anchorTimer);
+    this.anchorTimer = null;
+    this.startTurn();
+  }
+
+  /**
+   * Play a specific anchor card's song during the preview phase.
+   * Currently a no-op — the client handles anchor preview visually.
+   * Reserved for future audio preview of anchor cards.
+   */
+  playAnchor(_index: number) {
+    // Intentionally empty — anchor preview is visual only for now
   }
 
   startGame(deck: SongCard[]) {
@@ -249,7 +274,8 @@ export class GameEngine {
     }
 
     // Delay first turn to let clients show the anchor card animation
-    setTimeout(() => {
+    this.anchorTimer = setTimeout(() => {
+      this.anchorTimer = null;
       this.startTurn();
     }, 3500);
   }
