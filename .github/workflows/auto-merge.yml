@@ -1,7 +1,7 @@
 name: Auto-merge feature branch
 on:
   push:
-    branches: [claude/tunes-*]
+    branches: ['claude/**']
 jobs:
   merge:
     runs-on: ubuntu-latest
