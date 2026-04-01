@@ -198,10 +198,9 @@ export function Home() {
             onChange={(e) => setName(e.target.value)}
             placeholder="Enter your nickname..."
             maxLength={20}
-            autoComplete="off"
-            autoCorrect="off"
+            autoComplete="nickname"
             autoCapitalize="words"
-            spellCheck={false}
+            inputMode="text"
             className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-lg text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-[#1DB954]/50 focus:border-[#1DB954]/50 focus:bg-white/[0.07] transition-all"
           />
         </div>
@@ -246,10 +245,9 @@ export function Home() {
               onChange={(e) => setAuthUsername(e.target.value)}
               placeholder="Username"
               maxLength={20}
-              autoComplete="off"
-              autoCorrect="off"
+              autoComplete="username"
               autoCapitalize="off"
-              spellCheck={false}
+              inputMode="text"
               className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-[#1DB954]/50 transition-all"
             />
             <input
@@ -258,10 +256,8 @@ export function Home() {
               onChange={(e) => setAuthPassword(e.target.value)}
               placeholder="Password"
               onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
-              autoComplete="off"
-              autoCorrect="off"
+              autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
               autoCapitalize="off"
-              spellCheck={false}
               className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-[#1DB954]/50 transition-all"
             />
             <div className="flex gap-2 pt-1">
@@ -459,10 +455,9 @@ export function Home() {
                       value={code[i]}
                       onChange={(e) => handleCodeChange(i, e.target.value)}
                       onKeyDown={(e) => handleCodeKeyDown(i, e)}
-                      autoComplete="off"
-                      autoCorrect="off"
+                      autoComplete="one-time-code"
                       autoCapitalize="characters"
-                      spellCheck={false}
+                      inputMode="text"
                       className="w-14 h-16 bg-white/5 border-2 border-white/10 rounded-xl text-center text-2xl font-black text-white focus:outline-none focus:border-[#1DB954] focus:bg-[#1DB954]/10 transition-all uppercase"
                     />
                   ))}
