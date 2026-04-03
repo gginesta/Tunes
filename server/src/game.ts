@@ -380,39 +380,47 @@ export class GameEngine {
     }
   }
 
-  challenge(challengerId: string, position: number) {
+  challenge(challengerId: string, position: number): { error?: string } {
     const gs = this.room.gameState;
-    if (gs.phase !== 'challenge') return;
-    if (challengerId === gs.currentTurnPlayerId) return;
+    if (gs.phase !== 'challenge') return {};
+    if (challengerId === gs.currentTurnPlayerId) return {};
     // No challenges in co-op mode
-    if (this.isCoop) return;
+    if (this.isCoop) return {};
 
     const player = this.room.players[challengerId];
-    if (!player || player.tokens < CHALLENGE_COST) return;
+    if (!player || player.tokens < CHALLENGE_COST) return {};
 
     // Validate position against the active player's timeline
     const activePlayerId = gs.currentTurnPlayerId!;
     const timeline = this.room.players[activePlayerId]?.timeline;
-    if (!timeline || position < 0 || position > timeline.length) return;
+    if (!timeline || position < 0 || position > timeline.length) return {};
 
-    if (!gs.challengers.includes(challengerId)) {
-      gs.challengers.push(challengerId);
-      player.tokens -= CHALLENGE_COST;
-      this.challengerPositions.set(challengerId, position);
-
-      logger.info('Challenge made', {
-        roomCode: this.room.code,
-        challengerName: player.name,
-        activePlayerId: gs.currentTurnPlayerId,
-        challengePosition: position,
-      });
-
-      this.io.to(this.room.code).emit('challenge-made', { challengerId, position });
-      this.io.to(this.room.code).emit('tokens-updated', {
-        playerId: challengerId,
-        tokens: player.tokens,
-      });
+    // Reject if another challenger already picked this position
+    for (const [, existingPos] of this.challengerPositions) {
+      if (existingPos === position) {
+        return { error: 'That position is already taken by another challenger' };
+      }
     }
+
+    if (gs.challengers.includes(challengerId)) return {};
+
+    gs.challengers.push(challengerId);
+    player.tokens -= CHALLENGE_COST;
+    this.challengerPositions.set(challengerId, position);
+
+    logger.info('Challenge made', {
+      roomCode: this.room.code,
+      challengerName: player.name,
+      activePlayerId: gs.currentTurnPlayerId,
+      challengePosition: position,
+    });
+
+    this.io.to(this.room.code).emit('challenge-made', { challengerId, position });
+    this.io.to(this.room.code).emit('tokens-updated', {
+      playerId: challengerId,
+      tokens: player.tokens,
+    });
+    return {};
   }
 
   nameSong(playerId: string, guess: SongGuess) {

@@ -551,7 +551,10 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
     const mapping = socketToRoom.get(socket.id);
     if (!engine || !mapping) return;
     const position = typeof data?.position === 'number' ? data.position : 0;
-    engine.challenge(mapping.playerId, position);
+    const result = engine.challenge(mapping.playerId, position);
+    if (result.error) {
+      socket.emit('error', { message: result.error });
+    }
   });
 
   socket.on('name-song', (guess) => {
