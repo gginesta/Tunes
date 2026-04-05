@@ -285,7 +285,10 @@ export function Game() {
   const isMyTurn = currentTurnPlayerId === myId;
   const me = players[myId];
   const activePlayer = currentTurnPlayerId ? players[currentTurnPlayerId] : null;
-  const playerList = Object.values(players);
+  const turnOrder = useGameStore((s) => s.turnOrder);
+  const playerList = turnOrder.length > 0
+    ? turnOrder.map((id) => players[id]).filter(Boolean)
+    : Object.values(players);
   const mode = settings.mode;
   const isCoop = mode === 'coop';
 
@@ -341,10 +344,13 @@ export function Game() {
   };
 
   const handleNameSong = () => {
-    if (!guessTitle.trim() || !guessArtist.trim()) return;
+    if (!guessTitle.trim()) return;
+    // Pro/Expert require both title and artist; Original/Coop allow title-only
+    const needsArtist = mode === 'pro' || mode === 'expert';
+    if (needsArtist && !guessArtist.trim()) return;
     const guess: { title: string; artist: string; year?: number } = {
       title: guessTitle.trim(),
-      artist: guessArtist.trim(),
+      artist: guessArtist.trim() || '',
     };
     if (mode === 'expert' && guessYear.trim()) {
       guess.year = parseInt(guessYear.trim(), 10);
@@ -785,20 +791,24 @@ export function Game() {
           </motion.div>
         )}
 
-        {/* Challenge result feedback */}
-        {phase === 'reveal' && lastReveal?.challengeResults && myId in lastReveal.challengeResults && (
+        {/* Challenge result feedback — based on outcome, not position validity */}
+        {phase === 'reveal' && lastReveal && challengers.includes(myId) && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             className={`mt-4 px-5 py-2.5 rounded-xl text-sm font-bold border ${
-              lastReveal.challengeResults[myId].correct
+              lastReveal.stolenBy === myId
                 ? 'bg-green-500/20 text-green-400 border-green-500/30'
                 : 'bg-red-500/20 text-red-400 border-red-500/30'
             }`}
           >
-            {lastReveal.challengeResults[myId].correct
-              ? 'Your challenge position was correct!'
-              : 'Your challenge position was wrong'}
+            {lastReveal.stolenBy === myId
+              ? 'You stole the card!'
+              : lastReveal.correct
+                ? 'Placement was correct — you lost your challenge token'
+                : lastReveal.stolenBy
+                  ? `${players[lastReveal.stolenBy]?.name || 'Another challenger'} stole the card`
+                  : 'Wrong placement, but no one had the right spot — card discarded'}
           </motion.div>
         )}
 
@@ -814,8 +824,8 @@ export function Game() {
           </motion.button>
         )}
 
-        {/* Song naming inputs */}
-        {isMyTurn && phase === 'playing' && (
+        {/* Song naming inputs — visible during playing AND challenge phases */}
+        {isMyTurn && (phase === 'playing' || phase === 'challenge') && !(songNameResult?.playerId === myId) && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -864,15 +874,7 @@ export function Game() {
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#1DB954]"
               />
             )}
-            {songNameResult && songNameResult.playerId === myId ? (
-              <div className={`text-center py-2 px-4 rounded-xl text-sm font-bold ${
-                songNameResult.correct
-                  ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                  : 'bg-red-500/20 text-red-400 border border-red-500/30'
-              }`}>
-                {songNameResult.correct ? 'Correct! +1 Token' : 'Wrong guess'}
-              </div>
-            ) : guessTitle && guessArtist ? (
+            {guessTitle ? (
               <button
                 onClick={handleNameSong}
                 className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-2 rounded-xl text-sm transition-all"
@@ -881,6 +883,16 @@ export function Game() {
               </button>
             ) : null}
           </motion.div>
+        )}
+        {/* Song guess result (shown after submission) */}
+        {isMyTurn && songNameResult?.playerId === myId && (
+          <div className={`mt-3 text-center py-2 px-4 rounded-xl text-sm font-bold ${
+            songNameResult.correct
+              ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+              : 'bg-red-500/20 text-red-400 border border-red-500/30'
+          }`}>
+            {songNameResult.correct ? 'Correct! +1 Token' : 'Wrong guess'}
+          </div>
         )}
 
         {/* Challenge / No Challenge buttons for non-active players */}
@@ -931,10 +943,6 @@ export function Game() {
           </p>
         )}
 
-        {!isMyTurn && phase === 'playing' && (
-          <WaitingState />
-        )}
-
         {/* Challengers display */}
         {!isCoop && challengers.length > 0 && phase === 'challenge' && (
           <div className="mt-4 text-sm text-gray-400">
@@ -944,11 +952,7 @@ export function Game() {
       </div>
 
       {/* Bottom: Timeline + Actions */}
-      <div
-        className={`bg-black/60 border-t border-white/10 px-4 pt-3 pb-4 transition-opacity duration-500 ${
-          !isMyTurn && phase !== 'reveal' && phase !== 'challenge' ? 'opacity-60' : ''
-        }`}
-      >
+      <div className="bg-black/60 border-t border-white/10 px-4 pt-3 pb-4">
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-bold text-gray-300 uppercase tracking-widest text-xs">
             {isCoop
@@ -1053,6 +1057,13 @@ export function Game() {
           </div>
         )}
       </div>
+
+      {/* Compact waiting state below timeline when not your turn */}
+      {!isMyTurn && phase === 'playing' && (
+        <div className="px-4 pb-3">
+          <WaitingState />
+        </div>
+      )}
 
       <SongHistory isOpen={showHistory} onClose={() => setShowHistory(false)} />
     </div>

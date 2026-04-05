@@ -6,12 +6,12 @@ The game is fully playable as a real-time multiplayer experience with Spotify in
 
 ### What's Built
 
-- [x] Real-time multiplayer via Socket.io (2-10 players)
+- [x] Real-time multiplayer via Socket.io (2-12 players, late join supported)
 - [x] Room creation and joining with 4-letter codes
 - [x] Full game loop: turns, placement, challenges, reveals, scoring
 - [x] Token economy (skip, challenge, buy, name-song bonus)
 - [x] 4 game modes fully implemented (Original, Pro, Expert, Co-op)
-- [x] 640+ song database spanning 1930s-2020s with genre/region metadata
+- [x] 614 song database spanning 1930s-2020s with genre/region metadata
 - [x] Decade-balanced deck selection
 - [x] Zustand state management with typed Socket.io events
 - [x] Connection tracking and host reassignment
@@ -63,7 +63,14 @@ The game is fully playable as a real-time multiplayer experience with Spotify in
 - [x] Autoplay fix for iOS Safari (capture phase + touchend, keydown unlock, fallback audio init for preview mode)
 - [x] Turn timer moved to top bar (compact ring next to score chips)
 - [x] Anchor card dealing animation (starting cards shown with flip animation before first turn, host can skip)
-- [x] Duplicate song dedup in deck selection (prevents same song appearing twice)
+- [x] Duplicate song dedup in deck selection (normalized matching prevents same song appearing twice)
+- [x] Late joiner support (new players can join mid-game, get dealt a starting card)
+- [x] Player order display follows actual turn order (not arbitrary object order)
+- [x] Improved fuzzy matching (strips parentheticals/feat., substring containment, 0.3 threshold)
+- [x] Place-then-guess flow (song naming inputs persist during challenge phase)
+- [x] Title-only guessing in Original/Co-op mode (artist not required for bonus token)
+- [x] Challenge result popup shows actual outcome (won/lost/discarded), not position validity
+- [x] Timeline prioritized over trivia when waiting (trivia moved below timeline)
 
 ---
 

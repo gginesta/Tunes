@@ -158,6 +158,54 @@ export class GameEngine {
   }
 
   /**
+   * Add a late-joining player to an active game.
+   * Deals them a starting card and inserts them into the turn order.
+   */
+  addLatecomer(playerId: string) {
+    const gs = this.room.gameState;
+    const player = this.room.players[playerId];
+    if (!player) return;
+
+    // Deal a starting anchor card if deck has enough cards
+    if (this.deck.length >= 2) {
+      const card = this.deck.pop()!;
+      player.timeline = [card];
+      player.tokens = STARTING_TOKENS;
+      gs.deckSize = this.deck.length;
+
+      this.io.to(this.room.code).emit('timeline-updated', {
+        playerId,
+        timeline: player.timeline,
+      });
+    }
+
+    // Insert into turn order after the current turn index
+    const insertAt = gs.turnIndex + 1;
+    gs.turnOrder.splice(insertAt, 0, playerId);
+
+    // Initialize stats
+    this.playerStats.set(playerId, {
+      correctPlacements: 0,
+      totalPlacements: 0,
+      challengesWon: 0,
+      challengesLost: 0,
+      longestStreak: 0,
+      currentStreak: 0,
+      fastestPlacementMs: null,
+      decadeAccuracy: {},
+      songsNamed: 0,
+    });
+
+    logger.info('Late joiner added to game', {
+      roomCode: this.room.code,
+      playerId,
+      playerName: player.name,
+      turnOrderPosition: insertAt,
+      deckRemaining: this.deck.length,
+    });
+  }
+
+  /**
    * Skip the anchor card preview phase and start the first turn immediately.
    * Called by the host via the 'skip-anchors' socket event.
    */
@@ -431,8 +479,15 @@ export class GameEngine {
     this.songNamed.add(playerId);
 
     const titleMatch = fuzzyMatch(guess.title, gs.currentSong.title);
-    const artistMatch = fuzzyMatch(guess.artist, gs.currentSong.artist);
-    const correct = titleMatch && artistMatch;
+    const artistMatch = guess.artist?.trim()
+      ? fuzzyMatch(guess.artist, gs.currentSong.artist)
+      : false;
+
+    // Original/coop: title alone is enough for the token
+    // Pro/expert: both title and artist required
+    const correct = (this.mode === 'original' || this.mode === 'coop')
+      ? titleMatch
+      : titleMatch && artistMatch;
 
     this.songNameCorrect.set(playerId, correct);
 

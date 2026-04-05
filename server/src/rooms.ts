@@ -258,8 +258,8 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
       return;
     }
 
-    if (room.gameState.phase !== 'lobby') {
-      socket.emit('error', { message: 'Game already in progress' });
+    if (room.gameState.phase === 'game_over') {
+      socket.emit('error', { message: 'Game is over — ask the host to restart' });
       return;
     }
 
@@ -286,10 +286,30 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
     // Cancel any pending room cleanup (someone came back)
     cancelRoomCleanup(upperCode);
 
+    // If game is in progress, integrate the late joiner
+    const isGameActive = room.gameState.phase !== 'lobby';
+    if (isGameActive) {
+      const engine = games.get(upperCode);
+      if (engine) {
+        engine.addLatecomer(playerId);
+      }
+    }
+
     persistRoom(upperCode);
 
     socket.emit('room-joined', { room, playerId });
     socket.to(upperCode).emit('player-joined', player);
+
+    // If game is active, send game state so the late joiner enters the game screen
+    if (isGameActive) {
+      socket.emit('game-started', { gameState: room.gameState });
+      if (room.gameState.currentTurnPlayerId && room.gameState.currentSong) {
+        socket.emit('new-turn', {
+          turnPlayerId: room.gameState.currentTurnPlayerId,
+          songCard: { id: room.gameState.currentSong.id },
+        });
+      }
+    }
   });
 
   socket.on('rejoin-room', ({ code, playerId }) => {

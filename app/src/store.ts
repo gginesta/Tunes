@@ -45,6 +45,7 @@ interface GameStore {
 
   // Game
   phase: GamePhase;
+  turnOrder: string[];
   currentTurnPlayerId: string | null;
   currentSong: Partial<SongCard> | null;
   pendingPlacement: number | null;
@@ -116,6 +117,7 @@ interface GameStore {
   setHostId: (hostId: string) => void;
   setSettings: (settings: GameSettings) => void;
   setPhase: (phase: GamePhase) => void;
+  setTurnOrder: (order: string[]) => void;
   setCurrentTurnPlayerId: (id: string | null) => void;
   setCurrentSong: (song: Partial<SongCard> | null) => void;
   setPendingPlacement: (pos: number | null) => void;
@@ -164,6 +166,7 @@ const initialState = {
   hostId: '',
   settings: { mode: 'original' as const, cardsToWin: 10, songPack: 'standard' as const },
   phase: 'lobby' as GamePhase,
+  turnOrder: [] as string[],
   currentTurnPlayerId: null,
   currentSong: null,
   pendingPlacement: null,
@@ -217,6 +220,7 @@ export const useGameStore = create<GameStore>((set) => ({
   setHostId: (hostId) => set({ hostId }),
   setSettings: (settings) => set({ settings }),
   setPhase: (phase) => set({ phase }),
+  setTurnOrder: (turnOrder) => set({ turnOrder }),
   setCurrentTurnPlayerId: (currentTurnPlayerId) => set({ currentTurnPlayerId }),
   setCurrentSong: (currentSong) => set({ currentSong }),
   setPendingPlacement: (pendingPlacement) => set({ pendingPlacement }),
@@ -299,6 +303,7 @@ export const useGameStore = create<GameStore>((set) => ({
       hostId: room.hostId,
       settings: room.settings,
       phase: room.gameState.phase,
+      turnOrder: room.gameState.turnOrder || [],
       currentTurnPlayerId: room.gameState.currentTurnPlayerId,
       currentSong: room.gameState.currentSong,
       pendingPlacement: room.gameState.pendingPlacement,

@@ -40,6 +40,10 @@ export function levenshteinDistance(a: string, b: string): number {
  */
 export function normalizeName(s: string): string {
   let result = s.toLowerCase();
+  // Strip parenthetical suffixes like "(Remaster)", "(feat. X)", "(Live)"
+  result = result.replace(/\(.*?\)/g, '');
+  // Strip "feat.", "ft.", "featuring" and everything after
+  result = result.replace(/\b(feat\.?|ft\.?|featuring)\b.*/i, '');
   // Remove punctuation (keep letters, digits, whitespace)
   result = result.replace(/[^\p{L}\p{N}\s]/gu, '');
   // Collapse whitespace
@@ -64,11 +68,17 @@ export function fuzzyMatch(guess: string, actual: string): boolean {
   // Short-circuit: exact match after normalization
   if (g === a) return true;
 
+  // Empty guess never matches
+  if (g.length === 0) return false;
+
+  // Substring containment: "Beatles" matches "Beatles" in "The Beatles"
+  // or "Bohemian Rhapsody" matches even if actual is longer
+  if (g.length >= 3 && (a.includes(g) || g.includes(a))) return true;
+
   const dist = levenshteinDistance(g, a);
   const maxLen = Math.max(g.length, a.length);
 
-  // Avoid division by zero – two empty strings are equal (handled above),
-  // but if only one is empty the distance equals the other's length.
+  // Avoid division by zero
   if (maxLen === 0) return true;
 
   return dist / maxLen <= FUZZY_THRESHOLD_RATIO;

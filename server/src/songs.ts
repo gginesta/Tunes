@@ -5,6 +5,7 @@ import type { SongCard, SongData } from '@tunes/shared';
 import { DECK_SIZE } from '@tunes/shared';
 import { logger } from './logger';
 import { fisherYatesShuffle } from './shuffle';
+import { normalizeName } from './fuzzy';
 
 let allSongs: SongData[] = [];
 /** The resolved path to songs.json (set during loadSongs) */
@@ -108,7 +109,7 @@ export function selectGameDeck(
   // Deduplicate by title+artist (case-insensitive) before building the deck
   const seen = new Set<string>();
   const deduped = selected.filter((song) => {
-    const key = `${song.title.toLowerCase()}::${song.artist.toLowerCase()}`;
+    const key = `${normalizeName(song.title)}::${normalizeName(song.artist)}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

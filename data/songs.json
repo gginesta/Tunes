@@ -1239,13 +1239,6 @@
     "region": "global"
   },
   {
-    "title": "Stayin Alive",
-    "artist": "Bee Gees",
-    "year": 1977,
-    "genre": "pop",
-    "region": "global"
-  },
-  {
     "title": "Dont Stop",
     "artist": "Fleetwood Mac",
     "year": 1977,
@@ -1299,13 +1292,6 @@
     "artist": "Village People",
     "year": 1978,
     "genre": "pop",
-    "region": "global"
-  },
-  {
-    "title": "September",
-    "artist": "Earth Wind & Fire",
-    "year": 1978,
-    "genre": "r-and-b",
     "region": "global"
   },
   {
@@ -1411,13 +1397,6 @@
     "artist": "Kim Carnes",
     "year": 1981,
     "genre": "pop",
-    "region": "global"
-  },
-  {
-    "title": "Dont Stop Believin",
-    "artist": "Journey",
-    "year": 1981,
-    "genre": "rock",
     "region": "global"
   },
   {
@@ -1659,13 +1638,6 @@
     "region": "global"
   },
   {
-    "title": "Livin on a Prayer",
-    "artist": "Bon Jovi",
-    "year": 1986,
-    "genre": "rock",
-    "region": "global"
-  },
-  {
     "title": "With or Without You",
     "artist": "U2",
     "year": 1987,
@@ -1751,13 +1723,6 @@
   },
   {
     "title": "Paradise City",
-    "artist": "Guns N Roses",
-    "year": 1988,
-    "genre": "rock",
-    "region": "global"
-  },
-  {
-    "title": "Sweet Child O Mine",
     "artist": "Guns N Roses",
     "year": 1988,
     "genre": "rock",
@@ -1950,13 +1915,6 @@
     "artist": "4 Non Blondes",
     "year": 1993,
     "genre": "rock",
-    "region": "global"
-  },
-  {
-    "title": "Nuthin but a G Thang",
-    "artist": "Dr. Dre",
-    "year": 1993,
-    "genre": "hip-hop",
     "region": "global"
   },
   {
@@ -2919,13 +2877,6 @@
     "region": "global"
   },
   {
-    "title": "Cant Feel My Face",
-    "artist": "The Weeknd",
-    "year": 2015,
-    "genre": "r-and-b",
-    "region": "global"
-  },
-  {
     "title": "Stressed Out",
     "artist": "Twenty One Pilots",
     "year": 2015,
@@ -3077,13 +3028,6 @@
     "artist": "Drake",
     "year": 2018,
     "genre": "hip-hop",
-    "region": "global"
-  },
-  {
-    "title": "Thank U Next",
-    "artist": "Ariana Grande",
-    "year": 2018,
-    "genre": "pop",
     "region": "global"
   },
   {
@@ -3507,13 +3451,6 @@
     "region": "global"
   },
   {
-    "title": "Wonderwall",
-    "artist": "Oasis",
-    "year": 1995,
-    "genre": "rock",
-    "region": "uk"
-  },
-  {
     "title": "Don't Look Back in Anger",
     "artist": "Oasis",
     "year": 1996,
@@ -3546,41 +3483,6 @@
     "artist": "Blur",
     "year": 1997,
     "genre": "rock",
-    "region": "uk"
-  },
-  {
-    "title": "Wannabe",
-    "artist": "Spice Girls",
-    "year": 1996,
-    "genre": "pop",
-    "region": "uk"
-  },
-  {
-    "title": "Rolling in the Deep",
-    "artist": "Adele",
-    "year": 2011,
-    "genre": "pop",
-    "region": "uk"
-  },
-  {
-    "title": "Someone Like You",
-    "artist": "Adele",
-    "year": 2011,
-    "genre": "pop",
-    "region": "uk"
-  },
-  {
-    "title": "Shape of You",
-    "artist": "Ed Sheeran",
-    "year": 2017,
-    "genre": "pop",
-    "region": "uk"
-  },
-  {
-    "title": "Thinking Out Loud",
-    "artist": "Ed Sheeran",
-    "year": 2014,
-    "genre": "pop",
     "region": "uk"
   },
   {
@@ -3619,27 +3521,6 @@
     "region": "uk"
   },
   {
-    "title": "Bitter Sweet Symphony",
-    "artist": "The Verve",
-    "year": 1997,
-    "genre": "rock",
-    "region": "uk"
-  },
-  {
-    "title": "Creep",
-    "artist": "Radiohead",
-    "year": 1993,
-    "genre": "rock",
-    "region": "uk"
-  },
-  {
-    "title": "Karma Police",
-    "artist": "Radiohead",
-    "year": 1997,
-    "genre": "rock",
-    "region": "uk"
-  },
-  {
     "title": "Yellow",
     "artist": "Coldplay",
     "year": 2000,
@@ -3657,13 +3538,6 @@
     "title": "Chasing Cars",
     "artist": "Snow Patrol",
     "year": 2006,
-    "genre": "rock",
-    "region": "uk"
-  },
-  {
-    "title": "Mr. Brightside",
-    "artist": "The Killers",
-    "year": 2004,
     "genre": "rock",
     "region": "uk"
   },
@@ -3710,31 +3584,10 @@
     "region": "uk"
   },
   {
-    "title": "Blue Monday",
-    "artist": "New Order",
-    "year": 1983,
-    "genre": "electronic",
-    "region": "uk"
-  },
-  {
     "title": "West End Girls",
     "artist": "Pet Shop Boys",
     "year": 1985,
     "genre": "electronic",
-    "region": "uk"
-  },
-  {
-    "title": "New Rules",
-    "artist": "Dua Lipa",
-    "year": 2017,
-    "genre": "pop",
-    "region": "uk"
-  },
-  {
-    "title": "Levitating",
-    "artist": "Dua Lipa",
-    "year": 2020,
-    "genre": "pop",
     "region": "uk"
   },
   {
@@ -3752,13 +3605,6 @@
     "region": "uk"
   },
   {
-    "title": "Despacito",
-    "artist": "Luis Fonsi ft. Daddy Yankee",
-    "year": 2017,
-    "genre": "latin",
-    "region": "latin"
-  },
-  {
     "title": "Gasolina",
     "artist": "Daddy Yankee",
     "year": 2004,
@@ -3769,13 +3615,6 @@
     "title": "Danza Kuduro",
     "artist": "Don Omar ft. Lucenzo",
     "year": 2010,
-    "genre": "latin",
-    "region": "latin"
-  },
-  {
-    "title": "Hips Don't Lie",
-    "artist": "Shakira",
-    "year": 2006,
     "genre": "latin",
     "region": "latin"
   },
@@ -3846,13 +3685,6 @@
     "title": "La Vida Es Un Carnaval",
     "artist": "Celia Cruz",
     "year": 1998,
-    "genre": "latin",
-    "region": "latin"
-  },
-  {
-    "title": "Livin' la Vida Loca",
-    "artist": "Ricky Martin",
-    "year": 1999,
     "genre": "latin",
     "region": "latin"
   },
@@ -3995,27 +3827,6 @@
     "year": 2020,
     "genre": "latin",
     "region": "latin"
-  },
-  {
-    "title": "Gangnam Style",
-    "artist": "PSY",
-    "year": 2012,
-    "genre": "pop",
-    "region": "kpop"
-  },
-  {
-    "title": "Dynamite",
-    "artist": "BTS",
-    "year": 2020,
-    "genre": "pop",
-    "region": "kpop"
-  },
-  {
-    "title": "Butter",
-    "artist": "BTS",
-    "year": 2021,
-    "genre": "pop",
-    "region": "kpop"
   },
   {
     "title": "Boy With Luv",

@@ -66,6 +66,7 @@ export function useSocket() {
     socket.on('game-started', ({ gameState, anchorCards }) => {
       const store = useGameStore.getState();
       store.setPhase(gameState.phase);
+      store.setTurnOrder(gameState.turnOrder || []);
       store.setCurrentTurnPlayerId(gameState.currentTurnPlayerId);
       store.setDeckSize(gameState.deckSize);
       store.setLastReveal(null);
