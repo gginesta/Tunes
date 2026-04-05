@@ -6,7 +6,7 @@ The game is fully playable as a real-time multiplayer experience with Spotify in
 
 ### What's Built
 
-- [x] Real-time multiplayer via Socket.io (2-10 players, late join supported)
+- [x] Real-time multiplayer via Socket.io (2-12 players, late join supported)
 - [x] Room creation and joining with 4-letter codes
 - [x] Full game loop: turns, placement, challenges, reveals, scoring
 - [x] Token economy (skip, challenge, buy, name-song bonus)

@@ -13,7 +13,7 @@ A real-time multiplayer music party game where players compete to build a chrono
 
 ## Features
 
-- **Real-time multiplayer** -- 2-10 players per room via Socket.io (late joiners welcome)
+- **Real-time multiplayer** -- 2-12 players per room via Socket.io (late joiners welcome)
 - **Spotify integration** -- Web Playback SDK with PKCE OAuth for the host; HTML5 Audio fallback using preview URLs
 - **Device polling** -- Matches playback device by name (not SDK device ID) for reliable device targeting
 - **614 songs** spanning 1930s-2020s with decade-balanced deck selection
