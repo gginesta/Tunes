@@ -2,6 +2,8 @@ name: Auto-merge feature branch
 on:
   push:
     branches: ['claude/**']
+permissions:
+  contents: write
 jobs:
   merge:
     runs-on: ubuntu-latest
