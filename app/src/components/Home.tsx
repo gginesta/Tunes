@@ -179,6 +179,7 @@ export function Home() {
         <p className="text-gray-500 mt-1 font-medium tracking-widest uppercase text-xs">
           The Music Party Game
         </p>
+        <p className="text-gray-600 mt-1 text-[10px] tabular-nums">v2.1.0</p>
       </motion.div>
 
       <motion.div
@@ -193,14 +194,14 @@ export function Home() {
             Your Name
           </label>
           <input
-            type="text"
+            type="search"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Enter your nickname..."
             maxLength={20}
-            autoComplete="nickname"
+            autoComplete="off"
+            autoCorrect="off"
             autoCapitalize="words"
-            inputMode="text"
             className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-lg text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-[#1DB954]/50 focus:border-[#1DB954]/50 focus:bg-white/[0.07] transition-all"
           />
         </div>
@@ -240,14 +241,14 @@ export function Home() {
               </button>
             </div>
             <input
-              type="text"
+              type="search"
               value={authUsername}
               onChange={(e) => setAuthUsername(e.target.value)}
               placeholder="Username"
               maxLength={20}
-              autoComplete="username"
+              autoComplete="off"
+              autoCorrect="off"
               autoCapitalize="off"
-              inputMode="text"
               className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-[#1DB954]/50 transition-all"
             />
             <input
@@ -450,14 +451,14 @@ export function Home() {
                     <input
                       key={i}
                       id={`code-${i}`}
-                      type="text"
+                      type="search"
                       maxLength={1}
                       value={code[i]}
                       onChange={(e) => handleCodeChange(i, e.target.value)}
                       onKeyDown={(e) => handleCodeKeyDown(i, e)}
-                      autoComplete="one-time-code"
+                      autoComplete="off"
+                      autoCorrect="off"
                       autoCapitalize="characters"
-                      inputMode="text"
                       className="w-14 h-16 bg-white/5 border-2 border-white/10 rounded-xl text-center text-2xl font-black text-white focus:outline-none focus:border-[#1DB954] focus:bg-[#1DB954]/10 transition-all uppercase"
                     />
                   ))}

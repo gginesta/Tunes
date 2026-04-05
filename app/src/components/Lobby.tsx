@@ -549,7 +549,7 @@ export function Lobby() {
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <input
-                        type="text"
+                        type="search"
                         placeholder="https://open.spotify.com/playlist/..."
                         value={playlistInput}
                         onChange={(e) => handlePlaylistUrlChange(e.target.value)}
