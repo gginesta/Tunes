@@ -179,7 +179,7 @@ export function Home() {
         <p className="text-gray-500 mt-1 font-medium tracking-widest uppercase text-xs">
           The Music Party Game
         </p>
-        <p className="text-gray-600 mt-1 text-[10px] tabular-nums">v2.2.0</p>
+        <p className="text-gray-600 mt-1 text-[10px] tabular-nums">v2.3.0</p>
       </motion.div>
 
       <motion.div
