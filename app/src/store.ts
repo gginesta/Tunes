@@ -85,6 +85,7 @@ interface GameStore {
 
   // Buzz
   buzzedPlayers: string[];
+  buzzFlash: number; // increments each time a buzz targets the active player
   // Disconnect grace period
   disconnectedPlayers: Record<string, number>; // playerId \u2192 reconnectDeadline timestamp
 
@@ -147,6 +148,7 @@ interface GameStore {
   setSongHistory: (history: PlayedSong[]) => void;
   addBuzzedPlayer: (id: string) => void;
   clearBuzzedPlayers: () => void;
+  triggerBuzzFlash: () => void;
   addTriviaAnswer: (correct: boolean) => void;
   setLeaderboard: (entries: LeaderboardEntry[]) => void;
   setMyStats: (stats: LeaderboardEntry | null) => void;
@@ -194,6 +196,7 @@ const initialState = {
   currentPreviewUrl: null as string | null,
   triviaScore: { correct: 0, total: 0 },
   buzzedPlayers: [] as string[],
+  buzzFlash: 0,
   disconnectedPlayers: {} as Record<string, number>,
   lastReveal: null,
   songNameResult: null,
@@ -287,6 +290,7 @@ export const useGameStore = create<GameStore>((set) => ({
       buzzedPlayers: s.buzzedPlayers.includes(id) ? s.buzzedPlayers : [...s.buzzedPlayers, id],
     })),
   clearBuzzedPlayers: () => set({ buzzedPlayers: [] }),
+  triggerBuzzFlash: () => set((s) => ({ buzzFlash: s.buzzFlash + 1 })),
   addTriviaAnswer: (correct) =>
     set((s) => ({
       triviaScore: {

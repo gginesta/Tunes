@@ -100,7 +100,22 @@ export function Game() {
   const [guessArtist, setGuessArtist] = useState('');
   const [guessYear, setGuessYear] = useState('');
   const [selectedPosition, setSelectedPosition] = useState<number | null>(null);
+  const [buyCardToast, setBuyCardToast] = useState(false);
+  const buzzFlash = useGameStore((s) => s.buzzFlash);
+  const [showBuzzAlert, setShowBuzzAlert] = useState(false);
+  const prevBuzzFlashRef = useRef(buzzFlash);
   const songNameResult = useGameStore((s) => s.songNameResult);
+
+  // Show buzz flash when active player gets buzzed
+  useEffect(() => {
+    if (buzzFlash > prevBuzzFlashRef.current) {
+      setShowBuzzAlert(true);
+      const t = setTimeout(() => setShowBuzzAlert(false), 2000);
+      prevBuzzFlashRef.current = buzzFlash;
+      return () => clearTimeout(t);
+    }
+    prevBuzzFlashRef.current = buzzFlash;
+  }, [buzzFlash]);
 
   // Timeline toggle: view own vs active player's timeline
   const [viewingOwnTimeline, setViewingOwnTimeline] = useState(false);
@@ -183,18 +198,6 @@ export function Game() {
     const nowMuted = toggleMute();
     setSoundMuted(nowMuted);
   }, [volume, setVolume]);
-
-  const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = parseFloat(e.target.value);
-    setVolume(v);
-    if (v > 0 && soundMuted) {
-      const nowMuted = toggleMute();
-      setSoundMuted(nowMuted);
-    } else if (v === 0 && !soundMuted) {
-      const nowMuted = toggleMute();
-      setSoundMuted(nowMuted);
-    }
-  }, [setVolume, soundMuted]);
 
   const VolumeIcon = volume > 0.5 ? Volume2 : volume > 0 ? Volume1 : VolumeX;
 
@@ -360,6 +363,8 @@ export function Game() {
 
   const handleBuyCard = () => {
     socket.emit('buy-card');
+    setBuyCardToast(true);
+    setTimeout(() => setBuyCardToast(false), 2500);
   };
 
   const handleConfirmReveal = () => {
@@ -422,6 +427,25 @@ export function Game() {
                 </button>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Buzz flash overlay — shown to the active player when someone buzzes */}
+      <AnimatePresence>
+        {showBuzzAlert && (
+          <motion.div
+            key="buzz-alert"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.02 }}
+            transition={{ duration: 0.15 }}
+            className="absolute inset-0 z-50 pointer-events-none flex items-start justify-center pt-20"
+          >
+            <div className="bg-yellow-500 text-black font-black text-2xl px-8 py-5 rounded-3xl shadow-[0_0_60px_rgba(234,179,8,0.8)] flex flex-col items-center gap-1 animate-pulse">
+              <span className="text-4xl">⚡</span>
+              <span>Someone knows this!</span>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -504,18 +528,10 @@ export function Game() {
             <button
               onClick={handleToggleMute}
               className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+              title={volume > 0 ? 'Mute' : 'Unmute'}
             >
               <VolumeIcon className="w-4 h-4" />
             </button>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              value={volume}
-              onChange={handleVolumeChange}
-              className="w-14 h-1 accent-[#1DB954] bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#1DB954]"
-            />
             {isHost && (
               <button
                 onClick={() => setShowStopConfirm(true)}
@@ -528,39 +544,41 @@ export function Game() {
           </div>
         </div>
 
-        {/* Row 2: Player scores — large and readable */}
-        <div className="flex justify-center gap-2 px-3 pb-2 overflow-x-auto hide-scrollbar">
-          {isCoop ? (
-            <div className="flex items-center gap-2 bg-white/5 rounded-xl px-4 py-2">
-              <span className="text-lg font-black text-green-400 tabular-nums">
-                {sharedTimeline.length}/{settings.cardsToWin}
-              </span>
-              <span className="text-sm text-gray-400">Team</span>
-            </div>
-          ) : (
-            playerList.map((p) => (
-              <div
-                key={p.id}
-                className={`flex flex-col items-center rounded-xl px-3 py-1.5 min-w-[60px] transition-all ${
-                  p.id === currentTurnPlayerId
-                    ? 'bg-[#1DB954]/15 border border-[#1DB954]/30'
-                    : 'bg-white/5'
-                }`}
-              >
-                <span className={`text-xs font-bold truncate max-w-[70px] ${
-                  p.id === currentTurnPlayerId ? 'text-[#1DB954]' : 'text-gray-400'
-                }`}>
-                  {p.id === myId ? 'You' : p.name}
+        {/* Row 2: Player scores */}
+        <div className="overflow-x-auto hide-scrollbar px-3 pb-1.5">
+          <div className="flex gap-1.5 min-w-max mx-auto w-fit">
+            {isCoop ? (
+              <div className="flex items-center gap-2 bg-white/5 rounded-xl px-4 py-1.5">
+                <span className="text-lg font-black text-green-400 tabular-nums">
+                  {sharedTimeline.length}/{settings.cardsToWin}
                 </span>
-                <span className="text-lg font-black tabular-nums text-white leading-tight">
-                  {p.timeline.length}<span className="text-white/40 text-sm">/{settings.cardsToWin}</span>
-                </span>
-                <span className="text-[10px] text-yellow-400 font-bold tabular-nums leading-tight" title="Tokens">
-                  {p.tokens} tokens
-                </span>
+                <span className="text-sm text-gray-400">Team</span>
               </div>
-            ))
-          )}
+            ) : (
+              playerList.map((p) => (
+                <div
+                  key={p.id}
+                  className={`flex flex-col items-center rounded-xl px-2.5 py-1 min-w-[54px] transition-all ${
+                    p.id === currentTurnPlayerId
+                      ? 'bg-[#1DB954]/15 border border-[#1DB954]/30'
+                      : 'bg-white/5'
+                  }`}
+                >
+                  <span className={`text-[11px] font-bold truncate max-w-[60px] ${
+                    p.id === currentTurnPlayerId ? 'text-[#1DB954]' : 'text-gray-400'
+                  }`}>
+                    {p.id === myId ? 'You' : p.name}
+                  </span>
+                  <span className="text-base font-black tabular-nums text-white leading-tight">
+                    {p.timeline.length}<span className="text-white/40 text-xs">/{settings.cardsToWin}</span>
+                  </span>
+                  <span className="text-[10px] text-yellow-400 font-bold tabular-nums leading-none" title="Tokens">
+                    ★ {p.tokens}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
 
@@ -569,13 +587,13 @@ export function Game() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="bg-black/60 border-b border-[#1DB954]/30 px-4 py-4"
+          className="bg-black/60 border-b border-[#1DB954]/30 px-3 py-2"
         >
           <button
             onClick={handlePlayTap}
-            className="w-full flex items-center justify-center gap-3 bg-[#1DB954] hover:bg-[#1ed760] text-black font-black text-lg py-4 rounded-2xl shadow-[0_0_30px_rgba(29,185,84,0.4)] transition-all active:scale-95"
+            className="w-full flex items-center justify-center gap-2 bg-[#1DB954] hover:bg-[#1ed760] text-black font-black text-base py-3 rounded-xl shadow-[0_0_24px_rgba(29,185,84,0.4)] transition-all active:scale-95"
           >
-            <Play className="w-7 h-7" fill="currentColor" />
+            <Play className="w-5 h-5" fill="currentColor" />
             TAP TO PLAY MUSIC
           </button>
         </motion.div>
@@ -630,7 +648,7 @@ export function Game() {
       </AnimatePresence>
 
       {/* Center Area */}
-      <div className="flex-1 flex flex-col items-center justify-center px-4 py-3 relative overflow-y-auto">
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-2 relative overflow-y-auto">
         <AnimatePresence mode="wait">
           {isRevealed ? (
             <motion.div
@@ -1032,6 +1050,20 @@ export function Game() {
 
         {/* Action buttons */}
         {isMyTurn && phase === 'playing' && (
+          <AnimatePresence>
+            {buyCardToast && (
+              <motion.div
+                key="buy-toast"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                className="mb-2 flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-yellow-500/20 border border-yellow-500/30 text-yellow-300 text-sm font-bold"
+              >
+                <ShoppingCart className="w-4 h-4" />
+                Card added to your timeline! (-{BUY_CARD_COST} tokens)
+              </motion.div>
+            )}
+          </AnimatePresence>
           <div className="flex gap-3 mt-2">
             <button
               onClick={handleSkip}

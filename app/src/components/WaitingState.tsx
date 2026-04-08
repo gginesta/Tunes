@@ -10,20 +10,6 @@ function getRandomQuestion(exclude?: TriviaQuestion): TriviaQuestion {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-function MusicVisualizer() {
-  return (
-    <div className="flex items-end justify-center gap-1 h-10 mb-4">
-      {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
-        <div
-          key={i}
-          className="w-1.5 rounded-full bg-gradient-to-t from-purple-500 to-pink-400 animate-visualizer"
-          style={{ animationDelay: `${i * 0.08}s` }}
-        />
-      ))}
-    </div>
-  );
-}
-
 export function WaitingState() {
   const players = useGameStore((s) => s.players);
   const buzzedPlayers = useGameStore((s) => s.buzzedPlayers);
@@ -87,15 +73,15 @@ export function WaitingState() {
 
   return (
     <div className="mt-4 flex flex-col items-center w-full max-w-md mx-auto px-4">
-      {/* Music visualizer */}
-      <MusicVisualizer />
-
       {/* Trivia section */}
       <div className="w-full bg-white/5 rounded-2xl border border-white/10 p-5 mb-5">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-xs uppercase tracking-widest text-purple-400 font-semibold">
-            Music Trivia
-          </p>
+          <div>
+            <p className="text-xs uppercase tracking-widest text-purple-400 font-semibold">
+              Music Trivia
+            </p>
+            <p className="text-[10px] text-purple-400/60 mt-0.5">Compete for bragging rights</p>
+          </div>
           <span className="text-xs font-bold text-purple-400/70 tabular-nums">
             {triviaScore.correct}/{triviaScore.total}
           </span>

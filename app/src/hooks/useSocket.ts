@@ -212,6 +212,7 @@ export function useSocket() {
       // Annoying alert for the active player, normal sound for others
       if (store.currentTurnPlayerId === store.myId) {
         playBuzzAlertSound();
+        store.triggerBuzzFlash();
       } else {
         playBuzzSound();
       }
