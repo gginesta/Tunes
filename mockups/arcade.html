@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Tunes — Arcade mockup</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<script>
+tailwind.config={theme:{extend:{fontFamily:{pixel:['"Press Start 2P"','monospace'],body:['"Inter"','system-ui']},colors:{arc:{bg:'#0a0a1a',blue:'#4dc8ff',pink:'#ff6ec7',yellow:'#ffe246',green:'#39ff6e',purple:'#a78bfa',dark:'#12122a'}}}}};
+</script>
+<style>
+body{font-family:"Inter",system-ui;background:radial-gradient(800px at 50% 0%,rgba(77,200,255,.12),transparent),radial-gradient(600px at 80% 100%,rgba(255,110,199,.1),transparent),#0a0a1a;color:#e4e4f0;min-height:100vh}
+.pixel{font-family:"Press Start 2P",monospace}
+.phone{width:390px;border-radius:44px;padding:10px;background:linear-gradient(180deg,#1a1a3a,#0a0a1a);box-shadow:0 40px 120px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.04) inset,0 0 0 12px rgba(0,0,0,.4)}
+.phone-screen{position:relative;border-radius:34px;overflow:hidden;background:#0a0a1a;height:800px}
+.phone-notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:120px;height:28px;border-radius:18px;background:#000;z-index:50}
+.crt::after{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(0,0,0,.12) 0 1px,transparent 1px 3px);mix-blend-mode:overlay;border-radius:34px}
+.glow-blue{text-shadow:0 0 20px rgba(77,200,255,.8),0 0 50px rgba(77,200,255,.4)}
+.glow-pink{text-shadow:0 0 20px rgba(255,110,199,.8),0 0 50px rgba(255,110,199,.4)}
+.glow-yellow{text-shadow:0 0 20px rgba(255,226,70,.8)}
+.btn-arcade{background:linear-gradient(180deg,#4dc8ff,#2a90cc);color:#0a0a1a;font-weight:900;border-radius:14px;box-shadow:0 6px 0 #1a5c80,0 10px 25px rgba(77,200,255,.35);border:2px solid rgba(255,255,255,.2)}
+.btn-arcade-pink{background:linear-gradient(180deg,#ff6ec7,#cc4a9e);color:#0a0a1a;font-weight:900;border-radius:14px;box-shadow:0 6px 0 #803060,0 10px 25px rgba(255,110,199,.35);border:2px solid rgba(255,255,255,.2)}
+.btn-ghost{background:rgba(255,255,255,.05);border:2px solid rgba(255,255,255,.08);border-radius:14px;color:rgba(255,255,255,.7)}
+.pixel-card{width:96px;height:128px;flex:none;border-radius:6px;border:3px solid;image-rendering:pixelated;position:relative;overflow:hidden;box-shadow:0 12px 20px rgba(0,0,0,.5)}
+.pixel-card::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,.06) 0 1px,transparent 1px 3px)}
+.coin{display:inline-flex;align-items:center;gap:3px;color:#ffe246}
+.hp{height:6px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,.1)}
+.hp-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,#39ff6e,#ffe246)}
+.blink{animation:blink 1s step-end infinite}
+@keyframes blink{50%{opacity:0}}
+</style>
+</head>
+<body>
+<header class="max-w-6xl mx-auto px-6 pt-10 pb-4">
+<a href="./index.html" class="text-arc-blue hover:text-arc-pink text-sm">&larr; Back to gallery</a>
+<h1 class="pixel text-2xl mt-4 glow-blue text-arc-blue">Direction E</h1>
+<h2 class="text-3xl font-black mt-1"><span class="text-arc-pink">Arcade</span> Cabinet</h2>
+<p class="text-white/60 max-w-2xl mt-2">Pixel typography, CRT scanlines, 3D arcade buttons, coin-op token UI. Leans into "Tunes is a GAME" — high scores, power-ups, and boss-fight energy.</p>
+</header>
+<main class="max-w-6xl mx-auto px-6 pb-20">
+<div class="flex flex-wrap justify-center gap-8 mt-8">
+
+<!-- HOME -->
+<figure class="flex flex-col items-center">
+<div class="phone"><div class="phone-notch"></div>
+<div class="phone-screen crt">
+<div class="absolute -top-20 left-1/2 -translate-x-1/2 w-96 h-96 rounded-full bg-arc-blue/10 blur-3xl"></div>
+<div class="absolute bottom-0 right-0 w-72 h-72 rounded-full bg-arc-pink/10 blur-3xl"></div>
+<div class="relative px-6 pt-16 pb-6 h-full flex flex-col">
+<!-- Title screen -->
+<div class="text-center mt-4">
+<div class="pixel text-[9px] text-arc-yellow glow-yellow tracking-wider">— INSERT COIN —</div>
+<h1 class="pixel text-4xl text-arc-blue glow-blue mt-6 leading-relaxed">TUNES</h1>
+<div class="pixel text-[8px] text-arc-pink glow-pink mt-3">THE MUSIC PARTY GAME</div>
+<div class="pixel text-[7px] text-white/40 mt-3">© 2024 · HIGH SCORE: 10 CARDS</div>
+</div>
+<!-- Player select -->
+<div class="mt-8 space-y-2">
+<label class="pixel text-[8px] text-arc-green">PLAYER NAME:</label>
+<input value="Alex" class="w-full bg-black/50 border-2 border-arc-blue/40 rounded-lg px-4 py-4 text-lg font-bold text-arc-blue focus:outline-none focus:border-arc-blue" style="text-shadow:0 0 10px rgba(77,200,255,.5)"/>
+</div>
+<!-- Buttons -->
+<div class="mt-6 space-y-3">
+<button class="btn-arcade w-full py-4 text-lg">🕹 HOST GAME</button>
+<button class="btn-arcade-pink w-full py-4 text-lg">🎟 JOIN GAME</button>
+</div>
+<!-- Credits -->
+<div class="mt-auto pt-4 flex justify-center gap-2">
+<button class="btn-ghost px-3 py-2 text-xs font-bold">📖 RULES</button>
+<button class="btn-ghost px-3 py-2 text-xs font-bold">🏆 RANKS</button>
+<button class="btn-ghost px-3 py-2 text-xs font-bold">📊 STATS</button>
+</div>
+<div class="pixel text-[7px] text-center text-white/30 mt-3 blink">PRESS START</div>
+</div>
+</div></div>
+<figcaption class="mt-4 text-sm text-white/50 uppercase tracking-[0.2em]">Home</figcaption>
+</figure>
+
+<!-- GAME -->
+<figure class="flex flex-col items-center">
+<div class="phone"><div class="phone-notch"></div>
+<div class="phone-screen crt">
+<div class="absolute -top-20 right-0 w-72 h-72 rounded-full bg-arc-pink/10 blur-3xl"></div>
+<div class="absolute bottom-0 left-0 w-72 h-72 rounded-full bg-arc-blue/10 blur-3xl"></div>
+<div class="relative h-full flex flex-col">
+<!-- Top HUD -->
+<div class="pt-10 px-4 pb-2 bg-black/50 border-b-2 border-arc-blue/20">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="pixel text-[7px] text-arc-pink glow-pink">STAGE</span>
+<span class="pixel text-[9px] text-arc-blue glow-blue">JORDAN</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="pixel text-[7px] px-2 py-0.5 rounded border border-arc-purple/40 text-arc-purple bg-arc-purple/10">PRO</span>
+<span class="pixel text-[7px] text-white/50">42♪</span>
+</div>
+</div>
+<!-- Player HUD bars -->
+<div class="mt-2 space-y-1">
+<div class="flex items-center gap-2">
+<span class="pixel text-[6px] text-arc-pink w-14 truncate">JORDAN</span>
+<div class="hp flex-1"><div class="hp-fill" style="width:40%"></div></div>
+<span class="pixel text-[6px] text-white/70">4/10</span>
+<span class="coin pixel text-[6px]">★2</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="pixel text-[6px] text-arc-green w-14 truncate">MAYA</span>
+<div class="hp flex-1"><div class="hp-fill" style="width:30%"></div></div>
+<span class="pixel text-[6px] text-white/70">3/10</span>
+<span class="coin pixel text-[6px]">★3</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="pixel text-[6px] text-arc-blue w-14 truncate">YOU</span>
+<div class="hp flex-1"><div class="hp-fill" style="width:30%"></div></div>
+<span class="pixel text-[6px] text-white/70">3/10</span>
+<span class="coin pixel text-[6px]">★1</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="pixel text-[6px] text-arc-yellow w-14 truncate">SAM</span>
+<div class="hp flex-1"><div class="hp-fill" style="width:20%"></div></div>
+<span class="pixel text-[6px] text-white/70">2/10</span>
+<span class="coin pixel text-[6px]">★2</span>
+</div>
+</div>
+</div>
+<!-- Center: mystery block -->
+<div class="flex-1 flex flex-col items-center justify-center px-6">
+<div class="pixel text-[7px] text-arc-yellow glow-yellow mb-3 blink">♪ NOW PLAYING ♪</div>
+<div class="w-48 h-48 rounded-xl flex items-center justify-center relative"
+     style="background:linear-gradient(135deg,#1a1a3a,#2a2a4a);border:4px solid rgba(77,200,255,.3);box-shadow:0 0 40px rgba(77,200,255,.2),inset 0 0 30px rgba(0,0,0,.5)">
+<div class="absolute inset-0 rounded-xl" style="background:repeating-linear-gradient(0deg,rgba(77,200,255,.03) 0 1px,transparent 1px 4px)"></div>
+<div class="pixel text-6xl text-arc-blue glow-blue relative z-10">?</div>
+<div class="absolute bottom-3 pixel text-[7px] text-arc-pink glow-pink">UNKNOWN.MP3</div>
+</div>
+<!-- Timer -->
+<div class="mt-4 flex items-center gap-3">
+<div class="flex gap-0.5">
+<div class="w-2 h-4 rounded-sm bg-arc-green"></div>
+<div class="w-2 h-4 rounded-sm bg-arc-green"></div>
+<div class="w-2 h-4 rounded-sm bg-arc-green"></div>
+<div class="w-2 h-4 rounded-sm bg-arc-yellow"></div>
+<div class="w-2 h-4 rounded-sm bg-arc-yellow"></div>
+<div class="w-2 h-4 rounded-sm bg-white/10"></div>
+<div class="w-2 h-4 rounded-sm bg-white/10"></div>
+<div class="w-2 h-4 rounded-sm bg-white/10"></div>
+</div>
+<span class="pixel text-[9px] text-arc-yellow">0:38</span>
+</div>
+</div>
+<!-- Timeline -->
+<div class="bg-black/50 border-t-2 border-arc-blue/20 px-4 pt-3 pb-4">
+<div class="flex items-center justify-between mb-2">
+<p class="pixel text-[7px] text-arc-blue">JORDAN'S DECK</p>
+<button class="pixel text-[7px] text-arc-green">MY DECK ⇄</button>
+</div>
+<div class="flex gap-2 overflow-x-auto pb-2">
+<div class="pixel-card" style="border-color:#ff6ec7;background:linear-gradient(135deg,#3a1028,#1a0818)">
+<div class="p-2 flex flex-col justify-between h-full relative z-10">
+<span class="pixel text-arc-pink text-sm">'87</span>
+<div><div class="text-[9px] font-bold text-white truncate">Sweet Child</div><div class="pixel text-[6px] text-white/50 truncate">GN'R</div></div>
+</div>
+</div>
+<button class="flex-none w-9 h-[128px] rounded-md border-2 border-dashed border-arc-blue/30 hover:border-arc-blue flex items-center justify-center pixel text-arc-blue/40 text-xs">+</button>
+<div class="pixel-card" style="border-color:#39ff6e;background:linear-gradient(135deg,#0a2a14,#081a0c)">
+<div class="p-2 flex flex-col justify-between h-full relative z-10">
+<span class="pixel text-arc-green text-sm">'91</span>
+<div><div class="text-[9px] font-bold text-white truncate">Teen Spirit</div><div class="pixel text-[6px] text-white/50 truncate">Nirvana</div></div>
+</div>
+</div>
+<button class="flex-none w-9 h-[128px] rounded-md border-2 border-arc-yellow bg-arc-yellow/15 flex items-center justify-center pixel text-arc-yellow text-xs" style="box-shadow:0 0 20px rgba(255,226,70,.3)">+</button>
+<div class="pixel-card" style="border-color:#ffe246;background:linear-gradient(135deg,#2a2206,#1a1504)">
+<div class="p-2 flex flex-col justify-between h-full relative z-10">
+<span class="pixel text-arc-yellow text-sm">'03</span>
+<div><div class="text-[9px] font-bold text-white truncate">Hey Ya!</div><div class="pixel text-[6px] text-white/50 truncate">OutKast</div></div>
+</div>
+</div>
+<button class="flex-none w-9 h-[128px] rounded-md border-2 border-dashed border-arc-blue/30 flex items-center justify-center pixel text-arc-blue/40 text-xs">+</button>
+<div class="pixel-card" style="border-color:#4dc8ff;background:linear-gradient(135deg,#0a1a2a,#081420)">
+<div class="p-2 flex flex-col justify-between h-full relative z-10">
+<span class="pixel text-arc-blue text-sm">'10</span>
+<div><div class="text-[9px] font-bold text-white truncate">Rolling Deep</div><div class="pixel text-[6px] text-white/50 truncate">Adele</div></div>
+</div>
+</div>
+</div>
+<div class="mt-2 flex gap-2">
+<button class="flex-1 btn-ghost py-3 text-xs font-bold">⏭ SKIP·1★</button>
+<button class="flex-[2] btn-arcade py-3 font-black text-base">PLACE CARD</button>
+<button class="flex-1 btn-ghost py-3 text-xs font-bold">🛒 BUY·3★</button>
+</div>
+</div>
+</div>
+</div></div>
+<figcaption class="mt-4 text-sm text-white/50 uppercase tracking-[0.2em]">In-Game</figcaption>
+</figure>
+</div>
+
+<section class="max-w-3xl mx-auto mt-20 space-y-5">
+<h2 class="text-2xl font-black"><span class="text-arc-blue glow-blue">Design</span> notes</h2>
+<ul class="space-y-3 text-white/70 text-sm leading-relaxed">
+<li><span class="text-arc-blue font-bold">CRT scanlines</span> overlay every screen — subtle but sets the retro-game tone instantly.</li>
+<li><span class="text-arc-pink font-bold">HP bars for scores.</span> Card progress is a health-bar fill, making the race to 10 feel competitive and visible.</li>
+<li><span class="text-arc-yellow font-bold">Pixel typography</span> (Press Start 2P) for headings + labels gives instant arcade recognition.</li>
+<li><span class="text-arc-green font-bold">3D arcade buttons</span> with drop-shadows that compress on press — satisfying tactile feel.</li>
+<li><span class="text-arc-blue font-bold">Per-player neon colors</span> (pink · green · blue · yellow) read like character select in a fighting game.</li>
+</ul>
+</section>
+</main>
+</body>
+</html>
