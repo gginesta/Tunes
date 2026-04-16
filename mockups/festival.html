@@ -158,7 +158,14 @@ tailwind.config = {
 <body>
 
 <header class="max-w-6xl mx-auto px-6 pt-10 pb-4">
-  <a href="./index.html" class="text-yellow-300 hover:text-yellow-200 text-sm">&larr; Back to gallery</a>
+  <div class="flex items-center justify-between">
+    <a href="./index.html" class="text-yellow-300 hover:text-yellow-200 text-sm">&larr; Back to gallery</a>
+    <div class="flex items-center gap-3">
+      <a href="./modern-glass.html" class="flex items-center gap-1 text-sm text-white/50 hover:text-white transition-colors">&larr; <span class="hidden sm:inline">B: Modern Glass</span><span class="sm:hidden">Prev</span></a>
+      <span class="text-white/20">|</span>
+      <a href="./cassette-deck.html" class="flex items-center gap-1 text-sm text-white/50 hover:text-white transition-colors"><span class="hidden sm:inline">D: Cassette Deck</span><span class="sm:hidden">Next</span> &rarr;</a>
+    </div>
+  </div>
   <h1 class="display text-4xl mt-4">Direction C — <span class="text-rose-400">Festival</span></h1>
   <p class="text-white/70 max-w-2xl mt-2">Bold, playful, unapologetically a party. Per-player colors, polaroid cards pinned to a corkboard, sticker halos, chunky 3D buttons, marker-hand annotations. Best for turning the game into a brand you'd put on a t-shirt.</p>
 </header>

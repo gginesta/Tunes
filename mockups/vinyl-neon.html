@@ -179,7 +179,14 @@ tailwind.config = {
 <body class="min-h-screen">
 
 <header class="max-w-6xl mx-auto px-6 pt-10 pb-4">
-  <a href="./index.html" class="text-neon-cyan/80 hover:text-neon-cyan text-sm">&larr; Back to gallery</a>
+  <div class="flex items-center justify-between">
+    <a href="./index.html" class="text-neon-cyan/80 hover:text-neon-cyan text-sm">&larr; Back to gallery</a>
+    <div class="flex items-center gap-3">
+      <a href="./arcade.html" class="flex items-center gap-1 text-sm text-white/50 hover:text-white transition-colors">&larr; <span class="hidden sm:inline">E: Arcade</span><span class="sm:hidden">Prev</span></a>
+      <span class="text-white/20">|</span>
+      <a href="./modern-glass.html" class="flex items-center gap-1 text-sm text-white/50 hover:text-white transition-colors"><span class="hidden sm:inline">B: Modern Glass</span><span class="sm:hidden">Next</span> &rarr;</a>
+    </div>
+  </div>
   <h1 class="display text-4xl font-bold mt-4">Direction A — <span class="text-glow-pink text-neon-pink">Vinyl</span> &amp; <span class="text-glow-cyan text-neon-cyan">Neon</span></h1>
   <p class="text-white/60 max-w-2xl mt-2">Deep purple with tri-color neon (magenta · cyan · amber). Vinyl-disc centerpieces, record-sleeve timeline cards, chunky display type. A disco / record-shop feel — loud, musical, unmistakably a party game.</p>
 </header>

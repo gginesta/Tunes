@@ -129,7 +129,14 @@ tailwind.config = {
 <body>
 
 <header class="max-w-6xl mx-auto px-6 pt-10 pb-4">
-  <a href="./index.html" class="text-mint-400/80 hover:text-mint-400 text-sm">&larr; Back to gallery</a>
+  <div class="flex items-center justify-between">
+    <a href="./index.html" class="text-mint-400/80 hover:text-mint-400 text-sm">&larr; Back to gallery</a>
+    <div class="flex items-center gap-3">
+      <a href="./vinyl-neon.html" class="flex items-center gap-1 text-sm text-white/50 hover:text-white transition-colors">&larr; <span class="hidden sm:inline">A: Vinyl &amp; Neon</span><span class="sm:hidden">Prev</span></a>
+      <span class="text-white/20">|</span>
+      <a href="./festival.html" class="flex items-center gap-1 text-sm text-white/50 hover:text-white transition-colors"><span class="hidden sm:inline">C: Festival</span><span class="sm:hidden">Next</span> &rarr;</a>
+    </div>
+  </div>
   <h1 class="display text-4xl font-semibold mt-4">Direction B — <span class="italic-serif">Modern Glass</span></h1>
   <p class="text-white/60 max-w-2xl mt-2">Aurora gradients, real glassmorphism, sophisticated type (Fraunces + Inter). Softer gradient palette (mint · plum · peach) instead of pure Spotify-green. Reads like a premium music app — Apple Music + Arc browser energy.</p>
 </header>
