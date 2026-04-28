@@ -87,7 +87,8 @@ export default function App() {
   }, [setPendingJoinCode]);
 
   return (
-    <div className="font-sans antialiased bg-[#1a1a2e] min-h-screen text-white selection:bg-[#1DB954] selection:text-black">
+    <div className="font-sans antialiased min-h-screen text-white selection:bg-neon-pink selection:text-[#0a0318] relative">
+      <div className="ambient" aria-hidden="true" />
       {screen === 'home' && <Home />}
       {screen === 'lobby' && <Lobby />}
       {screen === 'game' && <Game />}

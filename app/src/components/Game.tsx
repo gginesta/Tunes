@@ -45,12 +45,30 @@ const MODE_LABELS: Record<GameMode, string> = {
   coop: 'Co-op',
 };
 
-const MODE_COLORS: Record<GameMode, string> = {
-  original: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  pro: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
-  expert: 'bg-red-500/20 text-red-400 border-red-500/30',
-  coop: 'bg-green-500/20 text-green-400 border-green-500/30',
+const MODE_CHIP_CLASS: Record<GameMode, string> = {
+  original: 'chip chip-mode-original',
+  pro: 'chip chip-mode-pro',
+  expert: 'chip chip-mode-expert',
+  coop: 'chip chip-mode-coop',
 };
+
+const DECADE_CLASS: Record<number, string> = {
+  1930: 'dec-1930s',
+  1940: 'dec-1940s',
+  1950: 'dec-1950s',
+  1960: 'dec-1960s',
+  1970: 'dec-1970s',
+  1980: 'dec-1980s',
+  1990: 'dec-1990s',
+  2000: 'dec-2000s',
+  2010: 'dec-2010s',
+  2020: 'dec-2020s',
+};
+
+function getDecadeClass(year: number): string {
+  const decade = Math.floor(year / 10) * 10;
+  return DECADE_CLASS[decade] || 'dec-1980s';
+}
 
 function Equalizer({ animate }: { animate: boolean }) {
   return (
@@ -58,7 +76,7 @@ function Equalizer({ animate }: { animate: boolean }) {
       {[0, 1, 2, 3, 4].map((i) => (
         <div
           key={i}
-          className={`w-[3px] bg-[#1DB954] rounded-full ${animate ? 'animate-equalizer' : ''}`}
+          className={`w-[3px] bg-neon-pink rounded-full ${animate ? 'animate-equalizer' : ''}`}
           style={{
             height: animate ? undefined : 6,
             animationDelay: animate ? `${i * 0.12}s` : undefined,
@@ -390,7 +408,7 @@ export function Game() {
 
   return (
     <div
-      className="flex flex-col h-screen text-white bg-[#1a1a2e] overflow-hidden"
+      className="flex flex-col h-screen text-white  overflow-hidden"
     >
       {/* Stop game confirmation dialog */}
       <AnimatePresence>
@@ -407,7 +425,7 @@ export function Game() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-[#1a1a2e] border border-white/10 rounded-2xl p-6 mx-4 max-w-sm w-full shadow-2xl"
+              className=" border border-white/10 rounded-2xl p-6 mx-4 max-w-sm w-full shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
               <h3 className="text-lg font-bold text-white mb-2">Stop Game?</h3>
@@ -442,8 +460,8 @@ export function Game() {
             transition={{ duration: 0.15 }}
             className="absolute inset-0 z-50 pointer-events-none flex items-start justify-center pt-20"
           >
-            <div className="bg-yellow-500 text-black font-black text-2xl px-8 py-5 rounded-3xl shadow-[0_0_60px_rgba(234,179,8,0.8)] flex flex-col items-center gap-1 animate-pulse">
-              <span className="text-4xl">⚡</span>
+            <div className="bg-neon-amber text-[#0a0318] font-black text-xl px-7 py-4 rounded-3xl shadow-[0_0_60px_rgba(255,190,61,0.8)] flex items-center gap-3 animate-pulse">
+              <span className="text-3xl">⚡</span>
               <span>Someone knows this!</span>
             </div>
           </motion.div>
@@ -509,10 +527,10 @@ export function Game() {
       <div className="bg-black/60 border-b border-white/5 z-10">
         <div className="flex justify-between items-center px-3 py-2">
           <div className="flex items-center gap-2 min-w-0">
-            <p className="font-bold text-[#1DB954] text-base truncate">
+            <p className="font-bold text-neon-pink text-base truncate">
               {isMyTurn ? 'Your Turn' : `${activePlayer.name}'s Turn`}
             </p>
-            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0 ${MODE_COLORS[mode]}`}>
+            <span className={`${MODE_CHIP_CLASS[mode]} flex-shrink-0`}>
               {MODE_LABELS[mode]}
             </span>
             <span className="text-xs text-gray-500 flex-shrink-0">{deckSize} left</span>
@@ -558,21 +576,15 @@ export function Game() {
               playerList.map((p) => (
                 <div
                   key={p.id}
-                  className={`flex flex-col items-center rounded-xl px-2.5 py-1 min-w-[54px] transition-all ${
-                    p.id === currentTurnPlayerId
-                      ? 'bg-[#1DB954]/15 border border-[#1DB954]/30'
-                      : 'bg-white/5'
-                  }`}
+                  className={`score-pill ${p.id === currentTurnPlayerId ? 'is-active' : ''}`}
                 >
-                  <span className={`text-[11px] font-bold truncate max-w-[60px] ${
-                    p.id === currentTurnPlayerId ? 'text-[#1DB954]' : 'text-gray-400'
-                  }`}>
+                  <span className="score-pill-name">
                     {p.id === myId ? 'You' : p.name}
                   </span>
-                  <span className="text-base font-black tabular-nums text-white leading-tight">
-                    {p.timeline.length}<span className="text-white/40 text-xs">/{settings.cardsToWin}</span>
+                  <span className="font-display tabular-nums text-white leading-none mt-0.5" style={{ fontSize: 16 }}>
+                    {p.timeline.length}<span className="text-white/40 text-[10px]">/{settings.cardsToWin}</span>
                   </span>
-                  <span className="text-[10px] text-yellow-400 font-bold tabular-nums leading-none" title="Tokens">
+                  <span className="text-[10px] text-neon-amber font-bold tabular-nums leading-none" title="Tokens">
                     ★ {p.tokens}
                   </span>
                 </div>
@@ -587,11 +599,11 @@ export function Game() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="bg-black/60 border-b border-[#1DB954]/30 px-3 py-2"
+          className="bg-black/60 border-b border-neon-pink/30 px-3 py-2"
         >
           <button
             onClick={handlePlayTap}
-            className="w-full flex items-center justify-center gap-2 bg-[#1DB954] hover:bg-[#1ed760] text-black font-black text-base py-3 rounded-xl shadow-[0_0_24px_rgba(29,185,84,0.4)] transition-all active:scale-95"
+            className="w-full flex items-center justify-center gap-2 bg-neon-pink hover:bg-[#ff6bd1] text-black font-black text-base py-3 rounded-xl glow-pink transition-all active:scale-95"
           >
             <Play className="w-5 h-5" fill="currentColor" />
             TAP TO PLAY MUSIC
@@ -656,14 +668,10 @@ export function Game() {
               initial={{ scale: 0.8, opacity: 0, y: 50 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.8, opacity: 0, y: -50 }}
-              className={`w-52 aspect-square rounded-3xl p-5 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl bg-gradient-to-br ${
-                lastReveal!.correct
-                  ? 'from-green-500 to-emerald-700 shadow-green-500/40'
-                  : 'from-red-500 to-rose-700 shadow-red-500/40'
-              }`}
+              className={`reveal-card ${lastReveal!.correct ? 'reveal-correct' : 'reveal-wrong'}`}
             >
               {revealedSong!.albumArtUrl ? (
-                <img src={revealedSong!.albumArtUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30 rounded-3xl" />
+                <img src={revealedSong!.albumArtUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-25 rounded-3xl" />
               ) : (
                 <div className="absolute -right-12 -bottom-12 opacity-20">
                   <Disc className="w-48 h-48" />
@@ -674,7 +682,7 @@ export function Game() {
                 animate={{ rotateY: 0 }}
                 className="text-center z-10"
               >
-                <h2 className="text-5xl font-black mb-2 drop-shadow-lg">{revealedSong!.year}</h2>
+                <h2 className="font-display text-5xl mb-2 drop-shadow-lg leading-none">{revealedSong!.year}</h2>
                 <p className="text-lg font-bold leading-tight drop-shadow-md">{revealedSong!.title}</p>
                 <p className="text-sm text-white/80">{revealedSong!.artist}</p>
 
@@ -729,52 +737,49 @@ export function Game() {
               initial={{ scale: 0.8, opacity: 0, y: 50 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.8, opacity: 0, y: -50 }}
-              className="w-52 aspect-square rounded-3xl p-5 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl shadow-indigo-900/50 bg-gradient-to-br from-blue-600 to-indigo-900"
+              className="flex flex-col items-center"
             >
-              <div className="absolute -right-12 -bottom-12 opacity-20">
-                <Disc className="w-48 h-48" />
+              <div className="text-[10px] tracking-[0.3em] text-white/40 mb-3 font-bold">
+                {phase === 'challenge' ? (isCoop ? 'REVEALING…' : 'CHALLENGE!') : isPlayingMusic ? 'NOW SPINNING · ???' : 'PAUSED · ???'}
               </div>
-
-              {/* Top status */}
-              <div className="absolute top-4 left-4 right-4 flex justify-between items-center">
-                <Equalizer animate={isPlayingMusic && phase === 'playing'} />
-                <span className="text-xs font-bold text-white/70 uppercase tracking-widest">
-                  {phase === 'challenge' ? (isCoop ? 'Revealing...' : 'Challenge!') : isPlayingMusic ? 'Now Playing' : 'Paused'}
-                </span>
-              </div>
-
-              {/* Center: Play/Pause for host, "?" for non-host */}
-              {isSpotifyHost && phase === 'playing' ? (
-                <div className="flex flex-col items-center gap-2">
-                  <button
-                    onClick={togglePlayback}
-                    className={`w-20 h-20 rounded-full bg-[#1DB954] hover:bg-[#1ed760] flex items-center justify-center transition-all transform active:scale-90 shadow-[0_0_30px_rgba(29,185,84,0.4)] ${!isPlayingMusic ? 'animate-pulse' : ''}`}
-                  >
-                    {isPlayingMusic ? (
-                      <Pause className="w-10 h-10 text-black" fill="black" />
+              <div className="relative" style={{ width: 200, height: 200 }}>
+                <div className={`vinyl ${isCoop ? 'vinyl-cyan' : ''} ${!isPlayingMusic && phase === 'playing' ? 'vinyl-paused' : ''}`}>
+                  <div className="vinyl-label">
+                    {isSpotifyHost && phase === 'playing' && !isPlayingMusic ? (
+                      <button
+                        onClick={togglePlayback}
+                        className="w-full h-full rounded-full flex items-center justify-center text-[#0a0318] animate-pulse"
+                        aria-label="Play"
+                      >
+                        <Play className="w-10 h-10" fill="currentColor" />
+                      </button>
+                    ) : isSpotifyHost && phase === 'playing' && isPlayingMusic ? (
+                      <button
+                        onClick={togglePlayback}
+                        className="w-full h-full rounded-full flex items-center justify-center text-[#0a0318]"
+                        aria-label="Pause"
+                      >
+                        <Pause className="w-10 h-10" fill="currentColor" />
+                      </button>
                     ) : (
-                      <Play className="w-10 h-10 text-black ml-1" fill="black" />
+                      <span className="font-chunky text-5xl leading-none">?</span>
                     )}
-                  </button>
-                  {!isPlayingMusic && (
-                    <span className="text-xs text-[#1DB954] font-bold animate-pulse">
-                      TAP TO PLAY
-                    </span>
-                  )}
+                  </div>
+                  <div className="vinyl-hole" />
                 </div>
-              ) : (
-                <h2 className="text-6xl font-black text-white/90 mt-4">?</h2>
-              )}
+                <div className="tonearm" />
+                <span className="eq absolute top-2 left-2"><i /><i /><i /><i /><i /></span>
+              </div>
 
-              <p className="text-white/50 font-medium mt-3 text-sm">
+              <p className="text-white/50 font-medium mt-4 text-sm">
                 {phase === 'challenge'
-                  ? (isCoop ? 'Checking placement...' : 'Waiting for challenges...')
-                  : isPlayingMusic ? 'Listen and guess the year...' : 'Guess the year'}
+                  ? (isCoop ? 'Checking placement…' : 'Waiting for challenges…')
+                  : isPlayingMusic ? 'Listen and guess the year…' : 'Tap to play'}
               </p>
 
               {/* Mode requirement hint */}
               {isMyTurn && phase === 'playing' && (mode === 'pro' || mode === 'expert') && (
-                <div className="mt-2 flex items-center gap-1 text-xs text-yellow-400">
+                <div className="mt-2 flex items-center gap-1 text-xs text-neon-amber">
                   <Star className="w-3 h-3" />
                   {mode === 'pro' ? 'Must name the song' : 'Must name song + exact year'}
                 </div>
@@ -788,11 +793,9 @@ export function Game() {
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className={`mt-4 flex items-center justify-center gap-3 px-6 py-3 rounded-2xl font-bold text-lg ${
-              countdown <= 3 ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-            }`}
+            className={`timer-pill mt-5 ${countdown <= 3 ? 'timer-red' : 'timer-amber'}`}
           >
-            <Clock className="w-5 h-5" />
+            <Clock className="w-4 h-4" />
             <span>{countdown}s to challenge</span>
           </motion.div>
         )}
@@ -836,7 +839,7 @@ export function Game() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             onClick={handleConfirmReveal}
-            className="mt-6 bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold py-3 px-8 rounded-2xl transition-all transform active:scale-95"
+            className="mt-6 bg-neon-pink hover:bg-[#ff6bd1] text-black font-bold py-3 px-8 rounded-2xl transition-all transform active:scale-95"
           >
             Continue
           </motion.button>
@@ -869,7 +872,7 @@ export function Game() {
               autoComplete="off"
               autoCapitalize="sentences"
               enterKeyHint="next"
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#1DB954]"
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-neon-pink"
             />
             <input
               type="search"
@@ -880,7 +883,7 @@ export function Game() {
               autoComplete="off"
               autoCapitalize="sentences"
               enterKeyHint="done"
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#1DB954]"
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-neon-pink"
             />
             {mode === 'expert' && (
               <input
@@ -889,7 +892,7 @@ export function Game() {
                 value={guessYear}
                 onChange={(e) => setGuessYear(e.target.value)}
                 autoComplete="off"
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#1DB954]"
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-neon-pink"
               />
             )}
             {guessTitle ? (
@@ -949,7 +952,7 @@ export function Game() {
         )}
 
         {!isMyTurn && phase === 'challenge' && !isCoop && challengers.includes(myId) && (
-          <p className="mt-5 text-[#1DB954] font-medium">Challenge submitted!</p>
+          <p className="mt-5 text-neon-pink font-medium">Challenge submitted!</p>
         )}
 
         {!isMyTurn && phase === 'challenge' && !isCoop && noChallengeClicked && !challengers.includes(myId) && (
@@ -1050,45 +1053,47 @@ export function Game() {
 
         {/* Action buttons */}
         {isMyTurn && phase === 'playing' && (
-          <AnimatePresence>
-            {buyCardToast && (
-              <motion.div
-                key="buy-toast"
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                className="mb-2 flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-yellow-500/20 border border-yellow-500/30 text-yellow-300 text-sm font-bold"
+          <>
+            <AnimatePresence>
+              {buyCardToast && (
+                <motion.div
+                  key="buy-toast"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  className="mb-2 flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-neon-amber/20 border border-neon-amber/40 text-neon-amber text-sm font-bold"
+                >
+                  <ShoppingCart className="w-4 h-4" />
+                  Card added to your timeline! (-{BUY_CARD_COST} tokens)
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <div className="flex gap-3 mt-2">
+              <button
+                onClick={handleSkip}
+                disabled={me.tokens < SKIP_COST}
+                className="btn btn-ghost flex-1 text-xs"
+              >
+                <SkipForward className="w-4 h-4" />
+                Skip · {SKIP_COST}★
+              </button>
+              <button
+                onClick={handlePlaceCard}
+                disabled={selectedPosition === null}
+                className="btn btn-primary flex-[2]"
+              >
+                PLACE CARD
+              </button>
+              <button
+                onClick={handleBuyCard}
+                disabled={me.tokens < BUY_CARD_COST}
+                className="btn btn-ghost flex-1 text-xs"
               >
                 <ShoppingCart className="w-4 h-4" />
-                Card added to your timeline! (-{BUY_CARD_COST} tokens)
-              </motion.div>
-            )}
-          </AnimatePresence>
-          <div className="flex gap-3 mt-2">
-            <button
-              onClick={handleSkip}
-              disabled={me.tokens < SKIP_COST}
-              className="flex-1 flex items-center justify-center gap-1 text-sm font-bold text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 py-3 rounded-xl transition-colors disabled:opacity-50"
-            >
-              <SkipForward className="w-4 h-4" />
-              Skip ({SKIP_COST})
-            </button>
-            <button
-              onClick={handlePlaceCard}
-              disabled={selectedPosition === null}
-              className="flex-[2] bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-50 text-black font-bold py-3 rounded-xl transition-all transform active:scale-95 shadow-[0_0_20px_rgba(29,185,84,0.3)]"
-            >
-              Place Card
-            </button>
-            <button
-              onClick={handleBuyCard}
-              disabled={me.tokens < BUY_CARD_COST}
-              className="flex-1 flex items-center justify-center gap-1 text-sm font-bold text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 py-3 rounded-xl transition-colors disabled:opacity-50"
-            >
-              <ShoppingCart className="w-4 h-4" />
-              Buy ({BUY_CARD_COST})
-            </button>
-          </div>
+                Buy · {BUY_CARD_COST}★
+              </button>
+            </div>
+          </>
         )}
       </div>
 
@@ -1105,24 +1110,25 @@ export function Game() {
 }
 
 function TimelineCard({ card }: { card: SongCard }) {
-  const colorClass = getCardColor(card.year);
+  const decade = getDecadeClass(card.year);
+  const yearShort = `'${String(card.year).slice(-2)}`;
   return (
     <motion.div
       layout
       initial={{ opacity: 0, scale: 0.85, y: -15 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-      className={`flex-shrink-0 w-[7rem] h-[8.5rem] rounded-2xl p-2.5 flex flex-col justify-between bg-gradient-to-br ${colorClass} shadow-lg shadow-black/30 relative overflow-hidden`}
+      className={`sleeve ${decade}`}
     >
-      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-transparent rounded-2xl" />
-      <div className="relative z-10">
-        <h4 className="font-black text-[1.4rem] text-white drop-shadow-sm">{card.year}</h4>
-      </div>
-      <div className="relative z-10">
-        <p className="text-[11px] font-bold text-white leading-snug line-clamp-2 drop-shadow-sm">
-          {card.title}
-        </p>
-        <p className="text-[10px] text-white/60 truncate mt-0.5">{card.artist}</p>
+      <div className="sleeve-shade" />
+      <div className="sleeve-inner">
+        <span className="font-chunky text-2xl text-neon-amber leading-none drop-shadow-md">{yearShort}</span>
+        <div className="text-white">
+          <p className="text-[11px] font-bold leading-snug line-clamp-2 drop-shadow-sm">
+            {card.title}
+          </p>
+          <p className="text-[10px] text-white/60 truncate mt-0.5">{card.artist}</p>
+        </div>
       </div>
     </motion.div>
   );
@@ -1135,11 +1141,10 @@ function PendingCard() {
       initial={{ opacity: 0, scale: 0.5 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-      className="flex-shrink-0 w-[7rem] h-[8.5rem] rounded-2xl flex flex-col items-center justify-center border-2 border-dashed border-amber-400/70 bg-amber-400/10 shadow-[0_0_25px_rgba(251,191,36,0.2)] relative overflow-hidden"
+      className="drop-pending"
     >
-      <div className="absolute inset-0 bg-gradient-to-t from-amber-500/10 to-transparent" />
-      <span className="text-4xl font-black text-amber-400 relative z-10">?</span>
-      <span className="text-[10px] font-bold text-amber-400/70 mt-1 uppercase tracking-wider relative z-10">Placed here</span>
+      <span className="font-chunky text-4xl text-neon-amber">?</span>
+      <span className="text-[10px] font-bold text-neon-amber/70 mt-1 uppercase tracking-wider">Placed here</span>
     </motion.div>
   );
 }
@@ -1155,34 +1160,18 @@ function DropZone({
   onClick: () => void;
   challenge?: boolean;
 }) {
+  void index;
+  const cls = challenge
+    ? `drop drop-challenge ${selected ? 'drop-selected' : ''}`
+    : `drop drop-cyan ${selected ? 'drop-selected' : ''}`;
   return (
     <motion.button
       layout
       onClick={onClick}
-      whileTap={{ scale: 0.9 }}
-      className={`flex-shrink-0 w-10 h-28 mx-1 rounded-xl border-2 border-dashed flex items-center justify-center transition-all cursor-pointer ${
-        selected
-          ? challenge
-            ? 'border-red-400 bg-red-500/20 shadow-[0_0_15px_rgba(239,68,68,0.3)]'
-            : 'border-[#1DB954] bg-[#1DB954]/20 shadow-[0_0_15px_rgba(29,185,84,0.3)]'
-          : challenge
-            ? 'border-red-400/30 hover:border-red-400/70 hover:bg-red-500/10'
-            : 'border-white/15 hover:border-[#1DB954]/70 hover:bg-[#1DB954]/5'
-      }`}
+      whileTap={{ scale: 0.92 }}
+      className={cls}
     >
-      <div
-        className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs ${
-          selected
-            ? challenge
-              ? 'bg-red-500 text-white'
-              : 'bg-[#1DB954] text-black'
-            : challenge
-              ? 'bg-red-500/20 text-red-400'
-              : 'bg-white/10 text-white/40'
-        }`}
-      >
-        +
-      </div>
+      +
     </motion.button>
   );
 }

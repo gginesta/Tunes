@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Music, Headphones, BookOpen, Wifi, WifiOff, Loader2, LogIn, LogOut, UserPlus, Trophy, BarChart3 } from 'lucide-react';
+import { Music, Loader2, LogIn, LogOut, UserPlus, Wifi, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getSocket } from '../services/socket';
 import { openSpotifyLogin, refreshAccessToken } from '../services/spotify';
@@ -146,75 +146,95 @@ export function Home() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen p-6 text-white bg-[#1a1a2e] bg-pattern">
+    <div className="relative flex flex-col items-center min-h-screen px-6 py-8 text-white scanlines">
       {/* Connection indicator */}
-      <div className="absolute top-4 right-4">
+      <div className="absolute top-4 right-4 z-20 flex items-center gap-1.5 text-[10px] font-bold tracking-[0.2em]">
         {connected ? (
-          <div className="flex items-center gap-1.5 text-xs text-green-400 font-medium">
-            <Wifi className="w-3.5 h-3.5" />
-            Connected
-          </div>
+          <>
+            <span className="conn-dot" />
+            <span className="text-neon-cyan/90">CONNECTED</span>
+          </>
         ) : (
-          <div className="flex items-center gap-1.5 text-xs text-red-400 animate-pulse font-medium">
-            <WifiOff className="w-3.5 h-3.5" />
-            Connecting...
-          </div>
+          <>
+            <span className="conn-dot conn-red" />
+            <span className="text-red-400">OFFLINE</span>
+          </>
         )}
       </div>
 
-      {/* Logo */}
+      {/* Vinyl hero */}
       <motion.div
-        initial={{ y: -30, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ type: 'spring', stiffness: 200, damping: 20 }}
-        className="flex flex-col items-center mb-10"
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ type: 'spring', stiffness: 200, damping: 22 }}
+        className="relative mt-8 mb-6"
+        style={{ width: 220, height: 220 }}
       >
-        <div className="relative mb-2">
-          <div className="absolute inset-0 bg-[#1DB954] blur-2xl opacity-20 rounded-full scale-150" />
-          <Music className="w-20 h-20 text-[#1DB954] relative z-10" />
+        <div className="vinyl">
+          <div className="vinyl-label">
+            <div>
+              <div className="font-chunky text-xl leading-none">TUNES</div>
+              <div className="text-[8px] tracking-[0.3em] mt-1 opacity-80 font-sans">A MUSIC PARTY</div>
+            </div>
+          </div>
+          <div className="vinyl-hole" />
         </div>
-        <h1 className="text-5xl font-black tracking-tighter bg-gradient-to-r from-white via-white to-gray-400 bg-clip-text text-transparent">
-          TUNES
+        <div className="tonearm" />
+      </motion.div>
+
+      {/* Headline */}
+      <motion.div
+        initial={{ y: 12, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.08, type: 'spring', stiffness: 200, damping: 22 }}
+        className="text-center"
+      >
+        <h1 className="font-heading text-[2.25rem] leading-[1.05] font-black tracking-tight">
+          <span className="needle text-neon-pink text-glow-pink">Drop</span> the needle.
         </h1>
-        <p className="text-gray-500 mt-1 font-medium tracking-widest uppercase text-xs">
-          The Music Party Game
+        <p className="text-white/55 text-sm mt-2">
+          Host a room. Share the code. Guess the year.
         </p>
-        <p className="text-gray-600 mt-1 text-[10px] tabular-nums">v2.3.0</p>
       </motion.div>
 
       <motion.div
-        initial={{ y: 20, opacity: 0 }}
+        initial={{ y: 14, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.1, type: 'spring', stiffness: 200, damping: 20 }}
-        className="w-full max-w-sm space-y-5"
+        transition={{ delay: 0.15, type: 'spring', stiffness: 200, damping: 22 }}
+        className="w-full max-w-sm space-y-5 mt-8"
       >
-        {/* Name input */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">
-            Your Name
+        {/* Stage name */}
+        <div className="space-y-2">
+          <label className="text-[10px] tracking-[0.3em] text-neon-cyan font-bold block">
+            YOUR STAGE NAME
           </label>
-          <input
-            type="search"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Enter your nickname..."
-            maxLength={20}
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="words"
-            className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-lg text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-[#1DB954]/50 focus:border-[#1DB954]/50 focus:bg-white/[0.07] transition-all"
-          />
+          <div className="relative">
+            <input
+              type="search"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter your nickname..."
+              maxLength={20}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="words"
+              className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-lg font-medium text-white placeholder-white/30 focus:outline-none focus:border-neon-pink focus:bg-neon-pink/5 transition-all"
+            />
+            <span className="eq absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
+              <i /><i /><i /><i /><i />
+            </span>
+          </div>
         </div>
 
         {/* Account section */}
         {signedInAs ? (
-          <div className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3 border border-white/5">
-            <span className="text-sm text-gray-300">
+          <div className="flex items-center justify-between panel px-4 py-3">
+            <span className="text-sm text-white/70">
               Signed in as <span className="text-white font-semibold">{signedInAs}</span>
             </span>
             <button
               onClick={handleSignOut}
-              className="text-xs text-gray-500 hover:text-white flex items-center gap-1 transition-colors py-1 px-2 rounded-lg hover:bg-white/5"
+              className="text-xs text-white/50 hover:text-white flex items-center gap-1 transition-colors py-1 px-2 rounded-lg hover:bg-white/5"
             >
               <LogOut className="w-3 h-3" />
               Sign out
@@ -224,18 +244,18 @@ export function Home() {
           <motion.div
             initial={{ opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="space-y-3 bg-white/5 rounded-2xl p-5 border border-white/10"
+            className="space-y-3 panel p-5"
           >
             <div className="flex gap-1 bg-black/30 rounded-xl p-1">
               <button
                 onClick={() => { setAuthMode('login'); setError(null); }}
-                className={`flex-1 text-xs font-bold py-2 rounded-lg transition-all ${authMode === 'login' ? 'bg-white/10 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                className={`flex-1 text-xs font-bold py-2 rounded-lg transition-all ${authMode === 'login' ? 'bg-white/10 text-white' : 'text-white/45 hover:text-white/80'}`}
               >
                 Sign In
               </button>
               <button
                 onClick={() => { setAuthMode('register'); setError(null); }}
-                className={`flex-1 text-xs font-bold py-2 rounded-lg transition-all ${authMode === 'register' ? 'bg-white/10 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                className={`flex-1 text-xs font-bold py-2 rounded-lg transition-all ${authMode === 'register' ? 'bg-white/10 text-white' : 'text-white/45 hover:text-white/80'}`}
               >
                 Create Account
               </button>
@@ -249,7 +269,7 @@ export function Home() {
               autoComplete="off"
               autoCorrect="off"
               autoCapitalize="off"
-              className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-[#1DB954]/50 transition-all"
+              className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-neon-pink transition-all"
             />
             <input
               type="password"
@@ -259,32 +279,26 @@ export function Home() {
               onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
               autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
               autoCapitalize="off"
-              className="w-full bg-black/20 border border-white/5 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-[#1DB954]/50 transition-all"
+              className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-neon-pink transition-all"
             />
             <div className="flex gap-2 pt-1">
               <button
                 onClick={() => { setAuthMode('none'); setError(null); }}
-                className="flex-1 text-sm text-gray-500 hover:text-white py-2.5 rounded-xl transition-colors hover:bg-white/5"
+                className="btn btn-ghost flex-1"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAuth}
                 disabled={!authUsername.trim() || !authPassword.trim() || authLoading}
-                className="flex-[2] bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-50 text-black text-sm font-bold py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5"
+                className="btn btn-primary flex-[2]"
               >
                 {authLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : authMode === 'register' ? (
-                  <>
-                    <UserPlus className="w-4 h-4" />
-                    Create
-                  </>
+                  <><UserPlus className="w-4 h-4" />Create</>
                 ) : (
-                  <>
-                    <LogIn className="w-4 h-4" />
-                    Sign In
-                  </>
+                  <><LogIn className="w-4 h-4" />Sign In</>
                 )}
               </button>
             </div>
@@ -292,10 +306,21 @@ export function Home() {
         ) : (
           <button
             onClick={() => setAuthMode('login')}
-            className="text-sm text-gray-500 hover:text-gray-300 transition-colors py-2 px-4 rounded-xl hover:bg-white/5 mx-auto block"
+            className="text-sm text-white/50 hover:text-white/80 transition-colors py-2 px-4 rounded-xl hover:bg-white/5 mx-auto block"
           >
             Have an account? Sign in
           </button>
+        )}
+
+        {/* Invite banner */}
+        {inviteMessage && mode === 'join' && (
+          <motion.p
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-neon-cyan text-sm text-center bg-neon-cyan/10 border border-neon-cyan/30 rounded-xl px-4 py-2.5 font-medium"
+          >
+            {inviteMessage}
+          </motion.p>
         )}
 
         {/* Error */}
@@ -305,7 +330,7 @@ export function Home() {
               initial={{ opacity: 0, y: -5 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -5 }}
-              className="text-red-400 text-sm text-center bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5"
+              className="text-red-400 text-sm text-center bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-2.5"
             >
               {error}
             </motion.p>
@@ -320,7 +345,7 @@ export function Home() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-3 pt-2"
+              className="space-y-3 pt-1"
             >
               <button
                 onClick={() => {
@@ -328,10 +353,9 @@ export function Home() {
                   setMode('host');
                 }}
                 disabled={!name.trim() || !connected}
-                className="w-full bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-40 text-black font-bold text-lg py-4 rounded-2xl flex items-center justify-center gap-3 transition-all transform active:scale-[0.97] shadow-[0_4px_20px_rgba(29,185,84,0.3)]"
+                className="btn btn-primary btn-lg w-full"
               >
-                <Headphones className="w-6 h-6" />
-                Host Game
+                HOST A ROOM
               </button>
               <button
                 onClick={() => {
@@ -339,35 +363,10 @@ export function Home() {
                   setMode('join');
                 }}
                 disabled={!name.trim() || !connected}
-                className="w-full bg-white/[0.07] hover:bg-white/[0.12] disabled:opacity-40 text-white font-bold text-lg py-4 rounded-2xl transition-all transform active:scale-[0.97] border border-white/[0.08]"
+                className="btn btn-secondary btn-lg w-full"
               >
-                Join Game
+                JOIN WITH CODE
               </button>
-              <button
-                onClick={() => setScreen('rules')}
-                className="w-full text-gray-500 hover:text-gray-300 font-medium text-sm py-3 flex items-center justify-center gap-2 transition-colors rounded-xl hover:bg-white/5"
-              >
-                <BookOpen className="w-4 h-4" />
-                How to Play
-              </button>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setScreen('leaderboard')}
-                  className="flex-1 text-gray-500 hover:text-yellow-400 font-medium text-sm py-3 flex items-center justify-center gap-2 transition-colors rounded-xl hover:bg-white/5 border border-white/[0.05]"
-                >
-                  <Trophy className="w-4 h-4" />
-                  Leaderboard
-                </button>
-                {signedInAs && (
-                  <button
-                    onClick={() => setScreen('profile')}
-                    className="flex-1 text-gray-500 hover:text-[#1DB954] font-medium text-sm py-3 flex items-center justify-center gap-2 transition-colors rounded-xl hover:bg-white/5 border border-white/[0.05]"
-                  >
-                    <BarChart3 className="w-4 h-4" />
-                    My Stats
-                  </button>
-                )}
-              </div>
             </motion.div>
           ) : mode === 'host' ? (
             <motion.div
@@ -375,15 +374,15 @@ export function Home() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-4 pt-2"
+              className="space-y-3 pt-1"
             >
-              <p className="text-gray-400 text-sm text-center leading-relaxed">
+              <p className="text-white/55 text-sm text-center leading-relaxed">
                 Choose how you want to host your game.
               </p>
               <button
                 onClick={handleSpotifyLogin}
                 disabled={connecting}
-                className="w-full bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-70 text-black font-bold text-lg py-4 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all transform active:scale-[0.97] shadow-[0_4px_20px_rgba(29,185,84,0.3)]"
+                className="btn btn-primary w-full py-5 flex-col gap-1"
               >
                 {connecting ? (
                   <span className="flex items-center gap-3">
@@ -392,13 +391,13 @@ export function Home() {
                   </span>
                 ) : (
                   <>
-                    <span className="flex items-center gap-3">
+                    <span className="flex items-center gap-3 font-chunky text-lg">
                       <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
                       </svg>
-                      Host with Spotify
+                      HOST WITH SPOTIFY
                     </span>
-                    <span className="text-xs font-medium text-black/60">Full tracks, all features</span>
+                    <span className="text-[11px] font-medium text-[#0a0318]/70">Full tracks, all features</span>
                   </>
                 )}
               </button>
@@ -410,17 +409,17 @@ export function Home() {
                   socket.emit('create-room', { playerName: name.trim() });
                 }}
                 disabled={!connected}
-                className="w-full bg-white/[0.07] hover:bg-white/[0.12] disabled:opacity-40 text-white font-bold text-lg py-4 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all transform active:scale-[0.97] border border-white/[0.08]"
+                className="btn btn-ghost w-full py-5 flex-col gap-1"
               >
-                <span className="flex items-center gap-3">
+                <span className="flex items-center gap-3 font-bold">
                   <Music className="w-5 h-5" />
                   Host without Spotify
                 </span>
-                <span className="text-xs font-medium text-gray-400">30s preview clips, no account needed</span>
+                <span className="text-[11px] font-medium text-white/50">30s preview clips, no account needed</span>
               </button>
               <button
                 onClick={() => { setMode('idle'); setError(null); }}
-                className="w-full text-gray-500 hover:text-white font-medium py-3 transition-colors rounded-xl hover:bg-white/5"
+                className="w-full text-white/50 hover:text-white font-medium py-3 transition-colors rounded-xl hover:bg-white/5"
               >
                 Back
               </button>
@@ -431,20 +430,11 @@ export function Home() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-5 pt-2"
+              className="space-y-4 pt-1"
             >
-              {inviteMessage && (
-                <motion.p
-                  initial={{ opacity: 0, y: -5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="text-[#1DB954] text-sm text-center bg-[#1DB954]/10 border border-[#1DB954]/20 rounded-xl px-4 py-2.5 font-medium"
-                >
-                  {inviteMessage}
-                </motion.p>
-              )}
               <div className="space-y-3">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-wider text-center block">
-                  Enter Room Code
+                <label className="text-[10px] tracking-[0.3em] text-neon-cyan font-bold text-center block">
+                  ENTER ROOM CODE
                 </label>
                 <div className="flex justify-center gap-3">
                   {[0, 1, 2, 3].map((i) => (
@@ -459,7 +449,7 @@ export function Home() {
                       autoComplete="off"
                       autoCorrect="off"
                       autoCapitalize="characters"
-                      className="w-14 h-16 bg-white/5 border-2 border-white/10 rounded-xl text-center text-2xl font-black text-white focus:outline-none focus:border-[#1DB954] focus:bg-[#1DB954]/10 transition-all uppercase"
+                      className={`code-box ${code[i] ? 'is-filled' : ''}`}
                     />
                   ))}
                 </div>
@@ -467,14 +457,14 @@ export function Home() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setMode('idle')}
-                  className="flex-1 bg-white/[0.07] hover:bg-white/[0.12] text-white font-bold py-4 rounded-2xl transition-all border border-white/[0.08]"
+                  className="btn btn-ghost flex-1"
                 >
                   Back
                 </button>
                 <button
                   onClick={handleJoin}
                   disabled={code.join('').length !== 4}
-                  className="flex-[2] bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-40 text-black font-bold py-4 rounded-2xl transition-all shadow-[0_4px_20px_rgba(29,185,84,0.3)]"
+                  className="btn btn-primary flex-[2]"
                 >
                   Join Room
                 </button>
@@ -483,6 +473,33 @@ export function Home() {
           )}
         </AnimatePresence>
       </motion.div>
+
+      {/* Footer chips */}
+      <div className="mt-auto pt-8 flex items-center justify-center gap-2 text-xs">
+        <button
+          onClick={() => setScreen('rules')}
+          className="btn btn-ghost px-3 py-2 text-xs"
+        >
+          📖 Rules
+        </button>
+        <button
+          onClick={() => setScreen('leaderboard')}
+          className="btn btn-ghost px-3 py-2 text-xs"
+        >
+          🏆 Leaderboard
+        </button>
+        {signedInAs && (
+          <button
+            onClick={() => setScreen('profile')}
+            className="btn btn-ghost px-3 py-2 text-xs"
+          >
+            📊 My Stats
+          </button>
+        )}
+      </div>
+      <p className="text-center text-[10px] text-white/25 mt-3 tabular-nums">
+        TUNES v2.3.0 · 33⅓ rpm {connected ? <Wifi className="inline w-3 h-3" /> : <WifiOff className="inline w-3 h-3" />}
+      </p>
     </div>
   );
 }

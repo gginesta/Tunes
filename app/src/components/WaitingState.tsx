@@ -6,13 +6,13 @@ import { getSocket } from '../services/socket';
 import { triviaQuestions, type TriviaQuestion, type TriviaCategory } from '../data/trivia';
 
 const CATEGORY_LABELS: Record<TriviaCategory, string> = {
-  general: 'Music Trivia',
-  lyrics: 'Finish the Lyric',
-  first: 'Which Came First?',
-  true_false: 'True or False',
-  decades: 'Name the Decade',
-  instruments: 'Instruments',
-  origins: 'Music Origins',
+  general: 'Trivia · Music History',
+  lyrics: 'Trivia · Finish the Lyric',
+  first: 'Trivia · Which Came First?',
+  true_false: 'Trivia · True or False',
+  decades: 'Trivia · Name the Decade',
+  instruments: 'Trivia · Instruments',
+  origins: 'Trivia · Music Origins',
 };
 
 function getRandomQuestion(exclude?: TriviaQuestion): TriviaQuestion {
@@ -33,12 +33,10 @@ export function WaitingState() {
   const [hasBuzzed, setHasBuzzed] = useState(false);
   const triviaTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Reset buzz state when turn changes
   useEffect(() => {
     setHasBuzzed(false);
   }, [currentTurnPlayerId]);
 
-  // Clean up trivia timeout on unmount
   useEffect(() => {
     return () => {
       if (triviaTimeoutRef.current !== null) {
@@ -70,29 +68,26 @@ export function WaitingState() {
 
   const getButtonStyle = (index: number) => {
     if (!showResult) {
-      return 'bg-white/10 hover:bg-white/20 border-white/20 text-white';
+      return 'bg-white/8 hover:bg-white/15 border-white/15 text-white';
     }
     if (index === question.correctIndex) {
-      return 'bg-green-500/30 border-green-400 text-green-300';
+      return 'bg-green-500/30 border-green-400 text-green-200';
     }
     if (index === selectedAnswer && index !== question.correctIndex) {
-      return 'bg-red-500/30 border-red-400 text-red-300';
+      return 'bg-red-500/30 border-red-400 text-red-200';
     }
     return 'bg-white/5 border-white/10 text-white/40';
   };
 
   return (
-    <div className="mt-4 flex flex-col items-center w-full max-w-md mx-auto px-4">
-      {/* Trivia section */}
-      <div className="w-full bg-white/5 rounded-2xl border border-white/10 p-5 mb-5">
+    <div className="mt-3 flex flex-col items-center w-full max-w-md mx-auto px-2">
+      {/* Trivia panel */}
+      <div className="w-full panel p-5 mb-4">
         <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="text-xs uppercase tracking-widest text-purple-400 font-semibold">
-              {CATEGORY_LABELS[question.category || 'general']}
-            </p>
-            <p className="text-[10px] text-purple-400/60 mt-0.5">Compete for bragging rights</p>
-          </div>
-          <span className="text-xs font-bold text-purple-400/70 tabular-nums">
+          <p className="text-[10px] uppercase tracking-[0.3em] text-neon-amber font-bold">
+            {CATEGORY_LABELS[question.category || 'general']}
+          </p>
+          <span className="text-xs font-bold text-white/45 tabular-nums">
             {triviaScore.correct}/{triviaScore.total}
           </span>
         </div>
@@ -104,7 +99,7 @@ export function WaitingState() {
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3 }}
           >
-            <p className="text-white font-medium text-sm mb-4 leading-relaxed">
+            <p className="text-white font-heading font-medium text-base mb-4 leading-snug">
               {question.question}
             </p>
             <div className="grid grid-cols-2 gap-2">
@@ -129,8 +124,8 @@ export function WaitingState() {
         disabled={hasBuzzed}
         className={`w-full py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 border-2 transition-all duration-200 ${
           hasBuzzed
-            ? 'bg-yellow-500/20 border-yellow-500/40 text-yellow-400/60 cursor-not-allowed'
-            : 'bg-gradient-to-r from-yellow-500 to-orange-500 border-yellow-400 text-black hover:from-yellow-400 hover:to-orange-400 animate-buzz-pulse'
+            ? 'bg-green-500/20 border-green-500/40 text-green-300'
+            : 'bg-gradient-to-r from-neon-amber to-orange-400 border-neon-amber text-[#0a0318] glow-amber animate-buzz-pulse'
         }`}
       >
         <Zap className="w-6 h-6" />
@@ -139,7 +134,7 @@ export function WaitingState() {
 
       {/* Buzzed players */}
       {buzzedPlayers.length > 0 && (
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
+        <div className="mt-3 flex flex-wrap justify-center gap-2">
           <AnimatePresence>
             {buzzedPlayers.map((pid) => {
               const player = players[pid];
@@ -152,8 +147,8 @@ export function WaitingState() {
                   exit={{ opacity: 0, scale: 0.5 }}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${
                     pid === myId
-                      ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
-                      : 'bg-white/10 text-white/80 border border-white/20'
+                      ? 'bg-neon-amber/20 text-neon-amber border border-neon-amber/40'
+                      : 'bg-neon-amber/10 text-neon-amber/80 border border-neon-amber/25'
                   }`}
                 >
                   <Zap className="w-3.5 h-3.5" />

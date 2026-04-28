@@ -217,29 +217,30 @@ export function Lobby() {
   const needsDecadeSelection = settings.songPack === 'decades' || settings.songPack === 'genre-decade';
 
   return (
-    <div className="flex flex-col min-h-screen p-6 text-white bg-[#1a1a2e]">
+    <div className="flex flex-col min-h-screen p-6 text-white">
       <div className="flex justify-between items-center mb-8">
         <button
           onClick={handleLeave}
-          className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors"
+          className="btn-icon"
+          aria-label="Leave"
         >
-          <LogOut className="w-5 h-5 text-gray-400" />
+          <LogOut className="w-5 h-5" />
         </button>
         <div className="text-center">
-          <p className="text-xs text-gray-400 uppercase tracking-widest font-bold mb-1">
-            Room Code
+          <p className="text-[10px] text-neon-cyan uppercase tracking-[0.3em] font-bold mb-1">
+            ROOM CODE
           </p>
-          <h2 className="text-4xl font-black tracking-widest text-[#1DB954]">
+          <h2 className="font-display text-5xl tracking-widest text-neon-pink text-glow-pink leading-none">
             {roomCode}
           </h2>
           <button
             onClick={handleCopyInviteLink}
-            className="mt-1.5 flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 mx-auto"
+            className="mt-2 inline-flex items-center gap-1.5 text-xs text-white/65 hover:text-white transition-colors px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10"
           >
             {copied ? (
               <>
-                <Check className="w-3.5 h-3.5 text-[#1DB954]" />
-                <span className="text-[#1DB954]">Copied!</span>
+                <Check className="w-3.5 h-3.5 text-neon-pink" />
+                <span className="text-neon-pink">Copied!</span>
               </>
             ) : (
               <>
@@ -262,44 +263,39 @@ export function Lobby() {
         </motion.p>
       )}
 
-      <div className="flex-1 space-y-8 max-w-lg mx-auto w-full overflow-y-auto">
+      <div className="flex-1 space-y-6 max-w-lg mx-auto w-full overflow-y-auto">
         {/* Player list */}
-        <div className="bg-white/5 rounded-3xl p-6 border border-white/10">
+        <div className="panel p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-bold flex items-center gap-2">
-              <Users className="w-5 h-5 text-[#1DB954]" />
-              Players
+            <h3 className="text-[10px] uppercase tracking-[0.3em] font-bold text-white/50 flex items-center gap-2">
+              <Users className="w-4 h-4 text-neon-pink" />
+              PLAYERS · {playerList.length}/12
             </h3>
-            <span className="text-sm text-gray-400 font-medium">
-              {playerList.length}/10
-            </span>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2">
             {playerList.map((player) => (
               <motion.div
                 key={player.id}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
-                className="flex items-center justify-between bg-black/20 p-3 rounded-2xl"
+                className="flex items-center justify-between bg-black/25 p-3 rounded-xl border border-white/[0.04]"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#1DB954] to-blue-600 flex items-center justify-center font-bold text-lg">
+                  <div className="avatar">
                     {player.name.charAt(0).toUpperCase()}
                   </div>
-                  <span className="font-medium text-lg">{player.name}</span>
+                  <span className="font-medium text-base">{player.name}</span>
                   {player.id === myId && (
-                    <span className="text-xs bg-white/10 px-2 py-1 rounded-full text-gray-300">
-                      You
-                    </span>
+                    <span className="chip chip-mode-cyan text-[9px]">YOU</span>
                   )}
                   {!player.connected && (
-                    <span className="text-xs bg-red-500/20 px-2 py-1 rounded-full text-red-400">
+                    <span className="text-[9px] bg-red-500/20 border border-red-500/30 px-2 py-0.5 rounded-full text-red-400 font-bold uppercase tracking-wider">
                       Offline
                     </span>
                   )}
                 </div>
-                {player.isHost && <Crown className="w-5 h-5 text-[#FFD700]" />}
+                {player.isHost && <Crown className="w-5 h-5 text-neon-amber" />}
               </motion.div>
             ))}
           </div>
@@ -307,15 +303,15 @@ export function Lobby() {
 
         {/* Settings */}
         {isHost ? (
-          <div className="bg-white/5 rounded-3xl p-6 border border-white/10 space-y-6">
-            <h3 className="text-lg font-bold flex items-center gap-2">
+          <div className="panel p-5 space-y-6">
+            <h3 className="text-[10px] uppercase tracking-[0.3em] font-bold text-white/50 flex items-center gap-2">
               <Settings className="w-5 h-5 text-gray-400" />
               Game Settings
             </h3>
 
             <div className="space-y-4">
               <div>
-                <label className="text-sm text-gray-400 font-medium mb-2 block">
+                <label className="text-xs text-white/60 font-bold uppercase tracking-wider mb-2 block">
                   Game Mode
                 </label>
                 <div className="grid grid-cols-2 gap-2">
@@ -325,7 +321,7 @@ export function Lobby() {
                       onClick={() => handleUpdateMode(value)}
                       className={`py-3 px-3 rounded-xl text-left transition-all ${
                         settings.mode === value
-                          ? 'bg-[#1DB954] text-black'
+                          ? 'bg-neon-pink text-[#0a0318] glow-pink'
                           : 'bg-black/30 text-gray-300 hover:bg-black/50'
                       }`}
                     >
@@ -340,10 +336,10 @@ export function Lobby() {
 
               <div>
                 <div className="flex justify-between mb-2">
-                  <label className="text-sm text-gray-400 font-medium">
+                  <label className="text-xs text-white/60 font-bold uppercase tracking-wider">
                     Cards to Win
                   </label>
-                  <span className="text-[#1DB954] font-bold">
+                  <span className="text-neon-amber font-display text-2xl tabular-nums">
                     {settings.cardsToWin}
                   </span>
                 </div>
@@ -359,7 +355,7 @@ export function Lobby() {
             </div>
           </div>
         ) : (
-          <div className="bg-white/5 rounded-3xl p-6 border border-white/10">
+          <div className="panel p-5">
             <div className="text-center space-y-2 text-gray-400 mb-4">
               <p className="text-sm">
                 Mode: <span className="text-white font-medium">{modes.find(m => m.value === settings.mode)?.label ?? settings.mode}</span>
@@ -375,9 +371,9 @@ export function Lobby() {
 
         {/* Song Packs — host only */}
         {isHost && hasSpotify ? (
-          <div className="bg-white/5 rounded-3xl p-6 border border-white/10 space-y-5">
-            <h3 className="text-lg font-bold flex items-center gap-2">
-              <Music className="w-5 h-5 text-[#1DB954]" />
+          <div className="panel p-5 space-y-5">
+            <h3 className="text-[10px] uppercase tracking-[0.3em] font-bold text-white/50 flex items-center gap-2">
+              <Music className="w-5 h-5 text-neon-pink" />
               Song Source
             </h3>
 
@@ -387,7 +383,7 @@ export function Lobby() {
                 onClick={() => handleSetSongPack('standard')}
                 className={`py-3 px-2 rounded-xl text-center transition-all ${
                   settings.songPack === 'standard'
-                    ? 'bg-[#1DB954] text-black'
+                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
                     : 'bg-black/30 text-gray-300 hover:bg-black/50'
                 }`}
               >
@@ -398,7 +394,7 @@ export function Lobby() {
                 onClick={() => handleSetSongPack('decades')}
                 className={`py-3 px-2 rounded-xl text-center transition-all ${
                   settings.songPack === 'decades'
-                    ? 'bg-[#1DB954] text-black'
+                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
                     : 'bg-black/30 text-gray-300 hover:bg-black/50'
                 }`}
               >
@@ -409,7 +405,7 @@ export function Lobby() {
                 onClick={() => handleSetSongPack('genre')}
                 className={`py-3 px-2 rounded-xl text-center transition-all ${
                   settings.songPack === 'genre'
-                    ? 'bg-[#1DB954] text-black'
+                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
                     : 'bg-black/30 text-gray-300 hover:bg-black/50'
                 }`}
               >
@@ -422,7 +418,7 @@ export function Lobby() {
                 onClick={() => handleSetSongPack('genre-decade')}
                 className={`py-3 px-2 rounded-xl text-center transition-all ${
                   settings.songPack === 'genre-decade'
-                    ? 'bg-[#1DB954] text-black'
+                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
                     : 'bg-black/30 text-gray-300 hover:bg-black/50'
                 }`}
               >
@@ -432,7 +428,7 @@ export function Lobby() {
                 onClick={() => handleSetSongPack('playlist')}
                 className={`py-3 px-2 rounded-xl text-center transition-all ${
                   settings.songPack === 'playlist'
-                    ? 'bg-[#1DB954] text-black'
+                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
                     : 'bg-black/30 text-gray-300 hover:bg-black/50'
                 }`}
               >
@@ -448,7 +444,7 @@ export function Lobby() {
                 animate={{ opacity: 1, height: 'auto' }}
                 className="space-y-2"
               >
-                <label className="text-xs text-gray-400 font-medium block">
+                <label className="text-xs text-white/55 font-bold uppercase tracking-wider block">
                   Select genres (pick at least one)
                 </label>
                 <div className="flex flex-wrap gap-2">
@@ -460,7 +456,7 @@ export function Lobby() {
                         onClick={() => handleToggleGenre(value)}
                         className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
                           selected
-                            ? 'bg-[#1DB954] text-black'
+                            ? 'bg-neon-pink text-[#0a0318] glow-pink'
                             : 'bg-black/30 text-gray-300 hover:bg-black/50'
                         }`}
                       >
@@ -479,7 +475,7 @@ export function Lobby() {
                 animate={{ opacity: 1, height: 'auto' }}
                 className="space-y-2"
               >
-                <label className="text-xs text-gray-400 font-medium block">
+                <label className="text-xs text-white/55 font-bold uppercase tracking-wider block">
                   Select decades (pick at least one)
                 </label>
                 <div className="flex flex-wrap gap-2">
@@ -491,7 +487,7 @@ export function Lobby() {
                         onClick={() => handleToggleDecade(value)}
                         className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
                           selected
-                            ? 'bg-[#1DB954] text-black'
+                            ? 'bg-neon-pink text-[#0a0318] glow-pink'
                             : 'bg-black/30 text-gray-300 hover:bg-black/50'
                         }`}
                       >
@@ -511,7 +507,7 @@ export function Lobby() {
                 className="space-y-4"
               >
                 {/* Genre presets as album-art-style cards */}
-                <label className="text-xs text-gray-400 font-medium block">
+                <label className="text-xs text-white/55 font-bold uppercase tracking-wider block">
                   Quick Pick a Playlist
                 </label>
                 <div className="grid grid-cols-2 gap-3">
@@ -523,7 +519,7 @@ export function Lobby() {
                         onClick={() => handleSelectGenrePack(playlistId)}
                         className={`relative overflow-hidden rounded-2xl p-4 text-left transition-all transform hover:scale-[1.02] active:scale-95 ${
                           isActive
-                            ? 'ring-2 ring-[#1DB954] ring-offset-2 ring-offset-[#1a1a2e]'
+                            ? 'ring-2 ring-neon-pink ring-offset-2 ring-offset-bg-base'
                             : ''
                         }`}
                       >
@@ -543,7 +539,7 @@ export function Lobby() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-xs text-gray-400 font-medium block">
+                  <label className="text-xs text-white/55 font-bold uppercase tracking-wider block">
                     Or paste a Spotify playlist link
                   </label>
                   <div className="flex gap-2">
@@ -580,7 +576,7 @@ export function Lobby() {
                     <button
                       onClick={handleImportPlaylist}
                       disabled={!isValidPlaylistUrl(playlistInput)}
-                      className="px-4 py-3 rounded-xl bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-40 disabled:hover:bg-[#1DB954] text-black font-bold text-sm transition-all flex items-center gap-1.5 whitespace-nowrap"
+                      className="px-4 py-3 rounded-xl bg-neon-pink hover:bg-[#ff6bd1] disabled:opacity-40 disabled:hover:bg-neon-pink text-black font-bold text-sm transition-all flex items-center gap-1.5 whitespace-nowrap"
                     >
                       <ArrowDownToLine className="w-4 h-4" />
                       Import
@@ -613,7 +609,7 @@ export function Lobby() {
 
             {/* Regional Packs — combine with any song pack */}
             <div className="space-y-2 pt-2 border-t border-white/10">
-              <label className="text-xs text-gray-400 font-medium flex items-center gap-1.5">
+              <label className="text-xs text-white/55 font-bold uppercase tracking-wider flex items-center gap-1.5">
                 <Globe className="w-3.5 h-3.5" />
                 Regional Packs (optional, combines with selection above)
               </label>
@@ -626,7 +622,7 @@ export function Lobby() {
                       onClick={() => handleToggleRegion(value)}
                       className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
                         selected
-                          ? 'bg-[#1DB954] text-black'
+                          ? 'bg-neon-pink text-[#0a0318] glow-pink'
                           : 'bg-black/30 text-gray-300 hover:bg-black/50'
                       }`}
                     >
@@ -641,9 +637,9 @@ export function Lobby() {
             </div>
           </div>
         ) : isHost && !hasSpotify ? (
-          <div className="bg-white/5 rounded-3xl p-6 border border-white/10 space-y-5">
-            <h3 className="text-lg font-bold flex items-center gap-2">
-              <Music className="w-5 h-5 text-[#1DB954]" />
+          <div className="panel p-5 space-y-5">
+            <h3 className="text-[10px] uppercase tracking-[0.3em] font-bold text-white/50 flex items-center gap-2">
+              <Music className="w-5 h-5 text-neon-pink" />
               Song Source
             </h3>
 
@@ -657,7 +653,7 @@ export function Lobby() {
                 onClick={() => handleSetSongPack('standard')}
                 className={`py-3 px-2 rounded-xl text-center transition-all ${
                   settings.songPack === 'standard'
-                    ? 'bg-[#1DB954] text-black'
+                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
                     : 'bg-black/30 text-gray-300 hover:bg-black/50'
                 }`}
               >
@@ -668,7 +664,7 @@ export function Lobby() {
                 onClick={() => handleSetSongPack('decades')}
                 className={`py-3 px-2 rounded-xl text-center transition-all ${
                   settings.songPack === 'decades'
-                    ? 'bg-[#1DB954] text-black'
+                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
                     : 'bg-black/30 text-gray-300 hover:bg-black/50'
                 }`}
               >
@@ -679,7 +675,7 @@ export function Lobby() {
                 onClick={() => handleSetSongPack('genre')}
                 className={`py-3 px-2 rounded-xl text-center transition-all ${
                   settings.songPack === 'genre'
-                    ? 'bg-[#1DB954] text-black'
+                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
                     : 'bg-black/30 text-gray-300 hover:bg-black/50'
                 }`}
               >
@@ -692,7 +688,7 @@ export function Lobby() {
                 onClick={() => handleSetSongPack('genre-decade')}
                 className={`py-3 px-2 rounded-xl text-center transition-all ${
                   settings.songPack === 'genre-decade'
-                    ? 'bg-[#1DB954] text-black'
+                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
                     : 'bg-black/30 text-gray-300 hover:bg-black/50'
                 }`}
               >
@@ -707,7 +703,7 @@ export function Lobby() {
                 animate={{ opacity: 1, height: 'auto' }}
                 className="space-y-2"
               >
-                <label className="text-xs text-gray-400 font-medium block">
+                <label className="text-xs text-white/55 font-bold uppercase tracking-wider block">
                   Select genres (pick at least one)
                 </label>
                 <div className="flex flex-wrap gap-2">
@@ -719,7 +715,7 @@ export function Lobby() {
                         onClick={() => handleToggleGenre(value)}
                         className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
                           selected
-                            ? 'bg-[#1DB954] text-black'
+                            ? 'bg-neon-pink text-[#0a0318] glow-pink'
                             : 'bg-black/30 text-gray-300 hover:bg-black/50'
                         }`}
                       >
@@ -738,7 +734,7 @@ export function Lobby() {
                 animate={{ opacity: 1, height: 'auto' }}
                 className="space-y-2"
               >
-                <label className="text-xs text-gray-400 font-medium block">
+                <label className="text-xs text-white/55 font-bold uppercase tracking-wider block">
                   Select decades (pick at least one)
                 </label>
                 <div className="flex flex-wrap gap-2">
@@ -750,7 +746,7 @@ export function Lobby() {
                         onClick={() => handleToggleDecade(value)}
                         className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
                           selected
-                            ? 'bg-[#1DB954] text-black'
+                            ? 'bg-neon-pink text-[#0a0318] glow-pink'
                             : 'bg-black/30 text-gray-300 hover:bg-black/50'
                         }`}
                       >
@@ -770,7 +766,7 @@ export function Lobby() {
 
             {/* Regional Packs — combine with any song pack */}
             <div className="space-y-2 pt-2 border-t border-white/10">
-              <label className="text-xs text-gray-400 font-medium flex items-center gap-1.5">
+              <label className="text-xs text-white/55 font-bold uppercase tracking-wider flex items-center gap-1.5">
                 <Globe className="w-3.5 h-3.5" />
                 Regional Packs (optional, combines with selection above)
               </label>
@@ -783,7 +779,7 @@ export function Lobby() {
                       onClick={() => handleToggleRegion(value)}
                       className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
                         selected
-                          ? 'bg-[#1DB954] text-black'
+                          ? 'bg-neon-pink text-[#0a0318] glow-pink'
                           : 'bg-black/30 text-gray-300 hover:bg-black/50'
                       }`}
                     >
@@ -800,7 +796,7 @@ export function Lobby() {
         ) : isHost ? null : (
           /* Non-host: show what the host picked */
           settings.songPack !== 'standard' && (
-            <div className="bg-white/5 rounded-3xl p-4 border border-white/10">
+            <div className="panel p-4">
               <p className="text-sm text-gray-400 text-center">
                 <Music className="w-4 h-4 inline-block mr-1 -mt-0.5" />
                 {songPackLabel}
@@ -811,12 +807,12 @@ export function Lobby() {
 
         {/* Non-host waiting message */}
         {!isHost && (
-          <div className="bg-white/5 rounded-3xl p-6 border border-white/10">
+          <div className="panel p-5">
             <div className="flex flex-col items-center justify-center py-6 text-gray-400">
               <div className="animate-pulse flex space-x-2 mb-4">
-                <div className="w-3 h-3 bg-[#1DB954] rounded-full" />
-                <div className="w-3 h-3 bg-[#1DB954] rounded-full" style={{ animationDelay: '200ms' }} />
-                <div className="w-3 h-3 bg-[#1DB954] rounded-full" style={{ animationDelay: '400ms' }} />
+                <div className="w-3 h-3 bg-neon-pink rounded-full" />
+                <div className="w-3 h-3 bg-neon-pink rounded-full" style={{ animationDelay: '200ms' }} />
+                <div className="w-3 h-3 bg-neon-pink rounded-full" style={{ animationDelay: '400ms' }} />
               </div>
               <p className="font-medium">Waiting for host to start...</p>
             </div>
@@ -841,7 +837,7 @@ export function Lobby() {
               || (needsGenreSelection && (!settings.genres || settings.genres.length === 0))
               || (settings.songPack === 'playlist' && !settings.playlistUrl)
             }
-            className="w-full bg-[#1DB954] hover:bg-[#1ed760] disabled:opacity-50 disabled:hover:bg-[#1DB954] text-black font-black text-xl py-5 rounded-2xl flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(29,185,84,0.4)] transition-all transform active:scale-95"
+            className="w-full bg-neon-pink hover:bg-[#ff6bd1] disabled:opacity-50 disabled:hover:bg-neon-pink text-black font-black text-xl py-5 rounded-2xl flex items-center justify-center gap-2 glow-pink transition-all transform active:scale-95"
           >
             <Play className="w-6 h-6 fill-current" />
             {starting ? 'STARTING...' : 'START GAME'}

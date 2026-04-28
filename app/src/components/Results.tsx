@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
-import { Trophy, Home, RotateCcw, Medal, Coins, Zap, Target, Flame, Swords, Music, Clock, MapPin } from 'lucide-react';
+import { Home, RotateCcw, Medal, Coins, Zap, Target, Flame, Swords, Music, Clock, MapPin } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getSocket } from '../services/socket';
 import { clearSession } from '../services/socket';
 import { useGameStore } from '../store';
-import type { GameStats, PlayerStats } from '@tunes/shared';
+import type { GameStats } from '@tunes/shared';
 import { SongHistory } from './SongHistory';
 
 const ORDINALS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
 
-const CONFETTI_COLORS = ['#FFD700', '#1DB954', '#FF6B6B', '#4ECDC4', '#A78BFA', '#F97316', '#EC4899'];
+const CONFETTI_COLORS = ['#ff2e9a', '#22e6ff', '#ffbe3d', '#a855f7', '#ffffff'];
 
 function Confetti() {
   const [pieces] = useState(() =>
@@ -20,25 +20,25 @@ function Confetti() {
       duration: 2 + Math.random() * 2,
       color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
       size: 6 + Math.random() * 8,
-      rotation: Math.random() * 360,
     }))
   );
 
   return (
     <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">
       {pieces.map((p) => (
-        <motion.div
+        <span
           key={p.id}
-          initial={{ y: -20, x: `${p.x}vw`, opacity: 1, rotate: 0 }}
-          animate={{ y: '110vh', opacity: 0, rotate: p.rotation + 720 }}
-          transition={{ duration: p.duration, delay: p.delay, ease: 'easeIn' }}
-          style={{
-            position: 'absolute',
-            width: p.size,
-            height: p.size * 0.6,
-            backgroundColor: p.color,
-            borderRadius: 2,
-          }}
+          className="confetti-piece"
+          style={
+            {
+              left: `${p.x}vw`,
+              backgroundColor: p.color,
+              width: p.size,
+              height: p.size * 0.6,
+              ['--dur' as string]: `${p.duration}s`,
+              ['--delay' as string]: `${p.delay}s`,
+            } as React.CSSProperties
+          }
         />
       ))}
     </div>
@@ -109,26 +109,26 @@ export function Results() {
   if (!winner) return null;
 
   return (
-    <div className="flex flex-col min-h-screen p-6 text-white bg-[#1a1a2e] bg-pattern overflow-y-auto">
+    <div className="flex flex-col min-h-screen p-6 text-white overflow-y-auto">
       <Confetti />
-      {/* Winner announcement */}
+      {/* Winner hero */}
       <motion.div
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ type: 'spring', stiffness: 200, damping: 20 }}
-        className="flex flex-col items-center mt-8 mb-10"
+        className="panel-raised flex flex-col items-center mt-6 mb-8 p-8 max-w-md mx-auto w-full"
       >
-        <div className="relative mb-4">
-          <div className="absolute inset-0 bg-[#FFD700] blur-3xl opacity-20 rounded-full scale-150" />
-          <Trophy className="w-24 h-24 text-[#FFD700] relative z-10" />
+        <div className="relative mb-3 text-6xl" aria-hidden>
+          {isCoop ? '🎧' : '🏆'}
         </div>
-        <h1 className="text-4xl font-black tracking-tight text-center mb-1">
-          {isCoop ? 'TEAM WINS!' : `${winner.name} WINS!`}
+        <h1 className={`font-display text-4xl text-center mb-2 leading-none ${isCoop ? 'text-neon-cyan text-glow-cyan' : 'text-neon-amber text-glow-amber'}`}>
+          {isCoop ? 'TEAM WINS!' : `${winner.name.toUpperCase()} WINS!`}
         </h1>
-        <p className="text-[#1DB954] font-bold text-lg">
-          {isCoop
-            ? `${sharedTimeline.length} Cards Collected Together`
-            : `${winner.timeline.length} Cards Collected`}
+        <p className={`font-display text-6xl tabular-nums leading-none ${isCoop ? 'text-neon-cyan' : 'text-neon-pink text-glow-pink'}`}>
+          {isCoop ? sharedTimeline.length : winner.timeline.length}
+        </p>
+        <p className="text-white/55 text-sm mt-1 uppercase tracking-[0.25em] font-bold">
+          {isCoop ? 'Cards Collected Together' : 'Cards Collected'}
         </p>
       </motion.div>
 
@@ -143,10 +143,10 @@ export function Results() {
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.2 }}
-            className="p-5 rounded-2xl border bg-gradient-to-r from-[#1DB954]/15 to-transparent border-[#1DB954]/30"
+            className="p-5 rounded-2xl border bg-gradient-to-r from-neon-pink/15 to-transparent border-neon-pink/30"
           >
             <div className="flex items-center justify-between mb-4">
-              <span className="text-base font-bold text-[#1DB954]">Team Score</span>
+              <span className="text-base font-bold text-neon-pink">Team Score</span>
               <div className="flex items-baseline gap-1.5">
                 <span className="font-black text-2xl">{sharedTimeline.length}</span>
                 <span className="text-xs text-gray-500 uppercase">Cards</span>
@@ -227,24 +227,24 @@ export function Results() {
       {/* Trivia score — useless but fun */}
       {triviaScore.total > 0 && (
         <div className="w-full max-w-md mx-auto mt-6">
-          <div className="flex items-center gap-3 p-4 rounded-2xl border border-purple-500/20 bg-gradient-to-r from-purple-500/10 to-pink-500/5">
-            <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center shrink-0 text-purple-400">
+          <div className="flex items-center gap-3 p-4 rounded-2xl border border-neon-violet/30 bg-neon-violet/10">
+            <div className="w-10 h-10 rounded-full bg-neon-violet/20 flex items-center justify-center shrink-0 text-2xl">
               🧠
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-xs text-gray-400 font-semibold uppercase tracking-wide">
+              <div className="text-[10px] text-white/45 font-bold uppercase tracking-[0.25em]">
                 Useless Trivia Score
               </div>
-              <div className="font-bold text-sm text-purple-300">
+              <div className="font-bold text-sm text-neon-violet">
                 {triviaScore.correct}/{triviaScore.total} correct
                 {triviaScore.total >= 3 && (
-                  <span className="text-gray-500 ml-1">
+                  <span className="text-white/40 ml-1">
                     ({Math.round((triviaScore.correct / triviaScore.total) * 100)}%)
                   </span>
                 )}
               </div>
             </div>
-            <div className="text-xs text-gray-500 font-bold whitespace-nowrap">
+            <div className="text-[10px] text-white/40 font-bold whitespace-nowrap uppercase">
               Worth nothing
             </div>
           </div>
@@ -256,27 +256,27 @@ export function Results() {
         {isHost ? (
           <button
             onClick={handlePlayAgain}
-            className="w-full bg-[#1DB954] hover:bg-[#1ed760] text-black font-bold text-lg py-4 rounded-2xl flex items-center justify-center gap-3 transition-all transform active:scale-[0.97] shadow-[0_4px_20px_rgba(29,185,84,0.3)]"
+            className="btn btn-primary btn-lg w-full"
           >
             <RotateCcw className="w-5 h-5" />
-            Play Again
+            PLAY AGAIN
           </button>
         ) : (
-          <div className="w-full bg-white/[0.04] text-gray-500 font-bold py-4 rounded-2xl flex items-center justify-center gap-3 border border-white/[0.06]">
+          <div className="btn btn-ghost w-full pointer-events-none opacity-70 py-4">
             <RotateCcw className="w-5 h-5 animate-spin" style={{ animationDuration: '3s' }} />
-            Waiting for host...
+            Waiting for host…
           </div>
         )}
         <button
           onClick={() => setShowHistory(true)}
-          className="w-full bg-white/[0.06] hover:bg-white/[0.1] text-gray-400 hover:text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 transition-all transform active:scale-[0.97] border border-white/[0.06]"
+          className="btn btn-ghost w-full"
         >
           <Clock className="w-5 h-5" />
           Song History
         </button>
         <button
           onClick={handleHome}
-          className="w-full bg-white/[0.06] hover:bg-white/[0.1] text-gray-400 hover:text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 transition-all transform active:scale-[0.97] border border-white/[0.06]"
+          className="btn btn-ghost w-full"
         >
           <Home className="w-5 h-5" />
           Leave Game

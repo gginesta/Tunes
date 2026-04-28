@@ -1,8 +1,16 @@
 import { useEffect } from 'react';
-import { Trophy, ArrowLeft, Medal } from 'lucide-react';
+import { Trophy, ArrowLeft, Flame } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getSocket } from '../services/socket';
 import { useGameStore } from '../store';
+
+const RANK_TINTS = [
+  'bg-gradient-to-r from-[#FFD700]/15 via-[#FFD700]/5 to-transparent border-[#FFD700]/35',
+  'bg-gradient-to-r from-[#C0C0C0]/12 to-transparent border-[#C0C0C0]/25',
+  'bg-gradient-to-r from-[#CD7F32]/12 to-transparent border-[#CD7F32]/25',
+];
+
+const RANK_LABEL = ['1st', '2nd', '3rd'];
 
 export function Leaderboard() {
   const leaderboard = useGameStore((s) => s.leaderboard);
@@ -15,12 +23,11 @@ export function Leaderboard() {
   }, []);
 
   return (
-    <div className="flex flex-col items-center min-h-screen p-6 text-white bg-[#1a1a2e] bg-pattern">
-      {/* Header */}
+    <div className="flex flex-col items-center min-h-screen p-6 text-white">
       <div className="w-full max-w-lg">
         <button
           onClick={() => setScreen('home')}
-          className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors mb-6"
+          className="flex items-center gap-2 text-white/60 hover:text-white transition-colors mb-6"
         >
           <ArrowLeft className="w-5 h-5" />
           Back
@@ -31,19 +38,19 @@ export function Leaderboard() {
           animate={{ y: 0, opacity: 1 }}
           className="flex items-center gap-3 mb-8"
         >
-          <Trophy className="w-8 h-8 text-yellow-400" />
-          <h1 className="text-3xl font-black tracking-tight">Leaderboard</h1>
+          <Trophy className="w-8 h-8 text-neon-amber" />
+          <h1 className="font-heading text-3xl font-black tracking-tight">Leaderboard</h1>
         </motion.div>
 
         {leaderboard.length === 0 ? (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="text-center py-16"
+            className="panel text-center py-16 px-6"
           >
-            <Trophy className="w-16 h-16 text-gray-700 mx-auto mb-4" />
-            <p className="text-gray-500 text-lg">No games played yet</p>
-            <p className="text-gray-600 text-sm mt-1">
+            <div className="text-6xl mb-3">🏆</div>
+            <p className="text-white/60 text-lg font-heading">No games played yet</p>
+            <p className="text-white/40 text-sm mt-1">
               Play some games to see the leaderboard!
             </p>
           </motion.div>
@@ -55,7 +62,7 @@ export function Leaderboard() {
             className="space-y-2"
           >
             {/* Table header */}
-            <div className="grid grid-cols-[2.5rem_1fr_3.5rem_3.5rem_4rem_3.5rem] gap-2 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider">
+            <div className="grid grid-cols-[32px_1fr_48px_48px_56px_48px] gap-2 px-4 py-2 text-[10px] font-bold text-white/40 uppercase tracking-[0.2em]">
               <span>#</span>
               <span>Player</span>
               <span className="text-right">Wins</span>
@@ -67,17 +74,11 @@ export function Leaderboard() {
             {leaderboard.map((entry, index) => {
               const rank = index + 1;
               const isCurrentUser = signedInAs && entry.username.toLowerCase() === signedInAs.toLowerCase();
-              const medalColor =
-                rank === 1
-                  ? 'text-yellow-400'
-                  : rank === 2
-                    ? 'text-gray-300'
-                    : rank === 3
-                      ? 'text-amber-600'
-                      : 'text-gray-600';
-              const rowBg = isCurrentUser
-                ? 'bg-[#1DB954]/10 border-[#1DB954]/30'
-                : 'bg-white/[0.03] border-white/[0.05]';
+              const tint = rank <= 3 ? RANK_TINTS[rank - 1] : 'bg-white/[0.03] border-white/[0.06]';
+              const userBorder = isCurrentUser
+                ? 'border-l-4 border-l-neon-pink'
+                : '';
+              const showFlame = entry.bestStreak >= 2;
 
               return (
                 <motion.div
@@ -85,26 +86,29 @@ export function Leaderboard() {
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.03 }}
-                  className={`grid grid-cols-[2.5rem_1fr_3.5rem_3.5rem_4rem_3.5rem] gap-2 items-center px-4 py-3 rounded-xl border ${rowBg} transition-colors`}
+                  className={`grid grid-cols-[32px_1fr_48px_48px_56px_48px] gap-2 items-center px-4 py-3 rounded-xl border ${tint} ${userBorder}`}
                 >
                   <span className="flex items-center">
                     {rank <= 3 ? (
-                      <Medal className={`w-5 h-5 ${medalColor}`} />
+                      <span className={`text-[10px] font-bold uppercase ${rank === 1 ? 'text-[#FFD700]' : rank === 2 ? 'text-[#C0C0C0]' : 'text-[#CD7F32]'}`}>
+                        {RANK_LABEL[rank - 1]}
+                      </span>
                     ) : (
-                      <span className="text-sm text-gray-500 font-bold pl-0.5">{rank}</span>
+                      <span className="text-sm text-white/45 font-bold tabular-nums">{rank}</span>
                     )}
                   </span>
-                  <span className="truncate">
-                    <span className={`font-semibold ${isCurrentUser ? 'text-[#1DB954]' : 'text-white'}`}>
+                  <span className="truncate flex items-center gap-1.5">
+                    <span className={`font-semibold ${isCurrentUser ? 'text-neon-pink' : 'text-white'} truncate`}>
                       {entry.displayName}
                     </span>
+                    {showFlame && <Flame className="w-3.5 h-3.5 text-orange-400 flex-shrink-0" />}
                   </span>
-                  <span className="text-right text-sm font-bold text-white">{entry.totalWins}</span>
-                  <span className="text-right text-sm text-gray-400">{entry.totalGames}</span>
-                  <span className="text-right text-sm text-gray-300">
+                  <span className="text-right text-sm font-bold text-white tabular-nums">{entry.totalWins}</span>
+                  <span className="text-right text-sm text-white/60 tabular-nums">{entry.totalGames}</span>
+                  <span className="text-right text-sm text-white/75 tabular-nums">
                     {(entry.winRate * 100).toFixed(0)}%
                   </span>
-                  <span className="text-right text-sm text-gray-400">{entry.bestStreak}</span>
+                  <span className="text-right text-sm text-white/60 tabular-nums">{entry.bestStreak}</span>
                 </motion.div>
               );
             })}
