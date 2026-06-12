@@ -20,7 +20,7 @@ interface ModeResult {
   coopPenalty?: boolean;
 }
 
-interface RevealData {
+export interface RevealData {
   song: SongCard;
   correct: boolean;
   winnerId: string | null;

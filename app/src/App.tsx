@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, lazy, Suspense } from 'react';
 import { useSocket } from './hooks/useSocket';
 import { useGameStore } from './store';
 import { refreshAccessToken } from './services/spotify';
@@ -12,10 +12,12 @@ import {
 import { Home } from './components/Home';
 import { Lobby } from './components/Lobby';
 import { Game } from './components/Game';
-import { Results } from './components/Results';
-import { Rules } from './components/Rules';
-import { Leaderboard } from './components/Leaderboard';
-import { PlayerProfile } from './components/PlayerProfile';
+
+// Secondary screens are code-split so they don't weigh down the initial bundle
+const Results = lazy(() => import('./components/Results').then((m) => ({ default: m.Results })));
+const Rules = lazy(() => import('./components/Rules').then((m) => ({ default: m.Rules })));
+const Leaderboard = lazy(() => import('./components/Leaderboard').then((m) => ({ default: m.Leaderboard })));
+const PlayerProfile = lazy(() => import('./components/PlayerProfile').then((m) => ({ default: m.PlayerProfile })));
 
 export default function App() {
   useSocket();
@@ -91,10 +93,12 @@ export default function App() {
       {screen === 'home' && <Home />}
       {screen === 'lobby' && <Lobby />}
       {screen === 'game' && <Game />}
-      {screen === 'results' && <Results />}
-      {screen === 'rules' && <Rules />}
-      {screen === 'leaderboard' && <Leaderboard />}
-      {screen === 'profile' && <PlayerProfile />}
+      <Suspense fallback={null}>
+        {screen === 'results' && <Results />}
+        {screen === 'rules' && <Rules />}
+        {screen === 'leaderboard' && <Leaderboard />}
+        {screen === 'profile' && <PlayerProfile />}
+      </Suspense>
     </div>
   );
 }

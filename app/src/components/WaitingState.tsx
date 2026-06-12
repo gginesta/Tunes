@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Zap } from 'lucide-react';
 import { useGameStore } from '../store';
 import { getSocket } from '../services/socket';
-import { triviaQuestions, type TriviaQuestion, type TriviaCategory } from '../data/trivia';
+import type { TriviaQuestion, TriviaCategory } from '../data/trivia';
 
 const CATEGORY_LABELS: Record<TriviaCategory, string> = {
   general: 'Trivia · Music History',
@@ -15,8 +15,8 @@ const CATEGORY_LABELS: Record<TriviaCategory, string> = {
   origins: 'Trivia · Music Origins',
 };
 
-function getRandomQuestion(exclude?: TriviaQuestion): TriviaQuestion {
-  const pool = exclude ? triviaQuestions.filter((q) => q !== exclude) : triviaQuestions;
+function getRandomQuestion(questions: TriviaQuestion[], exclude?: TriviaQuestion): TriviaQuestion {
+  const pool = exclude ? questions.filter((q) => q !== exclude) : questions;
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
@@ -27,11 +27,25 @@ export function WaitingState() {
   const currentTurnPlayerId = useGameStore((s) => s.currentTurnPlayerId);
   const triviaScore = useGameStore((s) => s.triviaScore);
 
-  const [question, setQuestion] = useState<TriviaQuestion>(() => getRandomQuestion());
+  const [question, setQuestion] = useState<TriviaQuestion | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [hasBuzzed, setHasBuzzed] = useState(false);
   const triviaTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const questionsRef = useRef<TriviaQuestion[]>([]);
+
+  // Lazily load the trivia data so it lands in its own chunk
+  useEffect(() => {
+    let cancelled = false;
+    import('../data/trivia').then(({ triviaQuestions }) => {
+      if (cancelled) return;
+      questionsRef.current = triviaQuestions;
+      setQuestion((prev) => prev ?? getRandomQuestion(triviaQuestions));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setHasBuzzed(false);
@@ -46,13 +60,13 @@ export function WaitingState() {
   }, []);
 
   const loadNextQuestion = useCallback(() => {
-    setQuestion((prev) => getRandomQuestion(prev));
+    setQuestion((prev) => getRandomQuestion(questionsRef.current, prev ?? undefined));
     setSelectedAnswer(null);
     setShowResult(false);
   }, []);
 
   const handleAnswer = (index: number) => {
-    if (showResult) return;
+    if (showResult || !question) return;
     setSelectedAnswer(index);
     setShowResult(true);
     useGameStore.getState().addTriviaAnswer(index === question.correctIndex);
@@ -67,7 +81,7 @@ export function WaitingState() {
   };
 
   const getButtonStyle = (index: number) => {
-    if (!showResult) {
+    if (!question || !showResult) {
       return 'bg-white/8 hover:bg-white/15 border-white/15 text-white';
     }
     if (index === question.correctIndex) {
@@ -83,39 +97,43 @@ export function WaitingState() {
     <div className="mt-3 flex flex-col items-center w-full max-w-md mx-auto px-2">
       {/* Trivia panel */}
       <div className="w-full panel p-5 mb-4">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-[10px] uppercase tracking-[0.3em] text-neon-amber font-bold">
-            {CATEGORY_LABELS[question.category || 'general']}
-          </p>
-          <span className="text-xs font-bold text-white/45 tabular-nums">
-            {triviaScore.correct}/{triviaScore.total}
-          </span>
-        </div>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={question.question}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.3 }}
-          >
-            <p className="text-white font-heading font-medium text-base mb-4 leading-snug">
-              {question.question}
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {question.options.map((option, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleAnswer(i)}
-                  disabled={showResult}
-                  className={`px-3 py-2.5 rounded-xl border text-sm font-medium transition-all duration-200 ${getButtonStyle(i)}`}
-                >
-                  {option}
-                </button>
-              ))}
+        {question && (
+          <>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[10px] uppercase tracking-[0.3em] text-neon-amber font-bold">
+                {CATEGORY_LABELS[question.category || 'general']}
+              </p>
+              <span className="text-xs font-bold text-white/45 tabular-nums">
+                {triviaScore.correct}/{triviaScore.total}
+              </span>
             </div>
-          </motion.div>
-        </AnimatePresence>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={question.question}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.3 }}
+              >
+                <p className="text-white font-heading font-medium text-base mb-4 leading-snug">
+                  {question.question}
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {question.options.map((option, i) => (
+                    <button
+                      key={i}
+                      onClick={() => handleAnswer(i)}
+                      disabled={showResult}
+                      className={`px-3 py-2.5 rounded-xl border text-sm font-medium transition-all duration-200 ${getButtonStyle(i)}`}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            </AnimatePresence>
+          </>
+        )}
       </div>
 
       {/* Buzz button */}

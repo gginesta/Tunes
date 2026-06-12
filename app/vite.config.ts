@@ -10,6 +10,24 @@ export default defineConfig({
       '@tunes/shared': path.resolve(__dirname, '../shared/src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return;
+          if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) {
+            return 'vendor-react';
+          }
+          if (/node_modules\/(motion|framer-motion|motion-dom|motion-utils)\//.test(id)) {
+            return 'vendor-motion';
+          }
+          if (/node_modules\/(socket\.io-client|socket\.io-parser|engine\.io-client|engine\.io-parser|@socket\.io)\//.test(id)) {
+            return 'vendor-socketio';
+          }
+        },
+      },
+    },
+  },
   server: {
     host: true,
     proxy: {
