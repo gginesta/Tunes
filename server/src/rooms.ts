@@ -1,4 +1,5 @@
 import { Server, Socket } from 'socket.io';
+import { randomInt } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   ClientToServerEvents,
@@ -46,7 +47,7 @@ function generateRoomCode(): string {
   do {
     code = '';
     for (let i = 0; i < ROOM_CODE_LENGTH; i++) {
-      code += ALLOWED_CHARS[Math.floor(Math.random() * ALLOWED_CHARS.length)];
+      code += ALLOWED_CHARS[randomInt(ALLOWED_CHARS.length)];
     }
   } while (rooms.has(code));
   return code;

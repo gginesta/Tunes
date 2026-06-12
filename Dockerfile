@@ -18,8 +18,11 @@ COPY shared/ shared/
 COPY app/ app/
 COPY server/ server/
 
-# Write VITE env vars for frontend build
-RUN echo "VITE_SPOTIFY_CLIENT_ID=e33859f1356b43ccaa5cd1ce2232c4f5" > app/.env && \
+# Write VITE env vars for frontend build. Pass the client id at build time:
+#   docker build --build-arg VITE_SPOTIFY_CLIENT_ID=... .
+# (docker compose forwards it from the environment via the args mapping)
+ARG VITE_SPOTIFY_CLIENT_ID
+RUN echo "VITE_SPOTIFY_CLIENT_ID=${VITE_SPOTIFY_CLIENT_ID}" > app/.env && \
     echo "VITE_SERVER_URL=" >> app/.env && \
     echo "VITE_SPOTIFY_REDIRECT_URI=" >> app/.env
 
