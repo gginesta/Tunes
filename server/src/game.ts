@@ -533,14 +533,16 @@ export class GameEngine {
     const gs = this.room.gameState;
     if (gs.phase !== 'playing' || gs.currentTurnPlayerId !== playerId) return;
 
+    // Check affordability before clearing the turn timer — otherwise a
+    // broke player's skip would leave the turn with no auto-advance.
+    const player = this.room.players[playerId];
+    if (!player || player.tokens < SKIP_COST) return;
+
     // Clear turn timer since player acted
     if (this.turnTimer) {
       clearTimeout(this.turnTimer);
       this.turnTimer = null;
     }
-
-    const player = this.room.players[playerId];
-    if (!player || player.tokens < SKIP_COST) return;
 
     player.tokens -= SKIP_COST;
     this.io.to(this.room.code).emit('tokens-updated', {
@@ -562,6 +564,7 @@ export class GameEngine {
     if (!card) return;
 
     player.tokens -= BUY_CARD_COST;
+    gs.deckSize = this.deck.length;
 
     if (this.isCoop) {
       // In co-op, bought cards go to shared timeline

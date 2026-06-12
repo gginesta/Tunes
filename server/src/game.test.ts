@@ -623,6 +623,8 @@ describe('token economy', () => {
     expect(room.players.p1.tokens).toBe(0);
     // 1985 bought card slots before the 1990 anchor
     expect(years(room.players.p1.timeline)).toEqual([1985, 1990]);
+    // The client-visible deck count reflects the purchase immediately
+    expect(room.gameState.deckSize).toBe(0);
   });
 
   it('buyCard is a no-op with insufficient tokens or in the lobby', () => {
@@ -656,7 +658,7 @@ describe('token economy', () => {
     expect(room.gameState.currentSong?.year).toBe(2010);
   });
 
-  it('skipSong with no tokens does not advance the turn (and stalls the turn timer — current behavior)', () => {
+  it('skipSong with no tokens is rejected and leaves the turn timer running', () => {
     const { room, engine } = setupAtFirstTurn({
       popOrder: [makeCard(1990), makeCard(1980), makeCard(2000), makeCard(2010)],
     });
@@ -668,11 +670,11 @@ describe('token economy', () => {
     expect(room.gameState.currentTurnPlayerId).toBe('p1');
     expect(room.gameState.currentSong?.year).toBe(2000);
 
-    // Suspected bug: skipSong clears the turn timer BEFORE the token check,
-    // so a failed skip leaves no auto-advance timer. We assert the actual
-    // (stalling) behavior here; if the source is fixed this expectation flips.
-    vi.advanceTimersByTime(TURN_TIME_MS * 2);
-    expect(room.gameState.currentTurnPlayerId).toBe('p1');
+    // The failed skip must not consume the auto-advance timer: when the
+    // turn clock runs out, the turn still moves on to the next player.
+    vi.advanceTimersByTime(TURN_TIME_MS);
+    expect(room.gameState.currentTurnPlayerId).toBe('p2');
+    expect(room.gameState.currentSong?.year).toBe(2010);
   });
 
   it('skipSong from a non-active player is ignored', () => {
