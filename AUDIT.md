@@ -171,25 +171,25 @@ Healthy: the README's claims were spot-checked and held up (614 songs verified a
 
 | ID | Status | Title | Effort | Risk | Depends on |
 |---|---|---|---|---|---|
-| M0-T1 | todo | CI workflow: build + type-check gate; chain auto-merge to it | S | Low | — |
-| M0-T2 | todo | Add vitest to server workspace; tests for `fuzzy.ts` + `shuffle.ts` | S | Low | — |
-| M0-T3 | todo | Unit tests for `GameEngine` core paths (fake io, fake timers) | L | Low | M0-T2 |
-| M0-T4 | todo | ESLint + Prettier across workspaces, wired into CI | M | Low | M0-T1 |
-| M1-T1 | todo | Remove password accounts; guest-only identity, leaderboard keyed by guest name | L | Med | M0-T1 |
-| M1-T2 | todo | CORS allowlist via env var (Express + Socket.io) | S | Low | — |
-| M1-T3 | todo | `npm audit fix` (resolves prod `ws` chain); verify build | S | Low | M0-T1 |
-| M1-T4 | todo | Stop persisting Spotify tokens in plaintext (drop column or encrypt) | M | Med | M0-T3 |
-| M1-T5 | todo | Socket payload validation: type/length guards on all event inputs | M | Low | M0-T3 |
-| M1-T6 | todo | Rate limiting: login attempt limiter + per-socket event throttle | S | Low | — |
-| M2-T1 | todo | Decompose `Game.tsx` into phase components + `useGameTimers`/`useSoundEffects` hooks | L | Med | M0-T1 |
-| M2-T2 | todo | Extract challenge resolution from `resolveRound`; split `registerRoomHandlers` by domain | M | Med | M0-T3 |
-| M2-T3 | todo | Consolidate duplicate `getToken`/`initPlayer` into one hook | S | Low | — |
-| M2-T4 | todo | Fix orphaned disconnect timers (clear before `set`, game.ts:914/922) | S | Low | M0-T3 |
-| M3-T1 | todo | Remove `hitster-clone.zip` from repo | S | Low | — |
-| M3-T2 | todo | Code-split trivia data + vendor chunks (target <300 KB initial JS) | S | Low | — |
-| M3-T3 | todo | Dockerfile: `ARG VITE_SPOTIFY_CLIENT_ID` instead of hardcoded value | S | Low | — |
-| M3-T4 | todo | `crypto.randomInt` room codes | S | Low | — |
-| M3-T5 | todo | Within-major dependency bumps (tailwind, zustand, better-sqlite3, …) | S | Low | M0-T1 |
+| M0-T1 | done | CI workflow: build + type-check gate; chain auto-merge to it | S | Low | — |
+| M0-T2 | done | Add vitest to server workspace; tests for `fuzzy.ts` + `shuffle.ts` | S | Low | — |
+| M0-T3 | done | Unit tests for `GameEngine` core paths (fake io, fake timers) | L | Low | M0-T2 |
+| M0-T4 | done | ESLint + Prettier across workspaces, wired into CI | M | Low | M0-T1 |
+| M1-T1 | done | Remove password accounts; guest-only identity, leaderboard keyed by guest name | L | Med | M0-T1 |
+| M1-T2 | done | CORS allowlist via env var (Express + Socket.io) | S | Low | — |
+| M1-T3 | done | `npm audit fix` (resolves prod `ws` chain); verify build | S | Low | M0-T1 |
+| M1-T4 | done | Stop persisting Spotify tokens in plaintext (drop column or encrypt) | M | Med | M0-T3 |
+| M1-T5 | done | Socket payload validation: type/length guards on all event inputs | M | Low | M0-T3 |
+| M1-T6 | done | Rate limiting: login attempt limiter + per-socket event throttle | S | Low | — |
+| M2-T1 | in-progress | Decompose `Game.tsx` into phase components + `useGameTimers`/`useSoundEffects` hooks | L | Med | M0-T1 |
+| M2-T2 | done | Extract challenge resolution from `resolveRound`; split `registerRoomHandlers` by domain | M | Med | M0-T3 |
+| M2-T3 | in-progress | Consolidate duplicate `getToken`/`initPlayer` into one hook | S | Low | — |
+| M2-T4 | done | Fix orphaned disconnect timers (clear before `set`, game.ts:914/922) | S | Low | M0-T3 |
+| M3-T1 | done | Remove `hitster-clone.zip` from repo | S | Low | — |
+| M3-T2 | in-progress | Code-split trivia data + vendor chunks (target <300 KB initial JS) | S | Low | — |
+| M3-T3 | done | Dockerfile: `ARG VITE_SPOTIFY_CLIENT_ID` instead of hardcoded value | S | Low | — |
+| M3-T4 | done | `crypto.randomInt` room codes | S | Low | — |
+| M3-T5 | done | Within-major dependency bumps (tailwind, zustand, better-sqlite3, …) | S | Low | M0-T1 |
 
 **Acceptance criteria per task** (checkable):
 - **M0-T1:** A workflow runs `npm ci && npm run build` on every push/PR; `auto-merge.yml` either removed or made a dependent job that only runs on success; a deliberately broken push does not reach `main`.
