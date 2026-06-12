@@ -27,10 +27,10 @@ A real-time multiplayer music party game where players compete to build a chrono
 - **Post-game rankings** -- Results screen with 1st/2nd/3rd medal colors and staggered animations
 - **Play Again** -- Host-only button to restart the game in the same room
 - **Turn timer** -- 45-second countdown for the active player to place their card; circular timer visible on the song card with color transitions (blue -> orange at 10s -> red at 5s); auto-skips on timeout
-- **Persistent storage** -- SQLite database (via better-sqlite3 with WAL mode) preserves rooms across server restarts; accounts migrated from JSON to SQLite automatically on first startup
+- **Persistent storage** -- SQLite database (via better-sqlite3 with WAL mode) preserves rooms across server restarts; Spotify tokens are encrypted at rest (AES-256-GCM)
 - **Structured logging** -- JSON structured logger with debug/info/warn/error levels; LOG_LEVEL env var; pretty-print in dev, JSON in production; request and game event logging
 - **Health check** -- GET /health returns status, uptime, room/player counts, and version
-- **Optional accounts** -- Username/password stored in SQLite; guest fallback
+- **Guest identity** -- No accounts or passwords: leaderboards, stats and history are keyed by your stage name (keep using the same name to build your record)
 - **Connection handling** -- Tracks player online/offline status with automatic host reassignment and 30-second disconnect grace period
 - **Anchor card animation** -- Starting cards dealt with a flip animation before the first turn
 - **Fuzzy song matching** -- Levenshtein distance with typo tolerance for song naming in Pro/Expert modes
@@ -74,8 +74,10 @@ tunes/
 │       ├── rooms.ts        # Room creation, joining, leaving
 │       ├── game.ts         # GameEngine — turns, placement, challenges, scoring
 │       ├── songs.ts        # Song loading, deck selection, Spotify track resolution
-│       ├── accounts.ts     # Account storage (SQLite)
-│       ├── accounts-handler.ts # Account route handlers
+│       ├── gameActionHandlers.ts # In-game socket actions
+│       ├── statsHandlers.ts # Leaderboard & stats lookups
+│       ├── validate.ts     # Socket payload guards
+│       ├── tokenCrypto.ts  # Spotify token encryption at rest
 │       ├── database.ts     # SQLite database setup and room persistence
 │       └── logger.ts       # Structured JSON logger
 ├── shared/                 # Shared TypeScript package
@@ -122,6 +124,18 @@ npm run dev
 
 Open **http://localhost:5173** in your browser.
 
+### Tests & Lint
+
+```bash
+# Run the server test suite (vitest — game engine, fuzzy matching, shuffle)
+npm test
+
+# Lint all workspaces (ESLint flat config)
+npm run lint
+```
+
+Both run in CI on every push; the auto-merge workflow only merges to `main` when they pass.
+
 ### Build for Production
 
 ```bash
@@ -129,6 +143,10 @@ npm run build:shared
 npm run build:server
 npm run build:app
 ```
+
+Production configuration (see `.env.example`): `ALLOWED_ORIGINS` for cross-origin
+clients (unset = same-origin only) and `TOKEN_ENCRYPTION_KEY` for Spotify token
+encryption at rest (auto-generated at `data/.token-key` when unset).
 
 ## Game Rules
 
