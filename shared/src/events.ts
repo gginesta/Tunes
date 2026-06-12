@@ -26,12 +26,10 @@ export interface ClientToServerEvents {
   'buy-card': () => void;
   'confirm-reveal': () => void;
   'restart-game': () => void;
-  'register': (data: { username: string; password: string; displayName: string }) => void;
-  'login': (data: { username: string; password: string }) => void;
   'buzz': () => void;
   'get-leaderboard': () => void;
-  'get-my-stats': () => void;
-  'get-my-history': () => void;
+  'get-my-stats': (data: { name: string }) => void;
+  'get-my-history': (data: { name: string }) => void;
 }
 
 export interface ServerToClientEvents {
@@ -68,7 +66,6 @@ export interface ServerToClientEvents {
   'game-restarted': (data: { room: Room }) => void;
   'error': (data: { message: string }) => void;
   'state-sync': (room: Room) => void;
-  'auth-result': (data: { success: boolean; error?: string; displayName?: string }) => void;
   'song-history': (data: { history: PlayedSong[] }) => void;
   'game-stats': (data: GameStats) => void;
   'player-disconnected': (data: { playerId: string; reconnectDeadline: number }) => void;

@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Music, Loader2, LogIn, LogOut, UserPlus, Wifi, WifiOff } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Music, Loader2, Wifi, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getSocket } from '../services/socket';
 import { openSpotifyLogin, refreshAccessToken } from '../services/spotify';
@@ -10,11 +10,6 @@ export function Home() {
   const [mode, setMode] = useState<'idle' | 'host' | 'join'>('idle');
   const [code, setCode] = useState(['', '', '', '']);
   const [connecting, setConnecting] = useState(false);
-  const [authMode, setAuthMode] = useState<'none' | 'login' | 'register'>('none');
-  const [authUsername, setAuthUsername] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
-  const [signedInAs, setSignedInAs] = useState<string | null>(() => localStorage.getItem('tunes_username'));
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
   const error = useGameStore((s) => s.error);
   const connected = useGameStore((s) => s.connected);
@@ -22,31 +17,6 @@ export function Home() {
   const setError = useGameStore((s) => s.setError);
   const pendingJoinCode = useGameStore((s) => s.pendingJoinCode);
   const setPendingJoinCode = useGameStore((s) => s.setPendingJoinCode);
-
-  const handleAuthResult = useCallback((data: { success: boolean; error?: string; displayName?: string }) => {
-    setAuthLoading(false);
-    if (data.success) {
-      localStorage.setItem('tunes_username', authUsername);
-      setSignedInAs(authUsername);
-      if (data.displayName) {
-        setName(data.displayName);
-        localStorage.setItem('tunes_display_name', data.displayName);
-      }
-      setAuthMode('none');
-      setAuthPassword('');
-      setError(null);
-    } else {
-      setError(data.error || 'Authentication failed');
-    }
-  }, [authUsername, setError]);
-
-  useEffect(() => {
-    const socket = getSocket();
-    socket.on('auth-result', handleAuthResult);
-    return () => {
-      socket.off('auth-result', handleAuthResult);
-    };
-  }, [handleAuthResult]);
 
   useEffect(() => {
     if (pendingJoinCode) {
@@ -57,28 +27,9 @@ export function Home() {
     }
   }, [pendingJoinCode, setPendingJoinCode]);
 
-  const handleAuth = () => {
-    if (!authUsername.trim() || !authPassword.trim()) return;
-    setAuthLoading(true);
-    setError(null);
-    const socket = getSocket();
-    if (authMode === 'register') {
-      socket.emit('register', {
-        username: authUsername.trim(),
-        password: authPassword,
-        displayName: name.trim() || authUsername.trim(),
-      });
-    } else {
-      socket.emit('login', { username: authUsername.trim(), password: authPassword });
-    }
-  };
-
-  const handleSignOut = () => {
-    localStorage.removeItem('tunes_username');
-    localStorage.removeItem('tunes_display_name');
-    setSignedInAs(null);
-    setName('');
-    setError(null);
+  // Stats and leaderboard entries are keyed by this name, so remember it
+  const persistName = () => {
+    localStorage.setItem('tunes_display_name', name.trim());
   };
 
   const createRoomWithToken = (accessToken: string, refreshToken: string) => {
@@ -88,6 +39,7 @@ export function Home() {
     });
     localStorage.setItem('spotify_refresh_token', refreshToken);
 
+    persistName();
     const socket = getSocket();
     socket.emit('create-room', {
       playerName: name.trim(),
@@ -125,6 +77,7 @@ export function Home() {
     const fullCode = code.join('');
     if (fullCode.length !== 4 || !name.trim()) return;
     setError(null);
+    persistName();
     const socket = getSocket();
     socket.emit('join-room', { code: fullCode, playerName: name.trim() });
   };
@@ -226,92 +179,6 @@ export function Home() {
           </div>
         </div>
 
-        {/* Account section */}
-        {signedInAs ? (
-          <div className="flex items-center justify-between panel px-4 py-3">
-            <span className="text-sm text-white/70">
-              Signed in as <span className="text-white font-semibold">{signedInAs}</span>
-            </span>
-            <button
-              onClick={handleSignOut}
-              className="text-xs text-white/50 hover:text-white flex items-center gap-1 transition-colors py-1 px-2 rounded-lg hover:bg-white/5"
-            >
-              <LogOut className="w-3 h-3" />
-              Sign out
-            </button>
-          </div>
-        ) : authMode !== 'none' ? (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.97 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="space-y-3 panel p-5"
-          >
-            <div className="flex gap-1 bg-black/30 rounded-xl p-1">
-              <button
-                onClick={() => { setAuthMode('login'); setError(null); }}
-                className={`flex-1 text-xs font-bold py-2 rounded-lg transition-all ${authMode === 'login' ? 'bg-white/10 text-white' : 'text-white/45 hover:text-white/80'}`}
-              >
-                Sign In
-              </button>
-              <button
-                onClick={() => { setAuthMode('register'); setError(null); }}
-                className={`flex-1 text-xs font-bold py-2 rounded-lg transition-all ${authMode === 'register' ? 'bg-white/10 text-white' : 'text-white/45 hover:text-white/80'}`}
-              >
-                Create Account
-              </button>
-            </div>
-            <input
-              type="search"
-              value={authUsername}
-              onChange={(e) => setAuthUsername(e.target.value)}
-              placeholder="Username"
-              maxLength={20}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-neon-pink transition-all"
-            />
-            <input
-              type="password"
-              value={authPassword}
-              onChange={(e) => setAuthPassword(e.target.value)}
-              placeholder="Password"
-              onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
-              autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
-              autoCapitalize="off"
-              className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-neon-pink transition-all"
-            />
-            <div className="flex gap-2 pt-1">
-              <button
-                onClick={() => { setAuthMode('none'); setError(null); }}
-                className="btn btn-ghost flex-1"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleAuth}
-                disabled={!authUsername.trim() || !authPassword.trim() || authLoading}
-                className="btn btn-primary flex-[2]"
-              >
-                {authLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : authMode === 'register' ? (
-                  <><UserPlus className="w-4 h-4" />Create</>
-                ) : (
-                  <><LogIn className="w-4 h-4" />Sign In</>
-                )}
-              </button>
-            </div>
-          </motion.div>
-        ) : (
-          <button
-            onClick={() => setAuthMode('login')}
-            className="text-sm text-white/50 hover:text-white/80 transition-colors py-2 px-4 rounded-xl hover:bg-white/5 mx-auto block"
-          >
-            Have an account? Sign in
-          </button>
-        )}
-
         {/* Invite banner */}
         {inviteMessage && mode === 'join' && (
           <motion.p
@@ -405,6 +272,7 @@ export function Home() {
                 onClick={() => {
                   if (!name.trim()) return;
                   setError(null);
+                  persistName();
                   const socket = getSocket();
                   socket.emit('create-room', { playerName: name.trim() });
                 }}
@@ -488,9 +356,9 @@ export function Home() {
         >
           🏆 Leaderboard
         </button>
-        {signedInAs && (
+        {name.trim() && (
           <button
-            onClick={() => setScreen('profile')}
+            onClick={() => { persistName(); setScreen('profile'); }}
             className="btn btn-ghost px-3 py-2 text-xs"
           >
             📊 My Stats

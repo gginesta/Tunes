@@ -24,8 +24,15 @@ import { GameEngine } from './game';
 import { selectGameDeck, resolveTrackIds, fetchPlaylistDeck } from './songs';
 import { saveRoom, loadAllRooms, deleteRoom, saveGameResult, updateLeaderboard, getLeaderboard, getPlayerStats, getPlayerGameHistory } from './database';
 import type { SaveGameParticipant } from './database';
-import { socketToUsername } from './accounts-handler';
 import { logger } from './logger';
+
+/**
+ * Identity is guest-name based: stats are keyed by the lower-cased display
+ * name. Anyone using the same name shares (and inherits) that stat line.
+ */
+function guestNameKey(name: string): string {
+  return name.trim().toLowerCase();
+}
 
 type TunesSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 type TunesServer = Server<ClientToServerEvents, ServerToClientEvents>;
@@ -35,12 +42,30 @@ const games = new Map<string, GameEngine>();
 const socketToRoom = new Map<string, { code: string; playerId: string }>();
 const roomSpotifyTokens = new Map<string, string>();
 
-/** Reverse map: playerId -> socketId (for username lookups) */
-const playerToSocket = new Map<string, string>();
 /** Timers for delayed room cleanup when all players disconnect */
 const roomCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 const ALLOWED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+
+// --- Payload guards ---------------------------------------------------------
+// Socket payloads are attacker-controlled. Handlers must never destructure
+// them before checking shape (a `null` payload would throw and kill the
+// process), and strings must be length-capped before reaching regex-heavy
+// code like the fuzzy matcher.
+const MAX_STRING_LEN = 500;
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+
+function isShortString(v: unknown, max: number = MAX_STRING_LEN): v is string {
+  return typeof v === 'string' && v.length <= max;
+}
+
+function isBoundedInt(v: unknown, min: number, max: number): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
+}
+// ----------------------------------------------------------------------------
 
 function generateRoomCode(): string {
   let code: string;
@@ -92,14 +117,12 @@ function setupGameEndHook(engine: GameEngine, roomCode: string): void {
       const winnerId = engine.getWinnerId();
       const isCoop = room.settings.mode === 'coop';
 
-      // Build participant list for logged-in players
+      // Every guest participates in stats, keyed by their display name
       const participants: SaveGameParticipant[] = [];
       let winnerUsername: string | null = null;
 
       for (const [playerId, player] of Object.entries(room.players)) {
-        const socketId = playerToSocket.get(playerId);
-        if (!socketId) continue;
-        const username = socketToUsername.get(socketId);
+        const username = guestNameKey(player.name);
         if (!username) continue;
 
         const stats = playerStats.get(playerId);
@@ -193,8 +216,15 @@ export function restoreRoomsFromDatabase(io: TunesServer): void {
 }
 
 export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
-  socket.on('create-room', ({ playerName, spotifyAccessToken }) => {
-    const trimmedName = (playerName || '').trim();
+  socket.on('create-room', (payload) => {
+    if (!isRecord(payload)) return;
+    const { playerName, spotifyAccessToken } = payload;
+    if (spotifyAccessToken !== undefined && !isShortString(spotifyAccessToken, 1000)) return;
+    if (!isShortString(playerName, 100)) {
+      socket.emit('error', { message: 'Player name must be between 1 and 30 characters' });
+      return;
+    }
+    const trimmedName = playerName.trim();
     if (trimmedName.length < 1 || trimmedName.length > 30) {
       socket.emit('error', { message: 'Player name must be between 1 and 30 characters' });
       return;
@@ -223,7 +253,6 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
 
     rooms.set(code, room);
     socketToRoom.set(socket.id, { code, playerId });
-    playerToSocket.set(playerId, socket.id);
     socket.join(code);
 
     const engine = new GameEngine(room, io);
@@ -243,8 +272,15 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
     socket.emit('state-sync', room);
   });
 
-  socket.on('join-room', ({ code, playerName }) => {
-    const trimmedName = (playerName || '').trim();
+  socket.on('join-room', (payload) => {
+    if (!isRecord(payload)) return;
+    const { code, playerName } = payload;
+    if (!isShortString(code, 10)) return;
+    if (!isShortString(playerName, 100)) {
+      socket.emit('error', { message: 'Player name must be between 1 and 30 characters' });
+      return;
+    }
+    const trimmedName = playerName.trim();
     if (trimmedName.length < 1 || trimmedName.length > 30) {
       socket.emit('error', { message: 'Player name must be between 1 and 30 characters' });
       return;
@@ -280,7 +316,6 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
 
     room.players[playerId] = player;
     socketToRoom.set(socket.id, { code: upperCode, playerId });
-    playerToSocket.set(playerId, socket.id);
     socket.join(upperCode);
 
     // Cancel any pending room cleanup (someone came back)
@@ -312,7 +347,10 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
     }
   });
 
-  socket.on('rejoin-room', ({ code, playerId }) => {
+  socket.on('rejoin-room', (payload) => {
+    if (!isRecord(payload)) return;
+    const { code, playerId } = payload;
+    if (!isShortString(code, 10) || !isShortString(playerId, 64)) return;
     const upperCode = code.toUpperCase();
     const room = rooms.get(upperCode);
 
@@ -325,7 +363,6 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
     const player = room.players[playerId];
     player.connected = true;
     socketToRoom.set(socket.id, { code: upperCode, playerId });
-    playerToSocket.set(playerId, socket.id);
     socket.join(upperCode);
 
     // Cancel any pending room cleanup (player came back)
@@ -385,10 +422,25 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
   });
 
   socket.on('update-settings', (settings) => {
+    if (!isRecord(settings)) return;
     const mapping = socketToRoom.get(socket.id);
     if (!mapping) return;
     const room = rooms.get(mapping.code);
     if (!room || room.hostId !== mapping.playerId) return;
+
+    // Validate free-form settings fields before merging
+    if (settings.playlistUrl != null && !isShortString(settings.playlistUrl, 300)) {
+      socket.emit('error', { message: 'Playlist URL is too long' });
+      return;
+    }
+    for (const field of ['decades', 'genres', 'regions'] as const) {
+      const value = settings[field];
+      if (value == null) continue;
+      if (!Array.isArray(value) || value.length > 50 || !value.every((v) => isShortString(v, 50))) {
+        socket.emit('error', { message: `Invalid ${field} filter` });
+        return;
+      }
+    }
 
     // Validate cardsToWin
     if (settings.cardsToWin != null) {
@@ -441,7 +493,7 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
       }
 
       // Accept a fresh Spotify token from the client (handles token expiry)
-      if (data?.spotifyAccessToken) {
+      if (data?.spotifyAccessToken && isShortString(data.spotifyAccessToken, 1000)) {
         roomSpotifyTokens.set(mapping.code, data.spotifyAccessToken);
         const engine = games.get(mapping.code);
         if (engine) engine.setSpotifyToken(data.spotifyAccessToken);
@@ -538,7 +590,9 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
     }
   });
 
-  socket.on('play-anchor', ({ index }) => {
+  socket.on('play-anchor', (payload) => {
+    if (!isRecord(payload) || !isBoundedInt(payload.index, 0, 100)) return;
+    const index = payload.index;
     const engine = getEngine(socket);
     const mapping = socketToRoom.get(socket.id);
     if (!engine || !mapping) return;
@@ -558,11 +612,12 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
     }
   });
 
-  socket.on('place-card', ({ position }) => {
+  socket.on('place-card', (payload) => {
+    if (!isRecord(payload) || !isBoundedInt(payload.position, 0, 100)) return;
     const engine = getEngine(socket);
     const mapping = socketToRoom.get(socket.id);
     if (!engine || !mapping) return;
-    engine.placeCard(mapping.playerId, position);
+    engine.placeCard(mapping.playerId, payload.position);
     persistRoom(mapping.code);
   });
 
@@ -570,7 +625,7 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
     const engine = getEngine(socket);
     const mapping = socketToRoom.get(socket.id);
     if (!engine || !mapping) return;
-    const position = typeof data?.position === 'number' ? data.position : 0;
+    const position = isBoundedInt(data?.position, 0, 100) ? data.position : 0;
     const result = engine.challenge(mapping.playerId, position);
     if (result.error) {
       socket.emit('error', { message: result.error });
@@ -578,10 +633,14 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
   });
 
   socket.on('name-song', (guess) => {
+    // Length caps protect the regex-heavy fuzzy matcher from CPU-burn payloads
+    if (!isRecord(guess)) return;
+    if (!isShortString(guess.title) || !isShortString(guess.artist)) return;
+    if (guess.year !== undefined && !isBoundedInt(guess.year, 1000, 3000)) return;
     const engine = getEngine(socket);
     const mapping = socketToRoom.get(socket.id);
     if (!engine || !mapping) return;
-    engine.nameSong(mapping.playerId, guess);
+    engine.nameSong(mapping.playerId, { title: guess.title, artist: guess.artist, year: guess.year });
   });
 
   socket.on('skip-song', () => {
@@ -661,28 +720,28 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
     }
   });
 
-  socket.on('get-my-stats', () => {
-    const username = socketToUsername.get(socket.id);
-    if (!username) {
+  socket.on('get-my-stats', (payload) => {
+    const name = isRecord(payload) && isShortString(payload.name, 100) ? guestNameKey(payload.name) : '';
+    if (!name) {
       socket.emit('my-stats', { stats: null });
       return;
     }
     try {
-      const stats = getPlayerStats(username);
+      const stats = getPlayerStats(name);
       socket.emit('my-stats', { stats });
     } catch (err) {
       logger.error('Failed to fetch player stats', { error: String(err) });
     }
   });
 
-  socket.on('get-my-history', () => {
-    const username = socketToUsername.get(socket.id);
-    if (!username) {
+  socket.on('get-my-history', (payload) => {
+    const name = isRecord(payload) && isShortString(payload.name, 100) ? guestNameKey(payload.name) : '';
+    if (!name) {
       socket.emit('my-history', { games: [] });
       return;
     }
     try {
-      const games = getPlayerGameHistory(username, 20);
+      const games = getPlayerGameHistory(name, 20);
       socket.emit('my-history', { games });
     } catch (err) {
       logger.error('Failed to fetch player history', { error: String(err) });
@@ -690,11 +749,6 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
   });
 
   socket.on('disconnect', () => {
-    // Clean up playerToSocket mapping
-    const mapping = socketToRoom.get(socket.id);
-    if (mapping) {
-      playerToSocket.delete(mapping.playerId);
-    }
     handleLeave(io, socket, false);
   });
 }

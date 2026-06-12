@@ -8,13 +8,15 @@ export function PlayerProfile() {
   const myStats = useGameStore((s) => s.myStats);
   const myHistory = useGameStore((s) => s.myHistory);
   const setScreen = useGameStore((s) => s.setScreen);
-  const displayName = localStorage.getItem('tunes_display_name') || localStorage.getItem('tunes_username') || 'You';
+  const displayName = localStorage.getItem('tunes_display_name') || 'You';
   const monogram = displayName.charAt(0).toUpperCase();
 
   useEffect(() => {
+    const name = localStorage.getItem('tunes_display_name');
+    if (!name) return;
     const socket = getSocket();
-    socket.emit('get-my-stats');
-    socket.emit('get-my-history');
+    socket.emit('get-my-stats', { name });
+    socket.emit('get-my-history', { name });
   }, []);
 
   return (
@@ -49,7 +51,7 @@ export function PlayerProfile() {
             <BarChart3 className="w-16 h-16 text-white/20 mx-auto mb-4" />
             <p className="text-white/60 text-lg font-heading">No stats yet</p>
             <p className="text-white/40 text-sm mt-1">
-              Play some games while signed in to track your stats!
+              Play some games as “{displayName}” to start tracking stats!
             </p>
           </motion.div>
         ) : (

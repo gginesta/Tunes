@@ -2,7 +2,8 @@ import Database from 'better-sqlite3';
 import { join } from 'path';
 import { mkdirSync, existsSync } from 'fs';
 import type { Room, LeaderboardEntry, GameHistoryEntry } from '@tunes/shared';
-import type { Account } from './accounts';
+import { encryptToken, decryptToken } from './tokenCrypto';
+import { logger } from './logger';
 
 const DATA_DIR = process.env.DATA_DIR || join(__dirname, '..', '..', 'data');
 const DB_PATH = join(DATA_DIR, 'tunes.db');
@@ -18,13 +19,6 @@ export function initDatabase(): void {
   db.pragma('journal_mode = WAL');
 
   db.exec(`
-    CREATE TABLE IF NOT EXISTS accounts (
-      username TEXT PRIMARY KEY,
-      display_name TEXT NOT NULL,
-      password_hash TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS rooms (
       code TEXT PRIMARY KEY,
       host_id TEXT NOT NULL,
@@ -75,39 +69,97 @@ export function initDatabase(): void {
       updated_at TEXT NOT NULL
     );
   `);
+
+  migrateToGuestIdentity();
 }
 
-// --- Account functions ---
+/**
+ * One-time migration (schema v0 -> v1): identity moved from password
+ * accounts to guest display names. Leaderboard and history rows are
+ * re-keyed to lower-cased display names, merging rows that collide,
+ * and the legacy accounts table is dropped.
+ */
+function migrateToGuestIdentity(): void {
+  const version = db.pragma('user_version', { simple: true }) as number;
+  if (version >= 1) return;
 
-export function saveAccount(account: Account): void {
-  const stmt = db.prepare(`
-    INSERT OR REPLACE INTO accounts (username, display_name, password_hash, created_at)
-    VALUES (?, ?, ?, ?)
-  `);
-  stmt.run(account.username, account.displayName, account.passwordHash, account.createdAt);
-}
+  const hasAccountsTable = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='accounts'")
+    .get();
 
-export function loadAccount(username: string): Account | null {
-  const stmt = db.prepare('SELECT * FROM accounts WHERE username = ?');
-  const row = stmt.get(username) as { username: string; display_name: string; password_hash: string; created_at: string } | undefined;
-  if (!row) return null;
-  return {
-    username: row.username,
-    displayName: row.display_name,
-    passwordHash: row.password_hash,
-    createdAt: row.created_at,
-  };
-}
+  const migrate = db.transaction(() => {
+    const rows = db.prepare('SELECT * FROM leaderboard').all() as (LeaderboardRow & {
+      updated_at: string;
+    })[];
 
-export function getAllAccounts(): Account[] {
-  const stmt = db.prepare('SELECT * FROM accounts');
-  const rows = stmt.all() as { username: string; display_name: string; password_hash: string; created_at: string }[];
-  return rows.map((row) => ({
-    username: row.username,
-    displayName: row.display_name,
-    passwordHash: row.password_hash,
-    createdAt: row.created_at,
-  }));
+    const merged = new Map<string, LeaderboardRow & { updated_at: string }>();
+    for (const row of rows) {
+      const key = row.display_name.trim().toLowerCase();
+      const existing = merged.get(key);
+      if (!existing) {
+        merged.set(key, { ...row, username: key });
+        continue;
+      }
+      existing.total_games += row.total_games;
+      existing.total_wins += row.total_wins;
+      existing.total_correct += row.total_correct;
+      existing.total_placements += row.total_placements;
+      existing.best_streak = Math.max(existing.best_streak, row.best_streak);
+      existing.total_challenges_won += row.total_challenges_won;
+      existing.total_songs_named += row.total_songs_named;
+      if (
+        row.best_fastest_ms !== null &&
+        (existing.best_fastest_ms === null || row.best_fastest_ms < existing.best_fastest_ms)
+      ) {
+        existing.best_fastest_ms = row.best_fastest_ms;
+      }
+      if (row.updated_at > existing.updated_at) {
+        existing.display_name = row.display_name;
+        existing.updated_at = row.updated_at;
+      }
+    }
+
+    db.exec('DELETE FROM leaderboard');
+    const insert = db.prepare(`
+      INSERT INTO leaderboard (username, display_name, total_games, total_wins, total_correct, total_placements, best_streak, total_challenges_won, total_songs_named, best_fastest_ms, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const row of merged.values()) {
+      insert.run(
+        row.username,
+        row.display_name,
+        row.total_games,
+        row.total_wins,
+        row.total_correct,
+        row.total_placements,
+        row.best_streak,
+        row.total_challenges_won,
+        row.total_songs_named,
+        row.best_fastest_ms,
+        row.updated_at,
+      );
+    }
+
+    db.exec("UPDATE game_participants SET username = lower(trim(display_name))");
+
+    if (hasAccountsTable) {
+      db.exec(`
+        UPDATE game_history SET winner_username = (
+          SELECT lower(trim(a.display_name)) FROM accounts a WHERE a.username = game_history.winner_username
+        )
+        WHERE winner_username IS NOT NULL
+          AND EXISTS (SELECT 1 FROM accounts a WHERE a.username = game_history.winner_username);
+      `);
+      db.exec('DROP TABLE accounts');
+    }
+
+    db.pragma('user_version = 1');
+  });
+
+  migrate();
+  logger.info('Database migrated to guest identity (schema v1)', {
+    migratedLeaderboardRows: db.prepare('SELECT COUNT(*) AS c FROM leaderboard').get(),
+  });
 }
 
 // --- Room functions ---
@@ -142,7 +194,7 @@ export function saveRoom(code: string, room: Room, spotifyToken?: string): void 
     JSON.stringify(room.settings),
     JSON.stringify(room.gameState),
     JSON.stringify(room.players),
-    spotifyToken ?? null,
+    spotifyToken ? encryptToken(spotifyToken) : null,
     now,
     now,
   );
@@ -161,7 +213,7 @@ export function loadRoom(code: string): { room: Room; spotifyToken: string | nul
       gameState: JSON.parse(row.game_state),
       players: JSON.parse(row.players),
     },
-    spotifyToken: row.spotify_token,
+    spotifyToken: row.spotify_token ? decryptToken(row.spotify_token) : null,
   };
 }
 
@@ -177,7 +229,7 @@ export function loadAllRooms(): { room: Room; spotifyToken: string | null }[] {
       gameState: JSON.parse(row.game_state),
       players: JSON.parse(row.players),
     },
-    spotifyToken: row.spotify_token,
+    spotifyToken: row.spotify_token ? decryptToken(row.spotify_token) : null,
   }));
 }
 

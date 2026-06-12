@@ -15,7 +15,7 @@ const RANK_LABEL = ['1st', '2nd', '3rd'];
 export function Leaderboard() {
   const leaderboard = useGameStore((s) => s.leaderboard);
   const setScreen = useGameStore((s) => s.setScreen);
-  const signedInAs = localStorage.getItem('tunes_username');
+  const myName = localStorage.getItem('tunes_display_name');
 
   useEffect(() => {
     const socket = getSocket();
@@ -73,7 +73,7 @@ export function Leaderboard() {
 
             {leaderboard.map((entry, index) => {
               const rank = index + 1;
-              const isCurrentUser = signedInAs && entry.username.toLowerCase() === signedInAs.toLowerCase();
+              const isCurrentUser = myName && entry.username.toLowerCase() === myName.trim().toLowerCase();
               const tint = rank <= 3 ? RANK_TINTS[rank - 1] : 'bg-white/[0.03] border-white/[0.06]';
               const userBorder = isCurrentUser
                 ? 'border-l-4 border-l-neon-pink'
@@ -114,6 +114,10 @@ export function Leaderboard() {
             })}
           </motion.div>
         )}
+
+        <p className="text-center text-[11px] text-white/30 mt-6">
+          Stats are tracked by stage name — keep using the same name to build your record.
+        </p>
       </div>
     </div>
   );
