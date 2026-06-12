@@ -617,90 +617,20 @@ export class GameEngine {
 
     const timeline = activePlayer.timeline;
     const placementCorrect = this.isPlacementCorrect(timeline, song, position);
+    const { correct, activePlayerNamedSong, yearCorrect } = this.evaluateModeResult(
+      activePlayerId,
+      song,
+      placementCorrect,
+    );
 
-    // Mode-specific checks
-    const activePlayerNamedSong = this.songNameCorrect.get(activePlayerId) === true;
-    const yearCorrect = this.mode === 'expert' ? this.yearGuess === song.year : undefined;
+    this.updateRoundStats(activePlayerId, song, correct, placementCorrect);
 
-    let correct = placementCorrect;
-    if (this.mode === 'pro') {
-      // Pro: must place correctly AND name the song
-      correct = placementCorrect && activePlayerNamedSong;
-    } else if (this.mode === 'expert') {
-      // Expert: must place correctly AND name the song AND guess the exact year
-      correct = placementCorrect && activePlayerNamedSong && (yearCorrect === true);
-    }
-
-    // Update active player stats
-    this.totalRounds++;
-    const activeStats = this.playerStats.get(activePlayerId);
-    if (activeStats) {
-      activeStats.totalPlacements++;
-      if (correct) {
-        activeStats.correctPlacements++;
-        activeStats.currentStreak++;
-        if (activeStats.currentStreak > activeStats.longestStreak) {
-          activeStats.longestStreak = activeStats.currentStreak;
-        }
-      } else {
-        activeStats.currentStreak = 0;
-      }
-      // Update decade accuracy
-      const decade = Math.floor(song.year / 10) * 10;
-      if (!activeStats.decadeAccuracy[decade]) {
-        activeStats.decadeAccuracy[decade] = { correct: 0, total: 0 };
-      }
-      activeStats.decadeAccuracy[decade].total++;
-      if (placementCorrect) {
-        activeStats.decadeAccuracy[decade].correct++;
-      }
-    }
-
-    // Update challenger stats
-    for (const challengerId of gs.challengers) {
-      const challengerStats = this.playerStats.get(challengerId);
-      if (challengerStats) {
-        if (!correct) {
-          // Challenger was right (placement was wrong)
-          challengerStats.challengesWon++;
-        } else {
-          // Challenger was wrong (placement was correct)
-          challengerStats.challengesLost++;
-        }
-      }
-    }
-
-    let stolenBy: string | null = null;
-    let winnerId: string | null = null;
-
-    if (correct) {
-      // Active player keeps the card
-      activePlayer.timeline.splice(position, 0, song);
-      winnerId = activePlayerId;
-    } else if (gs.challengers.length > 0) {
-      // Find the first challenger who picked the correct position
-      let stealerId: string | null = null;
-      for (const cid of gs.challengers) {
-        const challengePos = this.challengerPositions.get(cid);
-        if (challengePos != null && this.isPlacementCorrect(timeline, song, challengePos)) {
-          stealerId = cid;
-          break;
-        }
-      }
-      if (stealerId) {
-        const stealer = this.room.players[stealerId];
-        this.insertCardInTimeline(stealer.timeline, song);
-        stolenBy = stealerId;
-        winnerId = stealerId;
-
-        this.io.to(this.room.code).emit('timeline-updated', {
-          playerId: stealerId,
-          timeline: stealer.timeline,
-        });
-      }
-      // If no challenger picked the correct position, card is discarded
-    }
-    // If incorrect and no challengers, card is discarded
+    const { winnerId, stolenBy } = this.applyPlacementOutcome(
+      activePlayerId,
+      song,
+      position,
+      correct,
+    );
 
     logger.info('Card placed', {
       roomCode: this.room.code,
@@ -714,29 +644,14 @@ export class GameEngine {
 
     gs.phase = 'reveal';
 
-    // Build per-challenger result feedback
-    const challengeResults: Record<string, { position: number; correct: boolean }> = {};
-    for (const cid of gs.challengers) {
-      const pos = this.challengerPositions.get(cid);
-      if (pos != null) {
-        challengeResults[cid] = {
-          position: pos,
-          correct: this.isPlacementCorrect(timeline, song, pos),
-        };
-      }
-    }
-
-    this.io.to(this.room.code).emit('reveal', {
-      song,
+    this.emitReveal(song, {
       correct,
       winnerId,
       stolenBy,
-      modeResult: {
-        placementCorrect,
-        songNamed: activePlayerNamedSong,
-        yearCorrect,
-      },
-      challengeResults: Object.keys(challengeResults).length > 0 ? challengeResults : undefined,
+      placementCorrect,
+      songNamed: activePlayerNamedSong,
+      yearCorrect,
+      timeline,
     });
 
     // Record song history entry
@@ -763,6 +678,158 @@ export class GameEngine {
       this.endGame();
       return;
     }
+  }
+
+  /**
+   * Combine placement correctness with the extra requirements of the
+   * current mode (pro: name the song; expert: name it and nail the year).
+   */
+  private evaluateModeResult(
+    activePlayerId: string,
+    song: SongCard,
+    placementCorrect: boolean,
+  ): { correct: boolean; activePlayerNamedSong: boolean; yearCorrect: boolean | undefined } {
+    const activePlayerNamedSong = this.songNameCorrect.get(activePlayerId) === true;
+    const yearCorrect = this.mode === 'expert' ? this.yearGuess === song.year : undefined;
+
+    let correct = placementCorrect;
+    if (this.mode === 'pro') {
+      correct = placementCorrect && activePlayerNamedSong;
+    } else if (this.mode === 'expert') {
+      correct = placementCorrect && activePlayerNamedSong && yearCorrect === true;
+    }
+    return { correct, activePlayerNamedSong, yearCorrect };
+  }
+
+  /** Update active-player and challenger stats for a resolved round. */
+  private updateRoundStats(
+    activePlayerId: string,
+    song: SongCard,
+    correct: boolean,
+    placementCorrect: boolean,
+  ): void {
+    this.totalRounds++;
+    const activeStats = this.playerStats.get(activePlayerId);
+    if (activeStats) {
+      activeStats.totalPlacements++;
+      if (correct) {
+        activeStats.correctPlacements++;
+        activeStats.currentStreak++;
+        if (activeStats.currentStreak > activeStats.longestStreak) {
+          activeStats.longestStreak = activeStats.currentStreak;
+        }
+      } else {
+        activeStats.currentStreak = 0;
+      }
+      // Update decade accuracy
+      const decade = Math.floor(song.year / 10) * 10;
+      if (!activeStats.decadeAccuracy[decade]) {
+        activeStats.decadeAccuracy[decade] = { correct: 0, total: 0 };
+      }
+      activeStats.decadeAccuracy[decade].total++;
+      if (placementCorrect) {
+        activeStats.decadeAccuracy[decade].correct++;
+      }
+    }
+
+    for (const challengerId of this.room.gameState.challengers) {
+      const challengerStats = this.playerStats.get(challengerId);
+      if (challengerStats) {
+        if (!correct) {
+          // Challenger was right (placement was wrong)
+          challengerStats.challengesWon++;
+        } else {
+          // Challenger was wrong (placement was correct)
+          challengerStats.challengesLost++;
+        }
+      }
+    }
+  }
+
+  /**
+   * Give the card to the active player when correct; otherwise let the
+   * first challenger with a correct position steal it. Returns who won
+   * the card (or null when it is discarded).
+   */
+  private applyPlacementOutcome(
+    activePlayerId: string,
+    song: SongCard,
+    position: number,
+    correct: boolean,
+  ): { winnerId: string | null; stolenBy: string | null } {
+    const gs = this.room.gameState;
+    const activePlayer = this.room.players[activePlayerId];
+    let stolenBy: string | null = null;
+    let winnerId: string | null = null;
+
+    if (correct) {
+      // Active player keeps the card
+      activePlayer.timeline.splice(position, 0, song);
+      winnerId = activePlayerId;
+    } else if (gs.challengers.length > 0) {
+      // Find the first challenger who picked the correct position
+      let stealerId: string | null = null;
+      for (const cid of gs.challengers) {
+        const challengePos = this.challengerPositions.get(cid);
+        if (challengePos != null && this.isPlacementCorrect(activePlayer.timeline, song, challengePos)) {
+          stealerId = cid;
+          break;
+        }
+      }
+      if (stealerId) {
+        const stealer = this.room.players[stealerId];
+        this.insertCardInTimeline(stealer.timeline, song);
+        stolenBy = stealerId;
+        winnerId = stealerId;
+
+        this.io.to(this.room.code).emit('timeline-updated', {
+          playerId: stealerId,
+          timeline: stealer.timeline,
+        });
+      }
+      // If no challenger picked the correct position, card is discarded
+    }
+    // If incorrect and no challengers, card is discarded
+
+    return { winnerId, stolenBy };
+  }
+
+  /** Emit the reveal event with per-challenger feedback. */
+  private emitReveal(
+    song: SongCard,
+    result: {
+      correct: boolean;
+      winnerId: string | null;
+      stolenBy: string | null;
+      placementCorrect: boolean;
+      songNamed: boolean;
+      yearCorrect: boolean | undefined;
+      timeline: SongCard[];
+    },
+  ): void {
+    const challengeResults: Record<string, { position: number; correct: boolean }> = {};
+    for (const cid of this.room.gameState.challengers) {
+      const pos = this.challengerPositions.get(cid);
+      if (pos != null) {
+        challengeResults[cid] = {
+          position: pos,
+          correct: this.isPlacementCorrect(result.timeline, song, pos),
+        };
+      }
+    }
+
+    this.io.to(this.room.code).emit('reveal', {
+      song,
+      correct: result.correct,
+      winnerId: result.winnerId,
+      stolenBy: result.stolenBy,
+      modeResult: {
+        placementCorrect: result.placementCorrect,
+        songNamed: result.songNamed,
+        yearCorrect: result.yearCorrect,
+      },
+      challengeResults: Object.keys(challengeResults).length > 0 ? challengeResults : undefined,
+    });
   }
 
   private resolveCoopRound(

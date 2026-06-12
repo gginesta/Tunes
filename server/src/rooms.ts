@@ -21,17 +21,12 @@ import type { GameMode } from '@tunes/shared';
 const VALID_GAME_MODES: GameMode[] = ['original', 'pro', 'expert', 'coop'];
 import { GameEngine } from './game';
 import { selectGameDeck, resolveTrackIds, fetchPlaylistDeck } from './songs';
-import { saveRoom, loadAllRooms, deleteRoom, saveGameResult, updateLeaderboard, getLeaderboard, getPlayerStats, getPlayerGameHistory } from './database';
+import { saveRoom, loadAllRooms, deleteRoom, saveGameResult, updateLeaderboard } from './database';
 import type { SaveGameParticipant } from './database';
+import { registerGameActionHandlers } from './gameActionHandlers';
+import { registerStatsHandlers } from './statsHandlers';
+import { guestNameKey, isRecord, isShortString } from './validate';
 import { logger } from './logger';
-
-/**
- * Identity is guest-name based: stats are keyed by the lower-cased display
- * name. Anyone using the same name shares (and inherits) that stat line.
- */
-function guestNameKey(name: string): string {
-  return name.trim().toLowerCase();
-}
 
 type TunesSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 type TunesServer = Server<ClientToServerEvents, ServerToClientEvents>;
@@ -45,26 +40,6 @@ const roomSpotifyTokens = new Map<string, string>();
 const roomCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 const ALLOWED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-
-// --- Payload guards ---------------------------------------------------------
-// Socket payloads are attacker-controlled. Handlers must never destructure
-// them before checking shape (a `null` payload would throw and kill the
-// process), and strings must be length-capped before reaching regex-heavy
-// code like the fuzzy matcher.
-const MAX_STRING_LEN = 500;
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null;
-}
-
-function isShortString(v: unknown, max: number = MAX_STRING_LEN): v is string {
-  return typeof v === 'string' && v.length <= max;
-}
-
-function isBoundedInt(v: unknown, min: number, max: number): v is number {
-  return typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
-}
-// ----------------------------------------------------------------------------
 
 function generateRoomCode(): string {
   let code: string;
@@ -589,79 +564,11 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
     }
   });
 
-  socket.on('play-anchor', (payload) => {
-    if (!isRecord(payload) || !isBoundedInt(payload.index, 0, 100)) return;
-    const index = payload.index;
-    const engine = getEngine(socket);
-    const mapping = socketToRoom.get(socket.id);
-    if (!engine || !mapping) return;
-    const room = rooms.get(mapping.code.toUpperCase());
-    if (room && mapping.playerId === room.hostId) {
-      engine.playAnchor(index);
-    }
-  });
-
-  socket.on('skip-anchors', () => {
-    const engine = getEngine(socket);
-    const mapping = socketToRoom.get(socket.id);
-    if (!engine || !mapping) return;
-    const room = rooms.get(mapping.code.toUpperCase());
-    if (room && mapping.playerId === room.hostId) {
-      engine.skipAnchors();
-    }
-  });
-
-  socket.on('place-card', (payload) => {
-    if (!isRecord(payload) || !isBoundedInt(payload.position, 0, 100)) return;
-    const engine = getEngine(socket);
-    const mapping = socketToRoom.get(socket.id);
-    if (!engine || !mapping) return;
-    engine.placeCard(mapping.playerId, payload.position);
-    persistRoom(mapping.code);
-  });
-
-  socket.on('challenge', (data) => {
-    const engine = getEngine(socket);
-    const mapping = socketToRoom.get(socket.id);
-    if (!engine || !mapping) return;
-    const position = isBoundedInt(data?.position, 0, 100) ? data.position : 0;
-    const result = engine.challenge(mapping.playerId, position);
-    if (result.error) {
-      socket.emit('error', { message: result.error });
-    }
-  });
-
-  socket.on('name-song', (guess) => {
-    // Length caps protect the regex-heavy fuzzy matcher from CPU-burn payloads
-    if (!isRecord(guess)) return;
-    if (!isShortString(guess.title) || !isShortString(guess.artist)) return;
-    if (guess.year !== undefined && !isBoundedInt(guess.year, 1000, 3000)) return;
-    const engine = getEngine(socket);
-    const mapping = socketToRoom.get(socket.id);
-    if (!engine || !mapping) return;
-    engine.nameSong(mapping.playerId, { title: guess.title, artist: guess.artist, year: guess.year });
-  });
-
-  socket.on('skip-song', () => {
-    const engine = getEngine(socket);
-    const mapping = socketToRoom.get(socket.id);
-    if (!engine || !mapping) return;
-    engine.skipSong(mapping.playerId);
-  });
-
-  socket.on('buy-card', () => {
-    const engine = getEngine(socket);
-    const mapping = socketToRoom.get(socket.id);
-    if (!engine || !mapping) return;
-    engine.buyCard(mapping.playerId);
-  });
-
-  socket.on('confirm-reveal', () => {
-    const engine = getEngine(socket);
-    const mapping = socketToRoom.get(socket.id);
-    if (!engine || !mapping) return;
-    engine.confirmReveal(mapping.playerId);
-    persistRoom(mapping.code);
+  registerGameActionHandlers(socket, {
+    getEngine,
+    getMapping: (socketId) => socketToRoom.get(socketId),
+    getRoom: (code) => rooms.get(code),
+    persistRoom,
   });
 
   socket.on('restart-game', () => {
@@ -710,42 +617,7 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
     io.to(mapping.code).emit('player-buzzed', { playerId: mapping.playerId });
   });
 
-  socket.on('get-leaderboard', () => {
-    try {
-      const entries = getLeaderboard(20);
-      socket.emit('leaderboard', { entries });
-    } catch (err) {
-      logger.error('Failed to fetch leaderboard', { error: String(err) });
-    }
-  });
-
-  socket.on('get-my-stats', (payload) => {
-    const name = isRecord(payload) && isShortString(payload.name, 100) ? guestNameKey(payload.name) : '';
-    if (!name) {
-      socket.emit('my-stats', { stats: null });
-      return;
-    }
-    try {
-      const stats = getPlayerStats(name);
-      socket.emit('my-stats', { stats });
-    } catch (err) {
-      logger.error('Failed to fetch player stats', { error: String(err) });
-    }
-  });
-
-  socket.on('get-my-history', (payload) => {
-    const name = isRecord(payload) && isShortString(payload.name, 100) ? guestNameKey(payload.name) : '';
-    if (!name) {
-      socket.emit('my-history', { games: [] });
-      return;
-    }
-    try {
-      const games = getPlayerGameHistory(name, 20);
-      socket.emit('my-history', { games });
-    } catch (err) {
-      logger.error('Failed to fetch player history', { error: String(err) });
-    }
-  });
+  registerStatsHandlers(socket);
 
   socket.on('disconnect', () => {
     handleLeave(io, socket, false);
