@@ -878,6 +878,14 @@ export class GameEngine {
 
     const reconnectDeadline = Date.now() + DISCONNECT_GRACE_MS;
 
+    // A rapid disconnect/reconnect/disconnect can re-enter here while an old
+    // grace timer is still pending; clear it so Map.set never orphans a timer.
+    const existingGrace = this.disconnectTimers.get(playerId);
+    if (existingGrace) {
+      clearTimeout(existingGrace);
+      this.disconnectTimers.delete(playerId);
+    }
+
     // Emit disconnected event so clients can show a countdown
     this.io.to(this.room.code).emit('player-disconnected', { playerId, reconnectDeadline });
 
