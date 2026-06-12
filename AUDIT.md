@@ -167,6 +167,12 @@ Healthy: the README's claims were spot-checked and held up (614 songs verified a
 
 ## 5. Task Plan
 
+> **Execution log (2026-06-12):** all 19 tasks below were completed in this session.
+> Verified state: build clean, 68 server tests passing, ESLint 0 errors, `npm audit`
+> 0 vulnerabilities, Game.tsx 1,162→379 lines, largest JS chunk 502→187 KB. The test
+> suite also surfaced and fixed two latent gameplay bugs (skip-with-no-tokens stalled
+> the turn; bought cards left a stale deck count).
+
 ### Milestone table
 
 | ID | Status | Title | Effort | Risk | Depends on |
@@ -181,12 +187,12 @@ Healthy: the README's claims were spot-checked and held up (614 songs verified a
 | M1-T4 | done | Stop persisting Spotify tokens in plaintext (drop column or encrypt) | M | Med | M0-T3 |
 | M1-T5 | done | Socket payload validation: type/length guards on all event inputs | M | Low | M0-T3 |
 | M1-T6 | done | Rate limiting: login attempt limiter + per-socket event throttle | S | Low | — |
-| M2-T1 | in-progress | Decompose `Game.tsx` into phase components + `useGameTimers`/`useSoundEffects` hooks | L | Med | M0-T1 |
+| M2-T1 | done | Decompose `Game.tsx` into phase components + `useGameTimers`/`useSoundEffects` hooks | L | Med | M0-T1 |
 | M2-T2 | done | Extract challenge resolution from `resolveRound`; split `registerRoomHandlers` by domain | M | Med | M0-T3 |
-| M2-T3 | in-progress | Consolidate duplicate `getToken`/`initPlayer` into one hook | S | Low | — |
+| M2-T3 | done | Consolidate duplicate `getToken`/`initPlayer` into one hook | S | Low | — |
 | M2-T4 | done | Fix orphaned disconnect timers (clear before `set`, game.ts:914/922) | S | Low | M0-T3 |
 | M3-T1 | done | Remove `hitster-clone.zip` from repo | S | Low | — |
-| M3-T2 | in-progress | Code-split trivia data + vendor chunks (target <300 KB initial JS) | S | Low | — |
+| M3-T2 | done | Code-split trivia data + vendor chunks (target <300 KB initial JS) | S | Low | — |
 | M3-T3 | done | Dockerfile: `ARG VITE_SPOTIFY_CLIENT_ID` instead of hardcoded value | S | Low | — |
 | M3-T4 | done | `crypto.randomInt` room codes | S | Low | — |
 | M3-T5 | done | Within-major dependency bumps (tailwind, zustand, better-sqlite3, …) | S | Low | M0-T1 |

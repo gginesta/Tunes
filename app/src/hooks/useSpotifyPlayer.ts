@@ -1,26 +1,28 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useGameStore } from '../store';
-import { refreshAccessToken } from '../services/spotify';
 import {
-  initPlayer,
   activateElement,
   playTrack,
   pause,
   resume,
   togglePlay,
-  isInitialized,
   setPlayerVolume,
 } from '../services/spotifyPlayer';
 import {
-  initFallbackAudio,
   playPreviewUrl,
   pauseFallback,
   setFallbackVolume,
 } from '../services/audioFallback';
+import {
+  ensureFallbackAudio,
+  ensureSpotifySession,
+  getSpotifyToken,
+  isUsingFallback,
+  setUsingFallback,
+} from '../services/spotifySession';
 
 export function useSpotifyPlayer() {
   const spotifyToken = useGameStore((s) => s.spotifyToken);
-  const spotifyRefreshToken = useGameStore((s) => s.spotifyRefreshToken);
   const hostId = useGameStore((s) => s.hostId);
   const myId = useGameStore((s) => s.myId);
   const phase = useGameStore((s) => s.phase);
@@ -30,108 +32,29 @@ export function useSpotifyPlayer() {
 
   const isHost = myId === hostId;
   const lastTrackRef = useRef<string | null>(null);
-  const tokenRef = useRef<string | null>(spotifyToken);
-  const usingFallbackRef = useRef(false);
-
-  // Keep token ref current
-  useEffect(() => {
-    tokenRef.current = spotifyToken;
-  }, [spotifyToken]);
-
-  // Get a fresh token (refresh if needed)
-  const getToken = useCallback(async (): Promise<string> => {
-    if (tokenRef.current) return tokenRef.current;
-
-    const refreshToken = spotifyRefreshToken
-      || localStorage.getItem('spotify_refresh_token');
-    if (!refreshToken) throw new Error('No token available');
-
-    const result = await refreshAccessToken(refreshToken);
-    useGameStore.setState({
-      spotifyToken: result.accessToken,
-      spotifyRefreshToken: result.refreshToken,
-    });
-    localStorage.setItem('spotify_refresh_token', result.refreshToken);
-    tokenRef.current = result.accessToken;
-    return result.accessToken;
-  }, [spotifyRefreshToken]);
 
   // Initialize fallback audio for all hosts (preview mode needs it)
   useEffect(() => {
     if (!isHost) return;
-    initFallbackAudio({
-      onStateChange: (paused) => {
-        if (usingFallbackRef.current) {
-          useGameStore.setState({ isPlaying: !paused });
-        }
-      },
-    });
+    ensureFallbackAudio();
   }, [isHost]);
 
-  // Initialize SDK player (host with Spotify only)
+  // Initialize SDK player (host with Spotify only); idempotent, may have
+  // already happened via App's early init in the lobby
   useEffect(() => {
-    if (!isHost || !spotifyToken || isInitialized()) return;
-
-    initFallbackAudio({
-      onStateChange: (paused) => {
-        if (usingFallbackRef.current) {
-          useGameStore.setState({ isPlaying: !paused });
-        }
-      },
-    });
-
-    initPlayer(getToken, {
-      onReady: (_deviceId) => {
-        useGameStore.setState({
-          spotifyDeviceId: _deviceId,
-          spotifyError: null,
-        });
-        // Don't set spotifyReady yet — wait for device to be confirmed
-        console.log('[Tunes] SDK ready, waiting for device confirmation...');
-      },
-      onDeviceConfirmed: () => {
-        // Device is now confirmed in Spotify's device list — safe to play
-        console.log('[Tunes] Device confirmed — ready to play!');
-        useGameStore.setState({ spotifyReady: true, spotifyError: null });
-      },
-      onNotReady: () => {
-        useGameStore.setState({ spotifyDeviceId: null });
-        console.log('[Tunes] Device went offline, waiting for reconnection...');
-      },
-      onError: (message) => {
-        useGameStore.setState({ spotifyError: message });
-      },
-      onAutoplayFailed: () => {
-        useGameStore.setState({ isPlaying: false, autoplayBlocked: true });
-        console.log('[Tunes] Autoplay blocked — user must tap to unlock audio');
-      },
-      onStateChange: (paused) => {
-        if (!usingFallbackRef.current) {
-          useGameStore.setState({ isPlaying: !paused });
-        }
-      },
-      onActive: (active) => {
-        if (!active) {
-          console.log('[Tunes] Player state null — device not yet active');
-        }
-      },
-    });
-
-    // No cleanup — the SDK connection must stay alive for the entire session.
-    // Disconnecting and reconnecting confuses Spotify's servers (device
-    // deregistration + re-registration race). The connection is cleaned up
-    // naturally when the browser tab closes.
-  }, [isHost, getToken]);
+    if (!isHost || !spotifyToken) return;
+    ensureSpotifySession();
+  }, [isHost, spotifyToken]);
 
   /**
    * Attempt to play a track. Tries SDK first, falls back to preview URL.
    */
   const attemptPlayTrack = useCallback(async (trackId: string): Promise<boolean> => {
-    usingFallbackRef.current = false;
+    setUsingFallback(false);
 
     let token: string;
     try {
-      token = await getToken();
+      token = await getSpotifyToken();
     } catch {
       console.warn('[Tunes] Could not get token for playback');
       return tryFallback();
@@ -144,8 +67,7 @@ export function useSpotifyPlayer() {
     // Token might be expired — refresh and retry
     console.log('[Tunes] Refreshing token and retrying...');
     try {
-      tokenRef.current = null;
-      token = await getToken();
+      token = await getSpotifyToken(true);
       const retrySuccess = await playTrack(trackId, token);
       if (retrySuccess) return true;
     } catch {
@@ -153,13 +75,13 @@ export function useSpotifyPlayer() {
     }
 
     return tryFallback();
-  }, [getToken]);
+  }, []);
 
   const tryFallback = useCallback(async (): Promise<boolean> => {
     const previewUrl = useGameStore.getState().currentPreviewUrl;
     if (previewUrl) {
       console.log('[Tunes] Trying preview URL fallback');
-      usingFallbackRef.current = true;
+      setUsingFallback(true);
       const ok = await playPreviewUrl(previewUrl);
       if (ok) {
         useGameStore.setState({ isPlaying: true });
@@ -198,7 +120,7 @@ export function useSpotifyPlayer() {
       // Preview-only mode (no Spotify token): play via fallback audio
       const previewUrl = useGameStore.getState().currentPreviewUrl;
       if (previewUrl) {
-        usingFallbackRef.current = true;
+        setUsingFallback(true);
         playPreviewUrl(previewUrl).then((ok) => {
           if (ok) {
             useGameStore.setState({ isPlaying: true, autoplayBlocked: false });
@@ -236,7 +158,7 @@ export function useSpotifyPlayer() {
     } = useGameStore.getState();
 
     if (playing) {
-      if (usingFallbackRef.current) {
+      if (isUsingFallback()) {
         pauseFallback();
         useGameStore.setState({ isPlaying: false });
       } else {
