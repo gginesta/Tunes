@@ -150,15 +150,15 @@ Healthy: the README's claims were spot-checked and held up (614 songs verified a
 
 ### Explicit non-goals
 
-- **Horizontal scaling / Redis / sticky sessions** — single-instance in-memory state (A3) is the right call for a party game; revisit only if concurrent rooms exceed one box.
+- **Horizontal scaling / Redis / sticky sessions** — single-instance in-memory state (A3) is the right call for a party game; revisit only if concurrent rooms exceed one box. *Per owner decision (§6 Q6): stay single-instance but keep the door open — route all live-state access through the existing `rooms.ts`/`game.ts` module boundaries and avoid new cross-module reads of the raw `Map`s, so a future state adapter can slot in without a rewrite.*
 - **Major framework bumps** (Express 5, Vite 8, uuid 14, Motion 12) — no current vulnerability requires them; churn-to-payoff is poor right now.
-- **A full BFF for Spotify tokens** — the right *eventual* fix for S2, but encrypt-or-don't-persist (M1-T4) buys most of the risk reduction for a fraction of the effort.
-- **High global test coverage / E2E suite** — aim tests at `GameEngine`, `fuzzy`, and account logic, not at JSX.
+- **A full BFF for Spotify tokens** — the right *eventual* fix for S2, but encrypting at rest (M1-T4, chosen in §6 Q4) buys most of the risk reduction for a fraction of the effort.
+- **High global test coverage / E2E suite** — aim tests at `GameEngine`, `fuzzy`, and identity logic, not at JSX.
 
 ### Definition of done (measurable)
 
 - CI fails the merge on type-check, lint, or test failure; auto-merge depends on it.
-- Zero Critical and zero High security findings remain (S1–S5 resolved).
+- Zero Critical and zero High security findings remain (S1 resolved by removing password accounts entirely; S2–S5 fixed).
 - `server/src/game.ts` core paths (placement, challenge resolution, tokens, turn advance) covered by unit tests; server workspace line coverage ≥ 70%.
 - `npm audit` reports no high/critical advisories in production dependencies.
 - No source file exceeds ~600 lines after M2 (current max 1,162).
@@ -175,7 +175,7 @@ Healthy: the README's claims were spot-checked and held up (614 songs verified a
 | M0-T2 | todo | Add vitest to server workspace; tests for `fuzzy.ts` + `shuffle.ts` | S | Low | — |
 | M0-T3 | todo | Unit tests for `GameEngine` core paths (fake io, fake timers) | L | Low | M0-T2 |
 | M0-T4 | todo | ESLint + Prettier across workspaces, wired into CI | M | Low | M0-T1 |
-| M1-T1 | todo | bcrypt password hashing with rehash-on-login migration; min length 8 | M | Med | M0-T1 |
+| M1-T1 | todo | Remove password accounts; guest-only identity, leaderboard keyed by guest name | L | Med | M0-T1 |
 | M1-T2 | todo | CORS allowlist via env var (Express + Socket.io) | S | Low | — |
 | M1-T3 | todo | `npm audit fix` (resolves prod `ws` chain); verify build | S | Low | M0-T1 |
 | M1-T4 | todo | Stop persisting Spotify tokens in plaintext (drop column or encrypt) | M | Med | M0-T3 |
@@ -188,7 +188,7 @@ Healthy: the README's claims were spot-checked and held up (614 songs verified a
 | M3-T1 | todo | Remove `hitster-clone.zip` from repo | S | Low | — |
 | M3-T2 | todo | Code-split trivia data + vendor chunks (target <300 KB initial JS) | S | Low | — |
 | M3-T3 | todo | Dockerfile: `ARG VITE_SPOTIFY_CLIENT_ID` instead of hardcoded value | S | Low | — |
-| M3-T4 | todo | `crypto.randomInt` room codes; `timingSafeEqual` password compare | S | Low | M1-T1 |
+| M3-T4 | todo | `crypto.randomInt` room codes | S | Low | — |
 | M3-T5 | todo | Within-major dependency bumps (tailwind, zustand, better-sqlite3, …) | S | Low | M0-T1 |
 
 **Acceptance criteria per task** (checkable):
@@ -196,10 +196,10 @@ Healthy: the README's claims were spot-checked and held up (614 songs verified a
 - **M0-T2:** `npm test --workspace=server` exists and passes; ≥10 assertions over `fuzzyMatch` (typos, feat-stripping, unicode) and shuffle distribution.
 - **M0-T3:** Tests cover: correct/incorrect placement in all 4 modes; challenge win→steal, lose→token loss; duplicate challenge position rejection; buy-card token math; turn advance skipping disconnected players; timers cleared on `resetGame`. Coverage on `game.ts` ≥ 70%.
 - **M0-T4:** `npm run lint` exists at root and is a CI step; zero errors on baseline.
-- **M1-T1:** New hashes are bcrypt (cost ≥ 10); existing SHA-256 users log in successfully once and are transparently rehashed; registration rejects <8 chars.
+- **M1-T1:** `register`/`login` socket events, `accounts.ts`, `accounts-handler.ts`, and the `accounts` table are removed; leaderboard/stats/history write and read by guest display name (`updateLeaderboard` re-keyed from `username` to name); Home screen auth UI removed; a returning guest with the same name sees their accumulated stats; the SHA-256 hashing function no longer exists in the codebase.
 - **M1-T2:** With `ALLOWED_ORIGINS` set, a socket connection from another origin is refused; same-origin works.
 - **M1-T3:** `npm audit --omit=dev` reports zero moderate+ advisories; build passes.
-- **M1-T4:** `spotify_token` no longer readable in plaintext from `rooms` table (column dropped, or `SELECT` shows ciphertext); restored rooms still recover playback (or prompt the host to reconnect Spotify).
+- **M1-T4:** `spotify_token` values in the `rooms` table are ciphertext (encrypted with a server-side key from env, e.g. AES-256-GCM); a room restored after server restart still recovers playback without the host re-authenticating.
 - **M1-T5:** `name-song` with a 1 MB title is rejected before reaching `fuzzy.ts`; all socket payloads pass through a guard that caps string length at 500.
 - **M1-T6:** ≥10 failed logins per socket/minute are rejected; ≥20 game events per second per socket are dropped.
 - **M2-T1:** `Game.tsx` < 400 lines; phase UIs render from dedicated components; no behavior change (manual playthrough of one full game per mode).
@@ -214,20 +214,22 @@ Healthy: the README's claims were spot-checked and held up (614 songs verified a
 
 **M0-T1 — CI gate.** Add `.github/workflows/ci.yml`: checkout → `actions/setup-node@v4` (node 20, npm cache) → `npm ci` → `npm run build` (later `npm run lint`, `npm test`). Then either delete `auto-merge.yml` (recommended — merge via PR) or convert merging into a second job with `needs: build`. Gotcha: `better-sqlite3` compiles a native module — `npm ci` needs build tools, which ubuntu-latest has; cache `~/.npm` not `node_modules`.
 
-**M1-T1 — bcrypt migration.** Add `bcrypt` to server deps. In `accounts.ts`: `hashPassword` → `bcrypt.hashSync(pw, 10)`; in `login`, branch on hash shape — if stored hash matches `/^[0-9a-f]{64}$/` (legacy SHA-256), compare via the old function and on success immediately `saveAccount` with a bcrypt hash; otherwise `bcrypt.compareSync`. Raise min length to 8 in `createAccount` (registration only — don't lock out existing users). Gotcha: bcrypt's 72-byte input cap (fine here); keep the sync API — calls are rare and the rest of the file is sync.
+**M1-T1 — guest-only migration.** Delete `accounts.ts`/`accounts-handler.ts`, the `register`/`login` events from `shared/src/events.ts`, the `accounts` table, and the Home screen auth form. Re-key stats: in `rooms.ts:96-145` (game-end hook), replace the `socketToUsername` lookup with the player's display name (lowercased as the key, original casing as `display_name` — the `leaderboard` schema at `database.ts:264` already has both columns). Same swap for the `get-player-stats`/`get-game-history` handlers (`rooms.ts:665-685`). Gotchas: names are claimable — anyone typing "Guille" inherits those stats; acceptable for a party game but say so in the UI. Ship a one-time SQL migration mapping existing leaderboard rows from username to their `display_name`. Keep the client's saved-name localStorage so returning guests reconnect to their stats automatically.
 
 **M0-T3 — GameEngine tests.** `GameEngine` takes `(room, io)` — construct a real `Room` object and a fake `io` (`{ to: () => ({ emit: spy }) }`). Use vitest fake timers to drive turn/challenge/disconnect timeouts deterministically. Seed decks directly on the engine rather than via `songs.ts` (avoids Spotify resolution). Start with `resolveRound`'s decision table: active-correct/no-challenge, active-wrong/challenger-correct (steal), both-wrong, multi-challenger position priority. Gotcha: engine mutates `room` in place — assert on the room object, not on emitted payloads alone.
 
 ---
 
-## 6. Open Questions
+## 6. Open Questions — RESOLVED (owner decisions, 2026-06-12)
 
-1. **Is the server publicly reachable today?** S1/S4/S5 severities assume yes (Docker + production env suggests so). If it's LAN-party-only, High findings drop a notch — Critical S1 stays, since the DB still holds reusable passwords.
-2. **Are accounts worth keeping?** They're optional (guest fallback exists). Going guest-only + Spotify-for-host would delete the Critical finding entirely. Product call.
-3. **Is auto-merge-to-main intentional as a solo-dev convenience?** If yes, gate it on CI (M0-T1) rather than removing it. If `main` auto-deploys somewhere, say so — it raises the stakes of D1.
-4. **Spotify token persistence:** is "host must reconnect Spotify after a server restart" an acceptable UX? If yes, M1-T4 is trivial (drop the column); if no, it needs the encryption variant.
-5. **Can `hitster-clone.zip` be deleted?** It looks like the pre-rewrite prototype, fully superseded.
-6. **Any ambition beyond one server instance?** Determines whether A3 ever graduates from non-goal.
+All six questions were put to the repo owner; the plan in §4–§5 has been updated to match.
+
+1. **Is the server publicly reachable today?** → **Yes, publicly hosted.** All severities stand as written.
+2. **Are accounts worth keeping?** → **No — go guest-only.** Username/password auth is removed entirely (deleting Critical finding S1); leaderboards/stats are re-keyed to the guest's display name and persist across sessions (M1-T1). Constraint: the host must *not* need to re-authenticate Spotify every game — satisfied by the existing browser refresh-token flow, which stays.
+3. **Is auto-merge-to-main intentional?** → **Yes — keep it, gated on CI.** M0-T1 converts the merge into a job that runs only after build/type-check/tests pass.
+4. **Spotify token persistence?** → **Encrypt at rest.** Keep server-side persistence so rooms survive restarts without host re-auth, but store ciphertext (AES-256-GCM with a key from env), per M1-T4.
+5. **Can `hitster-clone.zip` be deleted?** → **Yes.** M3-T1 proceeds.
+6. **Multi-instance ambitions?** → **Single instance for now, but keep the path open.** A3 stays a non-goal; new code should keep live-state access behind the existing module boundaries so a shared-state adapter can be introduced later without a rewrite (noted in §4 non-goals).
 
 ---
 
