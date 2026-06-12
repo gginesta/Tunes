@@ -175,16 +175,23 @@ pieces in `Results.tsx:14-45`, spring transitions) don't consult it. `[judgment]
 
 ## 5. Recommended fixes (prioritized)
 
+> **Execution log (2026-06-12):** all eight fixes below were implemented in this session.
+> UXF-1/2/3 were re-verified live (Playwright, mobile viewport): the preview-mode button now
+> disables with an honest label when the server has no preview clips, the deep-link Join
+> button is disabled until a name is entered (with the name field auto-focused), and errors
+> auto-dismiss after ~6 s. Evidence: `audit-evidence/ux/19-fixed-preview-gated.png`,
+> `20-fixed-join-guard.png`. Build, lint (0 errors) and all 68 server tests green.
+
 | ID | Status | Fix | Effort | Addresses |
 |---|---|---|---|---|
-| UXF-1 | todo | Gate "Host without Spotify" on actual preview availability (server flag) — or prebake previews via `scripts/prebake-previews` so the mode works | S–M | UX-1 |
-| UXF-2 | todo | Disable Join Room without a name + autofocus name on deep-link | S | UX-2 |
-| UXF-3 | todo | Error lifecycle: auto-dismiss after ~6 s, clear on next successful event; distinct copy for expired-session rejoin | S | UX-3, UX-9 |
-| UXF-4 | todo | Map Spotify error classes to actionable host instructions; add "Server not responding" on START timeout | S | UX-4, UX-5 |
-| UXF-5 | todo | Notify/toast for challenge-window on backgrounded devices; clarify challenge copy ("…on **{name}'s** timeline") | S | UX-6, UX-7 |
-| UXF-6 | todo | 16px input font sizes (NamingForm, playlist URL) | S | UX-8 |
-| UXF-7 | todo | Late-joiner briefing toast; timeline edge-fade scroll affordance | M | UX-10, UX-11 |
-| UXF-8 | todo | Polish: aria-pressed on toggles, stronger disabled affordance, reduced-motion for confetti | S | UX-13–15 |
+| UXF-1 | done | Gate "Host without Spotify" on actual preview availability (server flag) — or prebake previews via `scripts/prebake-previews` so the mode works | S–M | UX-1 |
+| UXF-2 | done | Disable Join Room without a name + autofocus name on deep-link | S | UX-2 |
+| UXF-3 | done | Error lifecycle: auto-dismiss after ~6 s, clear on next successful event; distinct copy for expired-session rejoin | S | UX-3, UX-9 |
+| UXF-4 | done | Map Spotify error classes to actionable host instructions; add "Server not responding" on START timeout | S | UX-4, UX-5 |
+| UXF-5 | done | Notify/toast for challenge-window on backgrounded devices; clarify challenge copy ("…on **{name}'s** timeline") | S | UX-6, UX-7 |
+| UXF-6 | done | 16px input font sizes (NamingForm, playlist URL) | S | UX-8 |
+| UXF-7 | done | Late-joiner briefing toast; timeline edge-fade scroll affordance | M | UX-10, UX-11 |
+| UXF-8 | done | Polish: aria-pressed on toggles, stronger disabled affordance, reduced-motion for confetti | S | UX-13–15 |
 
 **Done means:** an invited guest with an empty name field cannot tap a dead button; a host
 can never reach a configured lobby whose START is guaranteed to fail; no error message

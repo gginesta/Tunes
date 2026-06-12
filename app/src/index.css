@@ -300,7 +300,14 @@ button, a, input {
   font-family: var(--font-sans);
 }
 .btn:active { transform: scale(0.97); }
-.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn:disabled { opacity: 0.4; filter: saturate(0.35); cursor: not-allowed; }
+
+/* Fades the edges of a horizontal scroller so off-screen content is
+   visibly "more content" rather than invisible. */
+.scroll-fade-x {
+  mask-image: linear-gradient(to right, transparent 0, black 18px, black calc(100% - 18px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, black 18px, black calc(100% - 18px), transparent 100%);
+}
 
 .btn-primary {
   background: linear-gradient(135deg, #ff2e9a, #ff6bd1);

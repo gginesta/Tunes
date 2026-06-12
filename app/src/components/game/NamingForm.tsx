@@ -68,7 +68,7 @@ export function NamingForm({
             autoCapitalize="sentences"
             spellCheck={true}
             enterKeyHint="next"
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-neon-pink focus:bg-neon-pink/5 transition-all"
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-base text-white placeholder-white/30 focus:outline-none focus:border-neon-pink focus:bg-neon-pink/5 transition-all"
           />
           <input
             type="text"
@@ -81,7 +81,7 @@ export function NamingForm({
             autoCapitalize="words"
             spellCheck={true}
             enterKeyHint="done"
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-neon-pink focus:bg-neon-pink/5 transition-all"
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-base text-white placeholder-white/30 focus:outline-none focus:border-neon-pink focus:bg-neon-pink/5 transition-all"
           />
           {mode === 'expert' && (
             <input
@@ -90,7 +90,7 @@ export function NamingForm({
               value={guessYear}
               onChange={(e) => onYearChange(e.target.value)}
               autoComplete="off"
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 tabular-nums focus:outline-none focus:border-neon-pink focus:bg-neon-pink/5 transition-all"
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-base text-white placeholder-white/30 tabular-nums focus:outline-none focus:border-neon-pink focus:bg-neon-pink/5 transition-all"
             />
           )}
           {guessTitle ? (

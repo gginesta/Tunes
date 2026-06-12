@@ -137,8 +137,15 @@ export function Lobby() {
     }
 
     socket.emit('start-game', freshToken ? { spotifyAccessToken: freshToken } : undefined);
-    // Reset starting state after a timeout in case server doesn't respond
-    setTimeout(() => setStarting(false), 10000);
+    // If the server never responds, don't just silently re-enable the
+    // button — tell the host what happened.
+    setTimeout(() => {
+      setStarting(false);
+      const state = useGameStore.getState();
+      if (state.screen === 'lobby' && state.phase === 'lobby' && !state.error) {
+        state.setError('The server is not responding — please try starting again.');
+      }
+    }, 10000);
   };
 
   const handleUpdateMode = (mode: GameMode) => {
@@ -555,7 +562,7 @@ export function Lobby() {
                         autoCorrect="off"
                         autoCapitalize="off"
                         spellCheck={false}
-                        className={`w-full bg-black/30 border rounded-xl px-4 py-3 pr-10 text-sm text-white placeholder-white/30 focus:outline-none transition-all ${
+                        className={`w-full bg-black/30 border rounded-xl px-4 py-3 pr-10 text-base text-white placeholder-white/30 focus:outline-none transition-all ${
                           playlistInput.trim() === ''
                             ? 'border-white/10'
                             : isValidPlaylistUrl(playlistInput)

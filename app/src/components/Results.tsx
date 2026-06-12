@@ -12,6 +12,11 @@ const ORDINALS = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
 const CONFETTI_COLORS = ['#ff2e9a', '#22e6ff', '#ffbe3d', '#a855f7', '#ffffff'];
 
 function Confetti() {
+  // Respect reduced-motion: 50 falling pieces is exactly the kind of
+  // animation this preference exists to avoid.
+  const reducedMotion =
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const [pieces] = useState(() =>
     Array.from({ length: 50 }, (_, i) => ({
       id: i,
@@ -22,6 +27,8 @@ function Confetti() {
       size: 6 + Math.random() * 8,
     }))
   );
+
+  if (reducedMotion) return null;
 
   return (
     <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">

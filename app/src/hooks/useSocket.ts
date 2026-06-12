@@ -23,6 +23,10 @@ export function useSocket() {
     });
     socket.on('disconnect', () => useGameStore.getState().setConnected(false));
 
+    socket.on('server-config', ({ previewSongsAvailable }) => {
+      useGameStore.setState({ previewSongsAvailable });
+    });
+
     socket.on('room-created', ({ code, playerId, room }) => {
       const store = useGameStore.getState();
       store.setMyId(playerId);
@@ -46,6 +50,18 @@ export function useSocket() {
       const phase = room.gameState.phase;
       if (phase === 'lobby') {
         store.setScreen('lobby');
+      } else if (phase !== 'game_over') {
+        // Late joiner: brief them on the game in progress
+        const { mode, cardsToWin } = room.settings;
+        const modeLabel = mode.charAt(0).toUpperCase() + mode.slice(1);
+        let briefing = `You're in! ${modeLabel} mode — first to ${cardsToWin} cards wins.`;
+        const leader = Object.values(room.players)
+          .filter((p) => p.id !== playerId)
+          .sort((a, b) => b.timeline.length - a.timeline.length)[0];
+        if (mode !== 'coop' && leader && leader.timeline.length > 0) {
+          briefing += ` ${leader.name} leads with ${leader.timeline.length}.`;
+        }
+        store.setNotice(briefing);
       }
       store.setError(null);
       saveSession(room.code, playerId);
@@ -113,11 +129,20 @@ export function useSocket() {
       console.log('Resolving Spotify track IDs...');
     });
 
-    socket.on('card-placed', ({ position, challengeDeadline }) => {
+    socket.on('card-placed', ({ playerId, position, challengeDeadline }) => {
       const store = useGameStore.getState();
       store.setPendingPlacement(position);
       useGameStore.setState({ challengeDeadline: challengeDeadline ?? null, turnDeadline: null });
       store.setPhase('challenge');
+
+      // Backgrounded phones would otherwise miss the challenge window entirely
+      if (playerId !== store.myId && document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+        const placerName = store.players[playerId]?.name || 'Someone';
+        new Notification('Tunes', {
+          body: `${placerName} placed a card — challenge window is open!`,
+          icon: '/favicon.ico',
+        });
+      }
     });
 
     socket.on('challenge-made', ({ challengerId }) => {
@@ -182,9 +207,16 @@ export function useSocket() {
       });
     });
 
-    socket.on('error', ({ message }) => {
+    socket.on('error', ({ message, code }) => {
+      if (code === 'REJOIN_FAILED') {
+        // An expired/cleaned-up session is not the user's fault — say so
+        // instead of surfacing the raw server error.
+        clearSession();
+        useGameStore.getState().setError('Your previous game session has ended — host or join a new room.');
+        return;
+      }
       useGameStore.getState().setError(message);
-      // If rejoin failed (room gone), clear saved session
+      // Legacy fallback: clear saved session when the room is gone
       if (message.includes('not found') || message.includes('unknown')) {
         clearSession();
       }

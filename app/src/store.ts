@@ -36,6 +36,10 @@ interface GameStore {
   roomCode: string;
   connected: boolean;
   error: string | null;
+  /** Transient informational banner (auto-dismisses), e.g. late-join briefing */
+  notice: string | null;
+  /** Whether the server has enough preview clips for Spotify-free hosting */
+  previewSongsAvailable: boolean;
   pendingJoinCode: string | null;
 
   // Room
@@ -113,6 +117,7 @@ interface GameStore {
   setRoomCode: (code: string) => void;
   setConnected: (connected: boolean) => void;
   setError: (error: string | null) => void;
+  setNotice: (notice: string | null) => void;
   setPendingJoinCode: (code: string | null) => void;
   setPlayers: (players: Record<string, Player>) => void;
   setHostId: (hostId: string) => void;
@@ -163,6 +168,8 @@ const initialState = {
   roomCode: '',
   connected: false,
   error: null,
+  notice: null,
+  previewSongsAvailable: true,
   pendingJoinCode: null,
   players: {} as Record<string, Player>,
   hostId: '',
@@ -210,6 +217,13 @@ const initialState = {
   myHistory: [] as GameHistoryEntry[],
 };
 
+// Banners must not outlive their relevance: stale errors imply the *current*
+// action failed. Each setter resets its own dismiss timer.
+let errorDismissTimer: ReturnType<typeof setTimeout> | null = null;
+let noticeDismissTimer: ReturnType<typeof setTimeout> | null = null;
+const ERROR_DISMISS_MS = 6000;
+const NOTICE_DISMISS_MS = 8000;
+
 export const useGameStore = create<GameStore>((set) => ({
   ...initialState,
 
@@ -217,7 +231,22 @@ export const useGameStore = create<GameStore>((set) => ({
   setMyId: (myId) => set({ myId }),
   setRoomCode: (roomCode) => set({ roomCode }),
   setConnected: (connected) => set({ connected }),
-  setError: (error) => set({ error }),
+  setError: (error) => {
+    if (errorDismissTimer) clearTimeout(errorDismissTimer);
+    errorDismissTimer = null;
+    set({ error });
+    if (error) {
+      errorDismissTimer = setTimeout(() => set({ error: null }), ERROR_DISMISS_MS);
+    }
+  },
+  setNotice: (notice) => {
+    if (noticeDismissTimer) clearTimeout(noticeDismissTimer);
+    noticeDismissTimer = null;
+    set({ notice });
+    if (notice) {
+      noticeDismissTimer = setTimeout(() => set({ notice: null }), NOTICE_DISMISS_MS);
+    }
+  },
   setPendingJoinCode: (pendingJoinCode) => set({ pendingJoinCode }),
   setPlayers: (players) => set({ players }),
   setHostId: (hostId) => set({ hostId }),

@@ -39,6 +39,15 @@ function rememberRecent(songs: SongData[]): void {
   }
 }
 
+/**
+ * Whether preview-only hosting is viable: the game needs at least 10
+ * playable songs, and preview mode can only play songs with a baked-in
+ * previewUrl (see scripts/prebake-previews).
+ */
+export function hasPreviewSongs(): boolean {
+  return allSongs.filter((song) => !!song.previewUrl).length >= 10;
+}
+
 export function loadSongs() {
   logger.debug('Song loader paths', { __dirname, cwd: process.cwd() });
 

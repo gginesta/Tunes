@@ -108,7 +108,7 @@ export function TimelineStrip({
         const isBlockedPosition = (i: number) => showChallengeDropZones && pendingPlacement !== null && i === pendingPlacement;
 
         return (
-          <div ref={timelineRef} className="flex overflow-x-auto pb-3 hide-scrollbar items-center min-h-[140px]">
+          <div ref={timelineRef} className="flex overflow-x-auto pb-3 hide-scrollbar scroll-fade-x items-center min-h-[140px]">
             {showDropZones && !isBlockedPosition(0) && (
               <DropZone
                 index={0}

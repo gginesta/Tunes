@@ -45,7 +45,7 @@ export function ChallengeBar({
               {activePlayer.name} placed the card. Think it's wrong?
             </p>
             <p className="text-[11px] text-red-200/70 mt-0.5">
-              Pick where YOU think it belongs, then challenge.
+              Pick the right spot on {activePlayer.name}'s timeline below, then challenge.
             </p>
           </div>
           <div className="flex gap-3 justify-center">

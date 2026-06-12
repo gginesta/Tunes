@@ -69,6 +69,7 @@ export function GameTopBar({ volume, VolumeIcon, onToggleMute, onShowHistory, on
             className="btn-icon"
             title={volume > 0 ? 'Mute' : 'Unmute'}
             aria-label="Toggle mute"
+            aria-pressed={volume === 0}
           >
             <VolumeIcon className="w-4 h-4" />
           </button>

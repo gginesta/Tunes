@@ -330,7 +330,7 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
     const room = rooms.get(upperCode);
 
     if (!room || !room.players[playerId]) {
-      socket.emit('error', { message: 'Room not found or player unknown' });
+      socket.emit('error', { message: 'Room not found or player unknown', code: 'REJOIN_FAILED' });
       return;
     }
 

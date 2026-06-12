@@ -64,7 +64,8 @@ export interface ServerToClientEvents {
   'game-over': (data: { winnerId: string; players: Record<string, Player> }) => void;
   'resolving-tracks': () => void;
   'game-restarted': (data: { room: Room }) => void;
-  'error': (data: { message: string }) => void;
+  'error': (data: { message: string; code?: string }) => void;
+  'server-config': (data: { previewSongsAvailable: boolean }) => void;
   'state-sync': (room: Room) => void;
   'song-history': (data: { history: PlayedSong[] }) => void;
   'game-stats': (data: GameStats) => void;

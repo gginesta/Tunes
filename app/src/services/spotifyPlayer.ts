@@ -116,17 +116,17 @@ export async function initPlayer(
 
   player.addListener('authentication_error', (err) => {
     console.error('[Tunes] Auth error:', err.message);
-    callbacks.onError('Spotify authentication failed. Try reconnecting.');
+    callbacks.onError('Spotify session expired — go back to Home and reconnect Spotify.');
   });
 
   player.addListener('initialization_error', (err) => {
     console.error('[Tunes] Init error:', err.message);
-    callbacks.onError('Failed to initialize Spotify player');
+    callbacks.onError('Couldn\'t start the Spotify player — refresh this page and try again.');
   });
 
   player.addListener('account_error', (err) => {
     console.error('[Tunes] Account error:', err.message);
-    callbacks.onError('Spotify Premium is required to play music');
+    callbacks.onError('Spotify Premium is required to host with full tracks.');
   });
 
   player.addListener('playback_error', (err) => {
@@ -149,7 +149,7 @@ export async function initPlayer(
 
   const connected = await player.connect();
   if (!connected) {
-    callbacks.onError('Failed to connect to Spotify');
+    callbacks.onError('Couldn\'t reach Spotify — check your connection, then tap the play button to retry.');
   } else {
     console.log('[Tunes] Player connected, waiting for device registration...');
     // Always activate the element once connected — audio should already be

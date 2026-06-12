@@ -32,6 +32,7 @@ export function Game() {
   const settings = useGameStore((s) => s.settings);
   const isPlayingMusic = useGameStore((s) => s.isPlaying);
   const spotifyError = useGameStore((s) => s.spotifyError);
+  const notice = useGameStore((s) => s.notice);
   const isHost = myId === hostId;
 
   // Stop game confirmation
@@ -236,6 +237,13 @@ export function Game() {
         <div className="bg-red-500/15 border-b border-red-500/30 px-4 py-2 text-center text-xs text-red-300 font-bold flex items-center justify-center gap-2">
           <AlertTriangle className="w-3.5 h-3.5" />
           {spotifyError}
+        </div>
+      )}
+
+      {/* Transient info banner (e.g. late-join briefing) */}
+      {notice && (
+        <div className="bg-neon-cyan/10 border-b border-neon-cyan/30 px-4 py-2 text-center text-xs text-neon-cyan font-bold">
+          {notice}
         </div>
       )}
 

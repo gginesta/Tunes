@@ -17,6 +17,7 @@ export function Home() {
   const setError = useGameStore((s) => s.setError);
   const pendingJoinCode = useGameStore((s) => s.pendingJoinCode);
   const setPendingJoinCode = useGameStore((s) => s.setPendingJoinCode);
+  const previewSongsAvailable = useGameStore((s) => s.previewSongsAvailable);
 
   useEffect(() => {
     if (pendingJoinCode) {
@@ -24,6 +25,11 @@ export function Home() {
       setCode(pendingJoinCode.split('') as [string, string, string, string]);
       setInviteMessage(`You've been invited to room ${pendingJoinCode}!`);
       setPendingJoinCode(null);
+      // Invitees still need a stage name before they can join — put the
+      // cursor where their first required input is.
+      if (!localStorage.getItem('tunes_display_name')) {
+        document.getElementById('stage-name')?.focus();
+      }
     }
   }, [pendingJoinCode, setPendingJoinCode]);
 
@@ -163,6 +169,7 @@ export function Home() {
           </label>
           <div className="relative">
             <input
+              id="stage-name"
               type="search"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -276,14 +283,18 @@ export function Home() {
                   const socket = getSocket();
                   socket.emit('create-room', { playerName: name.trim() });
                 }}
-                disabled={!connected}
+                disabled={!connected || !previewSongsAvailable}
                 className="btn btn-ghost w-full py-5 flex-col gap-1"
               >
                 <span className="flex items-center gap-3 font-bold">
                   <Music className="w-5 h-5" />
                   Host without Spotify
                 </span>
-                <span className="text-[11px] font-medium text-white/50">30s preview clips, no account needed</span>
+                <span className="text-[11px] font-medium text-white/50">
+                  {previewSongsAvailable
+                    ? '30s preview clips, no account needed'
+                    : 'Unavailable — no preview clips on this server'}
+                </span>
               </button>
               <button
                 onClick={() => { setMode('idle'); setError(null); }}
@@ -331,7 +342,7 @@ export function Home() {
                 </button>
                 <button
                   onClick={handleJoin}
-                  disabled={code.join('').length !== 4}
+                  disabled={code.join('').length !== 4 || !name.trim()}
                   className="btn btn-primary flex-[2]"
                 >
                   Join Room

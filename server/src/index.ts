@@ -5,7 +5,7 @@ import cors from 'cors';
 import path from 'path';
 import type { ClientToServerEvents, ServerToClientEvents } from '@tunes/shared';
 import { registerRoomHandlers, restoreRoomsFromDatabase, getRoomCount, getTotalPlayerCount } from './rooms';
-import { loadSongs } from './songs';
+import { loadSongs, hasPreviewSongs } from './songs';
 import { initDatabase } from './database';
 import { createRateLimiter } from './rateLimit';
 import { logger } from './logger';
@@ -60,6 +60,10 @@ const eventLimiter = createRateLimiter(20, 1000);
 
 io.on('connection', (socket) => {
   logger.info('Client connected', { socketId: socket.id });
+
+  // Let the client know up front whether preview-only hosting can work,
+  // so the Home screen never advertises a mode that is guaranteed to fail.
+  socket.emit('server-config', { previewSongsAvailable: hasPreviewSongs() });
 
   socket.use((_packet, next) => {
     if (!eventLimiter.allow(socket.id)) return; // drop silently
