@@ -112,10 +112,10 @@ export async function refreshAccessToken(
   };
 }
 
-export function openSpotifyLogin(): Promise<{ accessToken: string; refreshToken: string }> {
-  return new Promise(async (resolve, reject) => {
-    const url = await getSpotifyAuthUrl();
+export async function openSpotifyLogin(): Promise<{ accessToken: string; refreshToken: string }> {
+  const url = await getSpotifyAuthUrl();
 
+  return new Promise((resolve, reject) => {
     const width = 500;
     const height = 700;
     const left = window.screenX + (window.outerWidth - width) / 2;

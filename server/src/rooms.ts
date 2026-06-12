@@ -6,7 +6,6 @@ import type {
   Room,
   Player,
   GameState,
-  GameSettings,
 } from '@tunes/shared';
 import {
   MAX_PLAYERS,
@@ -183,7 +182,7 @@ function setupGameEndHook(engine: GameEngine, roomCode: string): void {
  * Load all rooms from the database on server startup.
  * GameEngine instances are recreated for rooms with active games.
  */
-export function restoreRoomsFromDatabase(io: TunesServer): void {
+export function restoreRoomsFromDatabase(_io: TunesServer): void {
   const saved = loadAllRooms();
   for (const { room, spotifyToken } of saved) {
     rooms.set(room.code, room);

@@ -81,15 +81,12 @@ export interface SpotifyPlayerCallbacks {
   onDeviceConfirmed: () => void;
 }
 
-let currentGetToken: (() => Promise<string>) | null = null;
-
 export async function initPlayer(
   getToken: () => Promise<string>,
   callbacks: SpotifyPlayerCallbacks,
 ): Promise<void> {
   if (player) return;
 
-  currentGetToken = getToken;
   await loadSDK();
 
   player = new window.Spotify.Player({
@@ -368,7 +365,6 @@ export function disconnect(): void {
     deviceId = null;
     deviceConfirmed = false;
     activated = false;
-    currentGetToken = null;
   }
 }
 

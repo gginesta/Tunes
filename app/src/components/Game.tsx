@@ -168,7 +168,7 @@ export function Game() {
   // --- Volume & sound effects ---
   const volume = useGameStore((s) => s.volume);
   const setVolume = useGameStore((s) => s.setVolume);
-  const [soundMuted, setSoundMuted] = useState(() => isMuted());
+  const [, setSoundMuted] = useState(() => isMuted());
   const prevVolumeRef = useRef(volume || 0.8);
 
   const handleToggleMute = useCallback(() => {
@@ -228,7 +228,7 @@ export function Game() {
     prevCountdownRef.current = countdown;
   }, [countdown]);
 
-  const { isHost: isSpotifyHost, spotifyReady, togglePlayback } = useSpotifyPlayer();
+  const { isHost: isSpotifyHost, togglePlayback } = useSpotifyPlayer();
 
   // Track whether music has actually started playing for the host.
   // Show a big play button until it does.
@@ -278,6 +278,24 @@ export function Game() {
   const mode = settings.mode;
   const isCoop = mode === 'coop';
 
+  const [challengePosition, setChallengePosition] = useState<number | null>(null);
+
+  // Reset challenge position when phase changes
+  useEffect(() => {
+    if (phase !== 'challenge') setChallengePosition(null);
+  }, [phase]);
+
+  // Auto-scroll timeline when a card is placed or a position is selected
+  useEffect(() => {
+    const container = timelineRef.current;
+    if (!container) return;
+    const targetPos = pendingPlacement ?? selectedPosition ?? challengePosition;
+    if (targetPos === null) return;
+    const cardWidth = 120;
+    const scrollTarget = targetPos * cardWidth - container.clientWidth / 2 + cardWidth / 2;
+    container.scrollTo({ left: Math.max(0, scrollTarget), behavior: 'smooth' });
+  }, [pendingPlacement, selectedPosition, challengePosition]);
+
   if (!me || !activePlayer) return null;
 
   // Timeline to display:
@@ -305,24 +323,6 @@ export function Game() {
     setGuessYear('');
     useGameStore.setState({ songNameResult: null });
   };
-
-  const [challengePosition, setChallengePosition] = useState<number | null>(null);
-
-  // Reset challenge position when phase changes
-  useEffect(() => {
-    if (phase !== 'challenge') setChallengePosition(null);
-  }, [phase]);
-
-  // Auto-scroll timeline when a card is placed or a position is selected
-  useEffect(() => {
-    const container = timelineRef.current;
-    if (!container) return;
-    const targetPos = pendingPlacement ?? selectedPosition ?? challengePosition;
-    if (targetPos === null) return;
-    const cardWidth = 120;
-    const scrollTarget = targetPos * cardWidth - container.clientWidth / 2 + cardWidth / 2;
-    container.scrollTo({ left: Math.max(0, scrollTarget), behavior: 'smooth' });
-  }, [pendingPlacement, selectedPosition, challengePosition]);
 
   const handleChallenge = () => {
     if (challengePosition === null) return;

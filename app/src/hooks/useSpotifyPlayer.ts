@@ -9,7 +9,6 @@ import {
   resume,
   togglePlay,
   isInitialized,
-  requestActivation,
   setPlayerVolume,
 } from '../services/spotifyPlayer';
 import {

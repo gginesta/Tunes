@@ -22,7 +22,6 @@ export default function App() {
   const screen = useGameStore((s) => s.screen);
   const setPendingJoinCode = useGameStore((s) => s.setPendingJoinCode);
   const spotifyToken = useGameStore((s) => s.spotifyToken);
-  const spotifyRefreshToken = useGameStore((s) => s.spotifyRefreshToken);
   const hostId = useGameStore((s) => s.hostId);
   const myId = useGameStore((s) => s.myId);
   const isHost = myId !== '' && myId === hostId;

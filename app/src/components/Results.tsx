@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Home, RotateCcw, Medal, Coins, Zap, Target, Flame, Swords, Music, Clock, MapPin } from 'lucide-react';
 import { motion } from 'motion/react';
 import { getSocket } from '../services/socket';

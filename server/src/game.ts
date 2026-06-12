@@ -1050,7 +1050,7 @@ export class GameEngine {
     }
 
     const finalScores: Record<string, number> = {};
-    for (const [id, player] of Object.entries(this.room.players)) {
+    for (const player of Object.values(this.room.players)) {
       finalScores[player.name] = this.isCoop
         ? this.room.gameState.sharedTimeline.length
         : player.timeline.length;
