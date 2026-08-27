@@ -8,9 +8,12 @@ import { useGameStore } from '../store';
 import { refreshAccessToken } from './spotify';
 import { initPlayer, isInitialized } from './spotifyPlayer';
 import { initFallbackAudio } from './audioFallback';
+import { sessionAllowsSpotifyRestore } from './socket';
 
 /** True while playback is routed through the HTML5 preview fallback. */
 let usingFallback = false;
+type RefreshedSpotifyToken = Awaited<ReturnType<typeof refreshAccessToken>>;
+const pendingRefreshes = new Map<string, Promise<RefreshedSpotifyToken>>();
 
 export function isUsingFallback(): boolean {
   return usingFallback;
@@ -18,6 +21,44 @@ export function isUsingFallback(): boolean {
 
 export function setUsingFallback(value: boolean): void {
   usingFallback = value;
+}
+
+function refreshSpotifyCredential(refreshToken: string): Promise<RefreshedSpotifyToken> {
+  const existing = pendingRefreshes.get(refreshToken);
+  if (existing) return existing;
+
+  const request = refreshAccessToken(refreshToken).finally(() => {
+    if (pendingRefreshes.get(refreshToken) === request) {
+      pendingRefreshes.delete(refreshToken);
+    }
+  });
+  pendingRefreshes.set(refreshToken, request);
+  return request;
+}
+
+/** Restore only if the exact room/player session still intends Spotify. */
+export async function restoreSavedSpotifyAccessToken(
+  refreshToken: string,
+  expectedRoomCode: string,
+  expectedPlayerId: string,
+): Promise<string> {
+  const result = await refreshSpotifyCredential(refreshToken);
+  const state = useGameStore.getState();
+  if (!sessionAllowsSpotifyRestore(
+    expectedRoomCode,
+    expectedPlayerId,
+    state.roomCode,
+    state.myId,
+  )) {
+    throw new Error('Spotify session changed during restore');
+  }
+
+  useGameStore.setState({
+    spotifyToken: result.accessToken,
+    spotifyRefreshToken: result.refreshToken,
+  });
+  localStorage.setItem('spotify_refresh_token', result.refreshToken);
+  return result.accessToken;
 }
 
 /**

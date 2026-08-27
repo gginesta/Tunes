@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 import { getSocket, clearSession, getSessionPlaybackIntent } from '../services/socket';
 import { useGameStore } from '../store';
 import { requestActivation, preUnlockAudio } from '../services/spotifyPlayer';
-import { refreshAccessToken } from '../services/spotify';
+import { restoreSavedSpotifyAccessToken } from '../services/spotifySession';
 import type { GameMode, SongPack, SongGenre, SongRegion } from '@tunes/shared';
 import { MIN_CARDS_TO_WIN, MAX_CARDS_TO_WIN, MIN_PLAYERS } from '@tunes/shared';
 
@@ -49,28 +49,6 @@ const GENRE_PACKS = [
   { label: 'All-Time Greatest', icon: '\uD83C\uDFC6', playlistId: '37i9dQZF1DXcBWIGoYBM5M', dec: 'dec-1930s' },
 ];
 
-let spotifyRestorePromise: Promise<string> | null = null;
-
-/** Restore the saved Spotify session once, even if mount and Start race. */
-function restoreSavedSpotifyAccessToken(refreshToken: string): Promise<string> {
-  if (spotifyRestorePromise) return spotifyRestorePromise;
-
-  spotifyRestorePromise = refreshAccessToken(refreshToken)
-    .then((result) => {
-      useGameStore.setState({
-        spotifyToken: result.accessToken,
-        spotifyRefreshToken: result.refreshToken,
-      });
-      localStorage.setItem('spotify_refresh_token', result.refreshToken);
-      return result.accessToken;
-    })
-    .finally(() => {
-      spotifyRestorePromise = null;
-    });
-
-  return spotifyRestorePromise;
-}
-
 export function Lobby() {
   const players = useGameStore((s) => s.players);
   const myId = useGameStore((s) => s.myId);
@@ -102,8 +80,8 @@ export function Lobby() {
     if (!isHost || spotifyToken || getSessionPlaybackIntent() !== 'spotify') return;
     const savedRefresh = localStorage.getItem('spotify_refresh_token');
     if (!savedRefresh) return;
-    void restoreSavedSpotifyAccessToken(savedRefresh).catch(() => {});
-  }, [isHost, spotifyToken]);
+    void restoreSavedSpotifyAccessToken(savedRefresh, roomCode, myId).catch(() => {});
+  }, [isHost, myId, roomCode, spotifyToken]);
 
   /** Check if a string looks like a valid Spotify playlist URL/URI */
   const isValidPlaylistUrl = useCallback((url: string): boolean => {
@@ -149,15 +127,20 @@ export function Lobby() {
     useGameStore.getState().setError(null);
 
     // Refresh Spotify token before starting to handle expiry
-    let playbackToken = spotifyToken || undefined;
+    const playbackIntent = getSessionPlaybackIntent();
+    let playbackToken = playbackIntent === 'spotify' ? spotifyToken || undefined : undefined;
     const savedRefresh = localStorage.getItem('spotify_refresh_token');
-    if (savedRefresh && getSessionPlaybackIntent() === 'spotify') {
+    if (savedRefresh && playbackIntent === 'spotify') {
       try {
-        playbackToken = await restoreSavedSpotifyAccessToken(savedRefresh);
+        playbackToken = await restoreSavedSpotifyAccessToken(savedRefresh, roomCode, myId);
       } catch {
         // Token refresh failed — try with the existing token
       }
     }
+
+    const currentState = useGameStore.getState();
+    if (currentState.roomCode !== roomCode || currentState.myId !== myId) return;
+    if (getSessionPlaybackIntent() !== 'spotify') playbackToken = undefined;
 
     socket.emit('start-game', playbackToken ? { spotifyAccessToken: playbackToken } : undefined);
     // If the server never responds, don't just silently re-enable the

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearSession,
   getSessionPlaybackIntent,
+  sessionAllowsSpotifyRestore,
   setSessionPlaybackIntent,
 } from '../../app/src/services/socket';
 
@@ -32,6 +33,15 @@ describe('session playback intent', () => {
   it('restores Spotify intent for a returning Spotify host', () => {
     setSessionPlaybackIntent('spotify');
     expect(getSessionPlaybackIntent()).toBe('spotify');
+    expect(sessionAllowsSpotifyRestore('ROOM', 'player-a', 'ROOM', 'player-a')).toBe(true);
+  });
+
+  it('rejects restoration after intent or room identity changes', () => {
+    setSessionPlaybackIntent('spotify');
+    expect(sessionAllowsSpotifyRestore('OLD1', 'player-a', 'NEW1', 'player-b')).toBe(false);
+
+    setSessionPlaybackIntent('preview');
+    expect(sessionAllowsSpotifyRestore('ROOM', 'player-a', 'ROOM', 'player-a')).toBe(false);
   });
 
   it('clears room intent without deleting the reusable Spotify credential', () => {

@@ -57,6 +57,17 @@ export function getSessionPlaybackIntent(): PlaybackIntent | null {
   return null;
 }
 
+export function sessionAllowsSpotifyRestore(
+  expectedRoomCode: string,
+  expectedPlayerId: string,
+  currentRoomCode: string,
+  currentPlayerId: string,
+): boolean {
+  return getSessionPlaybackIntent() === 'spotify'
+    && expectedRoomCode === currentRoomCode
+    && expectedPlayerId === currentPlayerId;
+}
+
 export function saveSession(roomCode: string, playerId: string): void {
   try {
     localStorage.setItem('tunes_room', roomCode);
