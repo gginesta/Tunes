@@ -39,6 +39,23 @@ export function getSocket(): GameSocket {
  * that no longer exists.
  */
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const PLAYBACK_INTENT_KEY = 'tunes_playback_intent';
+
+export type PlaybackIntent = 'spotify' | 'preview';
+
+export function setSessionPlaybackIntent(intent: PlaybackIntent): void {
+  try {
+    localStorage.setItem(PLAYBACK_INTENT_KEY, intent);
+  } catch { /* localStorage unavailable */ }
+}
+
+export function getSessionPlaybackIntent(): PlaybackIntent | null {
+  try {
+    const intent = localStorage.getItem(PLAYBACK_INTENT_KEY);
+    return intent === 'spotify' || intent === 'preview' ? intent : null;
+  } catch { /* localStorage unavailable */ }
+  return null;
+}
 
 export function saveSession(roomCode: string, playerId: string): void {
   try {
@@ -68,5 +85,6 @@ export function clearSession(): void {
     localStorage.removeItem('tunes_room');
     localStorage.removeItem('tunes_player');
     localStorage.removeItem('tunes_session_ts');
+    localStorage.removeItem(PLAYBACK_INTENT_KEY);
   } catch { /* localStorage unavailable */ }
 }

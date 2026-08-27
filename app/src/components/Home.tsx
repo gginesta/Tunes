@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Music, Loader2, Wifi, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { getSocket } from '../services/socket';
+import { getSocket, setSessionPlaybackIntent } from '../services/socket';
 import { openSpotifyLogin, refreshAccessToken } from '../services/spotify';
 import { useGameStore } from '../store';
 
@@ -39,6 +39,7 @@ export function Home() {
   };
 
   const createRoomWithToken = (accessToken: string, refreshToken: string) => {
+    setSessionPlaybackIntent('spotify');
     useGameStore.setState({
       spotifyToken: accessToken,
       spotifyRefreshToken: refreshToken,
@@ -84,6 +85,7 @@ export function Home() {
     if (fullCode.length !== 4 || !name.trim()) return;
     setError(null);
     persistName();
+    setSessionPlaybackIntent('preview');
     const socket = getSocket();
     socket.emit('join-room', { code: fullCode, playerName: name.trim() });
   };
@@ -280,6 +282,7 @@ export function Home() {
                   if (!name.trim()) return;
                   setError(null);
                   persistName();
+                  setSessionPlaybackIntent('preview');
                   const socket = getSocket();
                   socket.emit('create-room', { playerName: name.trim() });
                 }}

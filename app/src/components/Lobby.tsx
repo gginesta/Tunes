@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Users, Crown, Settings, LogOut, Play, Music, ListMusic, Link, Share2, Check, Globe, CheckCircle, XCircle, ArrowDownToLine } from 'lucide-react';
 import { motion } from 'motion/react';
-import { getSocket, clearSession } from '../services/socket';
+import { getSocket, clearSession, getSessionPlaybackIntent } from '../services/socket';
 import { useGameStore } from '../store';
 import { requestActivation, preUnlockAudio } from '../services/spotifyPlayer';
 import { refreshAccessToken } from '../services/spotify';
@@ -99,7 +99,7 @@ export function Lobby() {
   // Zustand is intentionally ephemeral, while the refresh credential survives
   // a tab reload. Restore it when an authenticated player regains host status.
   useEffect(() => {
-    if (!isHost || spotifyToken) return;
+    if (!isHost || spotifyToken || getSessionPlaybackIntent() !== 'spotify') return;
     const savedRefresh = localStorage.getItem('spotify_refresh_token');
     if (!savedRefresh) return;
     void restoreSavedSpotifyAccessToken(savedRefresh).catch(() => {});
@@ -151,7 +151,7 @@ export function Lobby() {
     // Refresh Spotify token before starting to handle expiry
     let playbackToken = spotifyToken || undefined;
     const savedRefresh = localStorage.getItem('spotify_refresh_token');
-    if (savedRefresh) {
+    if (savedRefresh && getSessionPlaybackIntent() === 'spotify') {
       try {
         playbackToken = await restoreSavedSpotifyAccessToken(savedRefresh);
       } catch {
