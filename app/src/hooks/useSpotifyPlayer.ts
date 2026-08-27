@@ -11,6 +11,7 @@ import {
 import {
   playPreviewUrl,
   pauseFallback,
+  resumeFallback,
   setFallbackVolume,
 } from '../services/audioFallback';
 import {
@@ -20,6 +21,7 @@ import {
   isUsingFallback,
   setUsingFallback,
 } from '../services/spotifySession';
+import { getPlaybackRoute } from '../services/playbackRoute';
 
 export function useSpotifyPlayer() {
   const spotifyToken = useGameStore((s) => s.spotifyToken);
@@ -108,30 +110,34 @@ export function useSpotifyPlayer() {
     if (phase !== 'playing') return;
     const playbackKey = currentTrackId || currentPreviewUrl;
     if (playbackKey === lastTrackRef.current) return;
+    const playbackRoute = getPlaybackRoute(
+      currentTrackId,
+      currentPreviewUrl,
+      !!spotifyToken,
+    );
+    // A returning Spotify host may still be restoring its access token. Do not
+    // consume this playback key until a playable route becomes available.
+    if (playbackRoute === 'none') return;
 
     // For SDK playback, wait until device is confirmed
-    if (spotifyToken && !spotifyReady) return;
+    if (playbackRoute === 'spotify' && !spotifyReady) return;
 
     lastTrackRef.current = playbackKey;
 
-    if (spotifyToken) {
-      if (!currentTrackId) return;
+    if (playbackRoute === 'spotify' && currentTrackId) {
       // SDK path: activate element and play via Spotify
       activateElement();
       attemptPlayTrack(currentTrackId);
-    } else {
-      // Preview-only mode (no Spotify token): play via fallback audio
-      if (currentPreviewUrl) {
-        setUsingFallback(true);
-        playPreviewUrl(currentPreviewUrl).then((ok) => {
-          if (ok) {
-            useGameStore.setState({ isPlaying: true, autoplayBlocked: false });
-          } else {
-            // Browser blocked autoplay — show the banner
-            useGameStore.setState({ isPlaying: false, autoplayBlocked: true });
-          }
-        });
-      }
+    } else if (playbackRoute === 'preview' && currentPreviewUrl) {
+      setUsingFallback(true);
+      playPreviewUrl(currentPreviewUrl).then((ok) => {
+        if (ok) {
+          useGameStore.setState({ isPlaying: true, autoplayBlocked: false });
+        } else {
+          // Browser blocked autoplay — show the banner
+          useGameStore.setState({ isPlaying: false, autoplayBlocked: true });
+        }
+      });
     }
   }, [isHost, spotifyToken, spotifyReady, currentTrackId, currentPreviewUrl, phase, attemptPlayTrack]);
 
@@ -159,6 +165,7 @@ export function useSpotifyPlayer() {
       currentTrackId: trackId,
       currentPreviewUrl: previewUrl,
     } = useGameStore.getState();
+    const playbackRoute = getPlaybackRoute(trackId, previewUrl, !!spotifyToken);
 
     if (playing) {
       if (isUsingFallback()) {
@@ -168,14 +175,14 @@ export function useSpotifyPlayer() {
         await togglePlay();
       }
     } else {
-      // First try resume() — this uses the SDK's internal AudioContext
-      // directly from the gesture context, which is the most reliable way
-      // to satisfy browser autoplay policy
-      await resume().catch(() => {});
-
-      if (!spotifyToken && previewUrl) {
-        await tryFallback();
-      } else if (trackId) {
+      if (playbackRoute === 'preview' && previewUrl) {
+        // Continue an existing preview from its paused position. Only assign
+        // the URL again when there is no resumable fallback audio.
+        const resumed = await resumeFallback();
+        if (!resumed) await tryFallback();
+      } else if (playbackRoute === 'spotify' && trackId) {
+        // The SDK resume runs inside the gesture context, which browsers trust.
+        await resume().catch(() => {});
         await attemptPlayTrack(trackId);
       } else {
         await togglePlay();

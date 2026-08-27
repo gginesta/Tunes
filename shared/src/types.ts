@@ -59,7 +59,10 @@ export interface Room {
   code: string;
   players: Record<string, Player>;
   hostId: string;
-  originalHostId: string;
+  /** Absent only on legacy rows where creator identity was never persisted. */
+  originalHostId?: string;
+  /** Persisted hosting choice; also migrates rooms created before client intent storage. */
+  playbackMode?: 'spotify' | 'preview';
   settings: GameSettings;
   gameState: GameState;
 }

@@ -73,7 +73,7 @@ export class GameEngine {
     return this.mode === 'coop';
   }
 
-  setSpotifyToken(token: string) {
+  setSpotifyToken(token: string | null) {
     this.spotifyAccessToken = token;
   }
 

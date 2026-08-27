@@ -22,10 +22,12 @@ export function initDatabase(): void {
     CREATE TABLE IF NOT EXISTS rooms (
       code TEXT PRIMARY KEY,
       host_id TEXT NOT NULL,
+      original_host_id TEXT,
       settings TEXT NOT NULL,
       game_state TEXT NOT NULL,
       players TEXT NOT NULL,
       spotify_token TEXT,
+      playback_mode TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -71,6 +73,8 @@ export function initDatabase(): void {
   `);
 
   migrateToGuestIdentity();
+  migrateRoomPlaybackMode();
+  migrateOriginalHostIdentity();
 }
 
 /**
@@ -162,15 +166,45 @@ function migrateToGuestIdentity(): void {
   });
 }
 
+/** One-time migration (schema v1 -> v2): persist non-secret room playback mode. */
+function migrateRoomPlaybackMode(): void {
+  const version = db.pragma('user_version', { simple: true }) as number;
+  if (version >= 2) return;
+
+  const columns = db.prepare('PRAGMA table_info(rooms)').all() as { name: string }[];
+  if (!columns.some((column) => column.name === 'playback_mode')) {
+    db.exec('ALTER TABLE rooms ADD COLUMN playback_mode TEXT');
+  }
+  db.pragma('user_version = 2');
+  logger.info('Database migrated to persisted room playback mode (schema v2)');
+}
+
+/** One-time migration (schema v2 -> v3): retain creator identity for host recovery. */
+function migrateOriginalHostIdentity(): void {
+  const version = db.pragma('user_version', { simple: true }) as number;
+  if (version >= 3) return;
+
+  const columns = db.prepare('PRAGMA table_info(rooms)').all() as { name: string }[];
+  if (!columns.some((column) => column.name === 'original_host_id')) {
+    // Existing rows stay null: host_id is mutable after a transfer, so copying
+    // it would falsely bless a successor as the Spotify credential owner.
+    db.exec('ALTER TABLE rooms ADD COLUMN original_host_id TEXT');
+  }
+  db.pragma('user_version = 3');
+  logger.info('Database migrated to persisted original host identity (schema v3)');
+}
+
 // --- Room functions ---
 
 interface RoomRow {
   code: string;
   host_id: string;
+  original_host_id: string | null;
   settings: string;
   game_state: string;
   players: string;
   spotify_token: string | null;
+  playback_mode: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -178,23 +212,27 @@ interface RoomRow {
 export function saveRoom(code: string, room: Room, spotifyToken?: string): void {
   const now = new Date().toISOString();
   const stmt = db.prepare(`
-    INSERT INTO rooms (code, host_id, settings, game_state, players, spotify_token, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO rooms (code, host_id, original_host_id, settings, game_state, players, spotify_token, playback_mode, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(code) DO UPDATE SET
       host_id = excluded.host_id,
+      original_host_id = excluded.original_host_id,
       settings = excluded.settings,
       game_state = excluded.game_state,
       players = excluded.players,
       spotify_token = excluded.spotify_token,
+      playback_mode = excluded.playback_mode,
       updated_at = excluded.updated_at
   `);
   stmt.run(
     code,
     room.hostId,
+    room.originalHostId ?? null,
     JSON.stringify(room.settings),
     JSON.stringify(room.gameState),
     JSON.stringify(room.players),
     spotifyToken ? encryptToken(spotifyToken) : null,
+    room.playbackMode ?? null,
     now,
     now,
   );
@@ -208,7 +246,10 @@ export function loadRoom(code: string): { room: Room; spotifyToken: string | nul
     room: {
       code: row.code,
       hostId: row.host_id,
-      originalHostId: row.host_id,
+      originalHostId: row.original_host_id ?? undefined,
+      playbackMode: row.playback_mode === 'spotify' || row.playback_mode === 'preview'
+        ? row.playback_mode
+        : undefined,
       settings: JSON.parse(row.settings),
       gameState: JSON.parse(row.game_state),
       players: JSON.parse(row.players),
@@ -224,7 +265,10 @@ export function loadAllRooms(): { room: Room; spotifyToken: string | null }[] {
     room: {
       code: row.code,
       hostId: row.host_id,
-      originalHostId: row.host_id,
+      originalHostId: row.original_host_id ?? undefined,
+      playbackMode: row.playback_mode === 'spotify' || row.playback_mode === 'preview'
+        ? row.playback_mode
+        : undefined,
       settings: JSON.parse(row.settings),
       gameState: JSON.parse(row.game_state),
       players: JSON.parse(row.players),

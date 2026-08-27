@@ -49,9 +49,14 @@ export function pauseFallback(): void {
   }
 }
 
-export function resumeFallback(): void {
-  if (audio && audio.paused && audio.src) {
-    audio.play().catch(() => {});
+export async function resumeFallback(): Promise<boolean> {
+  if (!audio || !audio.paused || !audio.src || audio.ended) return false;
+
+  try {
+    await audio.play();
+    return true;
+  } catch {
+    return false;
   }
 }
 
