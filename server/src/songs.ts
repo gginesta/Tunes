@@ -66,6 +66,10 @@ export function getBuiltInDeckFilters(
   };
 }
 
+export function getEffectiveSongPack(songPack: SongPack, requirePreview: boolean): SongPack {
+  return requirePreview ? 'standard' : songPack;
+}
+
 function rememberRecent(songs: SongData[]): void {
   for (const song of songs) {
     const key = cacheKey(song);

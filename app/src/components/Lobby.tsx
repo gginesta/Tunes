@@ -74,6 +74,27 @@ export function Lobby() {
     if (error) setStarting(false);
   }, [error]);
 
+  // A player can inherit host status after the previous host selected a
+  // Spotify-only pack. Normalize that hidden state when the new host is using
+  // preview mode so the UI and server both agree on the standard mix.
+  useEffect(() => {
+    if (!isHost || hasSpotify) return;
+    const hasHiddenFilters = settings.songPack !== 'standard'
+      || !!settings.decades?.length
+      || !!settings.genres?.length
+      || !!settings.regions?.length
+      || !!settings.playlistUrl;
+    if (!hasHiddenFilters) return;
+
+    socket.emit('update-settings', {
+      songPack: 'standard',
+      decades: [],
+      genres: [],
+      regions: [],
+      playlistUrl: '',
+    });
+  }, [hasSpotify, isHost, settings.decades, settings.genres, settings.playlistUrl, settings.regions, settings.songPack, socket]);
+
   /** Check if a string looks like a valid Spotify playlist URL/URI */
   const isValidPlaylistUrl = useCallback((url: string): boolean => {
     if (!url.trim()) return false;
@@ -220,8 +241,8 @@ export function Lobby() {
           ? `Genre+Decade`
           : 'Spotify Playlist';
 
-  const needsGenreSelection = settings.songPack === 'genre' || settings.songPack === 'genre-decade';
-  const needsDecadeSelection = settings.songPack === 'decades' || settings.songPack === 'genre-decade';
+  const needsGenreSelection = hasSpotify && (settings.songPack === 'genre' || settings.songPack === 'genre-decade');
+  const needsDecadeSelection = hasSpotify && (settings.songPack === 'decades' || settings.songPack === 'genre-decade');
 
   return (
     <div className="flex flex-col min-h-screen p-6 text-white">
@@ -712,7 +733,7 @@ export function Lobby() {
               || playerList.length < MIN_PLAYERS
               || (needsDecadeSelection && (!settings.decades || settings.decades.length === 0))
               || (needsGenreSelection && (!settings.genres || settings.genres.length === 0))
-              || (settings.songPack === 'playlist' && !settings.playlistUrl)
+              || (hasSpotify && settings.songPack === 'playlist' && !settings.playlistUrl)
             }
             className="btn btn-primary btn-lg w-full"
           >

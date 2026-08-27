@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { SongData } from '@tunes/shared';
-import { applyResolvedTrackMetadata, getBuiltInDeckFilters } from './songs';
+import {
+  applyResolvedTrackMetadata,
+  getBuiltInDeckFilters,
+  getEffectiveSongPack,
+} from './songs';
 
 describe('applyResolvedTrackMetadata', () => {
   it('preserves a baked preview when Spotify omits preview_url', () => {
@@ -45,5 +49,11 @@ describe('getBuiltInDeckFilters', () => {
       genres: ['rock'],
       regions: ['uk'],
     });
+  });
+
+  it('normalizes inherited Spotify-only packs for preview hosts', () => {
+    expect(getEffectiveSongPack('playlist', true)).toBe('standard');
+    expect(getEffectiveSongPack('genre-decade', true)).toBe('standard');
+    expect(getEffectiveSongPack('playlist', false)).toBe('playlist');
   });
 });

@@ -21,7 +21,13 @@ import type { GameMode } from '@tunes/shared';
 
 const VALID_GAME_MODES: GameMode[] = ['original', 'pro', 'expert', 'coop'];
 import { GameEngine } from './game';
-import { selectGameDeck, resolveTrackIds, fetchPlaylistDeck, getBuiltInDeckFilters } from './songs';
+import {
+  selectGameDeck,
+  resolveTrackIds,
+  fetchPlaylistDeck,
+  getBuiltInDeckFilters,
+  getEffectiveSongPack,
+} from './songs';
 import { saveRoom, loadAllRooms, deleteRoom, saveGameResult, updateLeaderboard } from './database';
 import type { SaveGameParticipant } from './database';
 import { registerGameActionHandlers } from './gameActionHandlers';
@@ -482,9 +488,11 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
         songPack: room.settings.songPack,
       });
       const { songPack, decades, genres, regions, playlistUrl } = room.settings;
+      const requirePreview = !spotifyToken;
+      const effectiveSongPack = getEffectiveSongPack(songPack, requirePreview);
       let deck: import('@tunes/shared').SongCard[];
 
-      if (songPack === 'playlist') {
+      if (effectiveSongPack === 'playlist') {
         // Validate playlist URL is provided
         if (!playlistUrl || playlistUrl.trim() === '') {
           socket.emit('error', { message: 'Please enter a Spotify playlist URL before starting.' });
@@ -511,9 +519,8 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
         }
       } else {
         // Use built-in song database with optional decade/genre/region filters
-        const requirePreview = !spotifyToken;
         const filters = getBuiltInDeckFilters(
-          songPack,
+          effectiveSongPack,
           decades,
           genres,
           regions,
