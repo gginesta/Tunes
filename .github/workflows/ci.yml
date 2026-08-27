@@ -16,3 +16,5 @@ jobs:
       - run: npm run build
       - run: npm test
       - run: npm run lint
+      - name: Build production image
+        run: docker build --build-arg VITE_SPOTIFY_CLIENT_ID=ci-smoke -t tunes-ci .
