@@ -656,153 +656,19 @@ export function Lobby() {
               Preview mode: 30-second clips from the built-in song library
             </p>
 
-            {/* Pack type selector — no playlist option */}
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                onClick={() => handleSetSongPack('standard')}
-                className={`py-3 px-2 rounded-xl text-center transition-all ${
-                  settings.songPack === 'standard'
-                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
-                    : 'bg-black/30 text-white/75 hover:bg-black/50 border border-white/[0.06]'
-                }`}
-              >
-                <ListMusic className={`w-5 h-5 mx-auto mb-1 ${settings.songPack === 'standard' ? 'text-[#0a0318]' : 'text-white/70'}`} />
-                <span className="text-xs font-bold block">Standard</span>
-              </button>
-              <button
-                onClick={() => handleSetSongPack('decades')}
-                className={`py-3 px-2 rounded-xl text-center transition-all ${
-                  settings.songPack === 'decades'
-                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
-                    : 'bg-black/30 text-white/75 hover:bg-black/50 border border-white/[0.06]'
-                }`}
-              >
-                <span className={`text-lg block ${settings.songPack === 'decades' ? 'text-[#0a0318]' : 'text-white/70'}`}>#</span>
-                <span className="text-xs font-bold block">Decades</span>
-              </button>
-              <button
-                onClick={() => handleSetSongPack('genre')}
-                className={`py-3 px-2 rounded-xl text-center transition-all ${
-                  settings.songPack === 'genre'
-                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
-                    : 'bg-black/30 text-white/75 hover:bg-black/50 border border-white/[0.06]'
-                }`}
-              >
-                <Music className={`w-5 h-5 mx-auto mb-1 ${settings.songPack === 'genre' ? 'text-[#0a0318]' : 'text-white/70'}`} />
-                <span className="text-xs font-bold block">By Genre</span>
-              </button>
-            </div>
+            {/* The baked preview catalogue only guarantees the standard mix. */}
             <div className="grid grid-cols-1 gap-2">
               <button
-                onClick={() => handleSetSongPack('genre-decade')}
-                className={`py-3 px-2 rounded-xl text-center transition-all ${
-                  settings.songPack === 'genre-decade'
-                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
-                    : 'bg-black/30 text-white/75 hover:bg-black/50 border border-white/[0.06]'
-                }`}
+                onClick={() => handleSetSongPack('standard')}
+                className="py-3 px-2 rounded-xl text-center transition-all bg-neon-pink text-[#0a0318] glow-pink"
               >
-                <span className={`text-xs font-bold block ${settings.songPack === 'genre-decade' ? 'text-[#0a0318]' : 'text-white/70'}`}>Genre + Decade</span>
+                <ListMusic className="w-5 h-5 mx-auto mb-1 text-[#0a0318]" />
+                <span className="text-xs font-bold block">Standard Preview Mix</span>
               </button>
             </div>
-
-            {/* Genre chips */}
-            {needsGenreSelection && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="space-y-2"
-              >
-                <label className="text-xs text-white/55 font-bold uppercase tracking-wider block">
-                  Select genres (pick at least one)
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {AVAILABLE_GENRES.map(({ value, label }) => {
-                    const selected = (settings.genres || []).includes(value);
-                    return (
-                      <button
-                        key={value}
-                        onClick={() => handleToggleGenre(value)}
-                        className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
-                          selected
-                            ? 'bg-neon-pink text-[#0a0318] glow-pink'
-                            : 'bg-black/30 text-white/75 hover:bg-black/50 border border-white/[0.06]'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </motion.div>
-            )}
-
-            {/* Decade chips */}
-            {needsDecadeSelection && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="space-y-2"
-              >
-                <label className="text-xs text-white/55 font-bold uppercase tracking-wider block">
-                  Select decades (pick at least one)
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {AVAILABLE_DECADES.map(({ value, label }) => {
-                    const selected = (settings.decades || []).includes(value);
-                    return (
-                      <button
-                        key={value}
-                        onClick={() => handleToggleDecade(value)}
-                        className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
-                          selected
-                            ? 'bg-neon-pink text-[#0a0318] glow-pink'
-                            : 'bg-black/30 text-white/75 hover:bg-black/50 border border-white/[0.06]'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </motion.div>
-            )}
-
-            {settings.songPack === 'standard' && (
-              <p className="text-xs text-white/40">
-                {hasSpotify
-                  ? '600+ songs spanning 1930s-2020s, balanced across decades'
-                  : 'Curated no-login preview catalogue; connect Spotify for the full library'}
-              </p>
-            )}
-
-            {/* Regional Packs — combine with any song pack */}
-            <div className="space-y-2 pt-2 border-t border-white/10">
-              <label className="text-xs text-white/55 font-bold uppercase tracking-wider flex items-center gap-1.5">
-                <Globe className="w-3.5 h-3.5" />
-                Regional Packs (optional, combines with selection above)
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {AVAILABLE_REGIONS.map(({ value, label }) => {
-                  const selected = (settings.regions || []).includes(value);
-                  return (
-                    <button
-                      key={value}
-                      onClick={() => handleToggleRegion(value)}
-                      className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
-                        selected
-                          ? 'bg-neon-pink text-[#0a0318] glow-pink'
-                          : 'bg-black/30 text-white/75 hover:bg-black/50 border border-white/[0.06]'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="text-[10px] text-white/40">
-                Select regions to include songs from those regions. Leave empty to include all.
-              </p>
-            </div>
+            <p className="text-xs text-white/40">
+              Curated no-login preview catalogue. Connect Spotify to unlock decade, genre, regional, and playlist filters.
+            </p>
           </div>
         ) : isHost ? null : (
           /* Non-host: show what the host picked */

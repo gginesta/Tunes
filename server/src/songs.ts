@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import type { SongCard, SongData } from '@tunes/shared';
+import type { SongCard, SongData, SongGenre, SongPack, SongRegion } from '@tunes/shared';
 import { DECK_SIZE } from '@tunes/shared';
 import { logger } from './logger';
 import { fisherYatesShuffle } from './shuffle';
@@ -12,7 +12,13 @@ let allSongs: SongData[] = [];
 let songsFilePath: string | null = null;
 
 // In-memory cache: "title::artist" → { trackId, previewUrl }
-const trackCache = new Map<string, { trackId: string; previewUrl?: string; albumArtUrl?: string }>();
+interface ResolvedTrackMetadata {
+  trackId: string;
+  previewUrl?: string;
+  albumArtUrl?: string;
+}
+
+const trackCache = new Map<string, ResolvedTrackMetadata>();
 
 /**
  * Recently selected song keys (across all decks, all rooms, this server lifetime).
@@ -25,6 +31,39 @@ const RECENT_SONGS_LIMIT = 250;
 
 function cacheKey(song: SongData): string {
   return `${song.title.toLowerCase()}::${song.artist.toLowerCase()}`;
+}
+
+/**
+ * Apply Spotify metadata without erasing a working preview supplied by the
+ * baked Apple catalogue when Spotify omits preview_url.
+ */
+export function applyResolvedTrackMetadata(
+  song: SongData | SongCard,
+  resolved: ResolvedTrackMetadata,
+): void {
+  song.spotifyTrackId = resolved.trackId;
+  if (resolved.previewUrl) song.previewUrl = resolved.previewUrl;
+  if (resolved.albumArtUrl) song.albumArtUrl = resolved.albumArtUrl;
+}
+
+/**
+ * The baked preview catalogue only guarantees the standard mix. Ignore
+ * filters in credential-free mode so every offered preview game is playable.
+ */
+export function getBuiltInDeckFilters(
+  songPack: SongPack,
+  decades: number[] | undefined,
+  genres: SongGenre[] | undefined,
+  regions: SongRegion[] | undefined,
+  requirePreview: boolean,
+): { decades?: number[]; genres?: SongGenre[]; regions?: SongRegion[] } {
+  if (requirePreview) return {};
+
+  return {
+    decades: songPack === 'decades' || songPack === 'genre-decade' ? decades : undefined,
+    genres: songPack === 'genre' || songPack === 'genre-decade' ? genres : undefined,
+    regions: regions && regions.length > 0 ? regions : undefined,
+  };
 }
 
 function rememberRecent(songs: SongData[]): void {
@@ -336,7 +375,7 @@ export async function resolveSpotifyTrack(
   song: SongData,
   accessToken: string,
   retryCount = 0,
-): Promise<{ trackId: string; previewUrl?: string; albumArtUrl?: string } | null> {
+): Promise<ResolvedTrackMetadata | null> {
   try {
     const query = encodeURIComponent(`track:${song.title} artist:${song.artist}`);
     const res = await fetch(
@@ -387,9 +426,7 @@ export async function resolveTrackIds(
     const key = cacheKey(card);
     const cachedEntry = trackCache.get(key);
     if (cachedEntry) {
-      card.spotifyTrackId = cachedEntry.trackId;
-      card.previewUrl = cachedEntry.previewUrl;
-      card.albumArtUrl = cachedEntry.albumArtUrl;
+      applyResolvedTrackMetadata(card, cachedEntry);
       cached++;
       resolved++;
     }
@@ -405,9 +442,7 @@ export async function resolveTrackIds(
       batch.map(async (card) => {
         const result = await resolveSpotifyTrack(card, accessToken);
         if (result) {
-          card.spotifyTrackId = result.trackId;
-          card.previewUrl = result.previewUrl;
-          card.albumArtUrl = result.albumArtUrl;
+          applyResolvedTrackMetadata(card, result);
           trackCache.set(cacheKey(card), result);
           resolved++;
         }
@@ -524,15 +559,7 @@ function persistPreviewUrls(): void {
     const cached = trackCache.get(key);
     if (!cached) continue;
 
-    if (cached.trackId) {
-      song.spotifyTrackId = cached.trackId;
-      song.previewUrl = cached.previewUrl ?? null;
-      song.albumArtUrl = cached.albumArtUrl;
-    } else {
-      // Mark as attempted (failed to resolve)
-      song.spotifyTrackId = null;
-      song.previewUrl = null;
-    }
+    applyResolvedTrackMetadata(song, cached);
     updated++;
   }
 

@@ -11,6 +11,7 @@ import {
 import {
   playPreviewUrl,
   pauseFallback,
+  resumeFallback,
   setFallbackVolume,
 } from '../services/audioFallback';
 import {
@@ -174,7 +175,10 @@ export function useSpotifyPlayer() {
       await resume().catch(() => {});
 
       if (!spotifyToken && previewUrl) {
-        await tryFallback();
+        // Continue an existing preview from its paused position. Only assign
+        // the URL again when there is no resumable fallback audio.
+        const resumed = await resumeFallback();
+        if (!resumed) await tryFallback();
       } else if (trackId) {
         await attemptPlayTrack(trackId);
       } else {
