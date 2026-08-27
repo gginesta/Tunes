@@ -75,7 +75,7 @@ export interface SpotifyPlayerCallbacks {
   onReady: (id: string) => void;
   onNotReady: () => void;
   onError: (message: string) => void;
-  onStateChange: (paused: boolean) => void;
+  onStateChange: (paused: boolean, trackId: string) => void;
   onAutoplayFailed: () => void;
   onActive: (active: boolean) => void;
   onDeviceConfirmed: () => void;
@@ -144,7 +144,7 @@ export async function initPlayer(
       return;
     }
     callbacks.onActive(true);
-    callbacks.onStateChange(state.paused);
+    callbacks.onStateChange(state.paused, state.track_window.current_track.id);
   });
 
   const connected = await player.connect();

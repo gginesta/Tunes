@@ -13,6 +13,12 @@ export function initFallbackAudio(callbacks: { onStateChange: (paused: boolean) 
 
 export async function playPreviewUrl(url: string): Promise<boolean> {
   try {
+    // An in-flight Spotify upgrade can fall back to the preview that is
+    // already playing. Treat that as success without rewinding the clip.
+    if (audio && !audio.paused && audio.src === url) {
+      return true;
+    }
+
     if (!audio) {
       audio = new Audio();
       audio.addEventListener('play', () => onStateChange?.(false));
