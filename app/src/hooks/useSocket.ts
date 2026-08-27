@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { getSocket, saveSession, getSession, clearSession } from '../services/socket';
 import { useGameStore } from '../store';
 import { playBuzzSound, playBuzzAlertSound, playTurnSound } from '../services/sounds';
+import { restoreSpotifyForCurrentHost } from '../services/spotifySession';
 
 export function useSocket() {
   useEffect(() => {
@@ -65,6 +66,11 @@ export function useSocket() {
       }
       store.setError(null);
       saveSession(room.code, playerId);
+
+      // Active-game rejoins bypass Lobby, so restore the fenced host
+      // credential here as well. Preview/join sessions fail closed in the
+      // session-intent guard without making a token request.
+      void restoreSpotifyForCurrentHost(room.code, playerId, room.hostId).catch(() => {});
     });
 
     socket.on('player-joined', (player) => {

@@ -4,7 +4,10 @@ import { motion } from 'motion/react';
 import { getSocket, clearSession, getSessionPlaybackIntent } from '../services/socket';
 import { useGameStore } from '../store';
 import { requestActivation, preUnlockAudio } from '../services/spotifyPlayer';
-import { restoreSavedSpotifyAccessToken } from '../services/spotifySession';
+import {
+  restoreSavedSpotifyAccessToken,
+  restoreSpotifyForCurrentHost,
+} from '../services/spotifySession';
 import type { GameMode, SongPack, SongGenre, SongRegion } from '@tunes/shared';
 import { MIN_CARDS_TO_WIN, MAX_CARDS_TO_WIN, MIN_PLAYERS } from '@tunes/shared';
 
@@ -77,11 +80,9 @@ export function Lobby() {
   // Zustand is intentionally ephemeral, while the refresh credential survives
   // a tab reload. Restore it when an authenticated player regains host status.
   useEffect(() => {
-    if (!isHost || spotifyToken || getSessionPlaybackIntent() !== 'spotify') return;
-    const savedRefresh = localStorage.getItem('spotify_refresh_token');
-    if (!savedRefresh) return;
-    void restoreSavedSpotifyAccessToken(savedRefresh, roomCode, myId).catch(() => {});
-  }, [isHost, myId, roomCode, spotifyToken]);
+    if (!isHost || spotifyToken) return;
+    void restoreSpotifyForCurrentHost(roomCode, myId, hostId).catch(() => {});
+  }, [hostId, isHost, myId, roomCode, spotifyToken]);
 
   /** Check if a string looks like a valid Spotify playlist URL/URI */
   const isValidPlaylistUrl = useCallback((url: string): boolean => {

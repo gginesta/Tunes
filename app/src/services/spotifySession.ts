@@ -61,6 +61,27 @@ export async function restoreSavedSpotifyAccessToken(
   return result.accessToken;
 }
 
+/** Restore a saved Spotify session for the current room host, if intended. */
+export async function restoreSpotifyForCurrentHost(
+  roomCode: string,
+  playerId: string,
+  hostId: string,
+): Promise<string | null> {
+  const state = useGameStore.getState();
+  if (playerId !== hostId || !sessionAllowsSpotifyRestore(
+    roomCode,
+    playerId,
+    state.roomCode,
+    state.myId,
+  )) {
+    return null;
+  }
+
+  const savedRefresh = localStorage.getItem('spotify_refresh_token');
+  if (!savedRefresh) return null;
+  return restoreSavedSpotifyAccessToken(savedRefresh, roomCode, playerId);
+}
+
 /**
  * Return a usable access token, refreshing via the stored refresh token
  * when needed. Pass `forceRefresh` to discard the current token (e.g. when

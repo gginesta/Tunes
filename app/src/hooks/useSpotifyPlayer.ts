@@ -115,6 +115,9 @@ export function useSpotifyPlayer() {
       currentPreviewUrl,
       !!spotifyToken,
     );
+    // A returning Spotify host may still be restoring its access token. Do not
+    // consume this playback key until a playable route becomes available.
+    if (playbackRoute === 'none') return;
 
     // For SDK playback, wait until device is confirmed
     if (playbackRoute === 'spotify' && !spotifyReady) return;
