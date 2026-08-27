@@ -74,27 +74,6 @@ export function Lobby() {
     if (error) setStarting(false);
   }, [error]);
 
-  // A player can inherit host status after the previous host selected a
-  // Spotify-only pack. Normalize that hidden state when the new host is using
-  // preview mode so the UI and server both agree on the standard mix.
-  useEffect(() => {
-    if (!isHost || hasSpotify) return;
-    const hasHiddenFilters = settings.songPack !== 'standard'
-      || !!settings.decades?.length
-      || !!settings.genres?.length
-      || !!settings.regions?.length
-      || !!settings.playlistUrl;
-    if (!hasHiddenFilters) return;
-
-    socket.emit('update-settings', {
-      songPack: 'standard',
-      decades: [],
-      genres: [],
-      regions: [],
-      playlistUrl: '',
-    });
-  }, [hasSpotify, isHost, settings.decades, settings.genres, settings.playlistUrl, settings.regions, settings.songPack, socket]);
-
   /** Check if a string looks like a valid Spotify playlist URL/URI */
   const isValidPlaylistUrl = useCallback((url: string): boolean => {
     if (!url.trim()) return false;
