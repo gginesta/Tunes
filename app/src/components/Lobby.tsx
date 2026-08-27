@@ -49,6 +49,28 @@ const GENRE_PACKS = [
   { label: 'All-Time Greatest', icon: '\uD83C\uDFC6', playlistId: '37i9dQZF1DXcBWIGoYBM5M', dec: 'dec-1930s' },
 ];
 
+let spotifyRestorePromise: Promise<string> | null = null;
+
+/** Restore the saved Spotify session once, even if mount and Start race. */
+function restoreSavedSpotifyAccessToken(refreshToken: string): Promise<string> {
+  if (spotifyRestorePromise) return spotifyRestorePromise;
+
+  spotifyRestorePromise = refreshAccessToken(refreshToken)
+    .then((result) => {
+      useGameStore.setState({
+        spotifyToken: result.accessToken,
+        spotifyRefreshToken: result.refreshToken,
+      });
+      localStorage.setItem('spotify_refresh_token', result.refreshToken);
+      return result.accessToken;
+    })
+    .finally(() => {
+      spotifyRestorePromise = null;
+    });
+
+  return spotifyRestorePromise;
+}
+
 export function Lobby() {
   const players = useGameStore((s) => s.players);
   const myId = useGameStore((s) => s.myId);
@@ -73,6 +95,15 @@ export function Lobby() {
   useEffect(() => {
     if (error) setStarting(false);
   }, [error]);
+
+  // Zustand is intentionally ephemeral, while the refresh credential survives
+  // a tab reload. Restore it when an authenticated player regains host status.
+  useEffect(() => {
+    if (!isHost || spotifyToken) return;
+    const savedRefresh = localStorage.getItem('spotify_refresh_token');
+    if (!savedRefresh) return;
+    void restoreSavedSpotifyAccessToken(savedRefresh).catch(() => {});
+  }, [isHost, spotifyToken]);
 
   /** Check if a string looks like a valid Spotify playlist URL/URI */
   const isValidPlaylistUrl = useCallback((url: string): boolean => {
@@ -119,18 +150,10 @@ export function Lobby() {
 
     // Refresh Spotify token before starting to handle expiry
     let playbackToken = spotifyToken || undefined;
-    if (spotifyToken) {
+    const savedRefresh = localStorage.getItem('spotify_refresh_token');
+    if (savedRefresh) {
       try {
-        const savedRefresh = localStorage.getItem('spotify_refresh_token');
-        if (savedRefresh) {
-          const result = await refreshAccessToken(savedRefresh);
-          useGameStore.setState({
-            spotifyToken: result.accessToken,
-            spotifyRefreshToken: result.refreshToken,
-          });
-          localStorage.setItem('spotify_refresh_token', result.refreshToken);
-          playbackToken = result.accessToken;
-        }
+        playbackToken = await restoreSavedSpotifyAccessToken(savedRefresh);
       } catch {
         // Token refresh failed — try with the existing token
       }
