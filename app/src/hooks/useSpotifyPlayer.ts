@@ -27,6 +27,7 @@ export function useSpotifyPlayer() {
   const myId = useGameStore((s) => s.myId);
   const phase = useGameStore((s) => s.phase);
   const currentTrackId = useGameStore((s) => s.currentTrackId);
+  const currentPreviewUrl = useGameStore((s) => s.currentPreviewUrl);
   const spotifyReady = useGameStore((s) => s.spotifyReady);
   const volume = useGameStore((s) => s.volume);
 
@@ -45,6 +46,24 @@ export function useSpotifyPlayer() {
     if (!isHost || !spotifyToken) return;
     ensureSpotifySession();
   }, [isHost, spotifyToken]);
+
+  const tryFallback = useCallback(async (): Promise<boolean> => {
+    const previewUrl = useGameStore.getState().currentPreviewUrl;
+    if (previewUrl) {
+      console.log('[Tunes] Trying preview URL fallback');
+      setUsingFallback(true);
+      const ok = await playPreviewUrl(previewUrl);
+      if (ok) {
+        useGameStore.setState({ isPlaying: true });
+        return true;
+      }
+    }
+    console.error('[Tunes] All playback methods failed');
+    useGameStore.setState({
+      spotifyError: 'Could not play this song. Try clicking the play button.',
+    });
+    return false;
+  }, []);
 
   /**
    * Attempt to play a track. Tries SDK first, falls back to preview URL.
@@ -75,25 +94,7 @@ export function useSpotifyPlayer() {
     }
 
     return tryFallback();
-  }, []);
-
-  const tryFallback = useCallback(async (): Promise<boolean> => {
-    const previewUrl = useGameStore.getState().currentPreviewUrl;
-    if (previewUrl) {
-      console.log('[Tunes] Trying preview URL fallback');
-      setUsingFallback(true);
-      const ok = await playPreviewUrl(previewUrl);
-      if (ok) {
-        useGameStore.setState({ isPlaying: true });
-        return true;
-      }
-    }
-    console.error('[Tunes] All playback methods failed');
-    useGameStore.setState({
-      spotifyError: 'Could not play this song. Try clicking the play button.',
-    });
-    return false;
-  }, []);
+  }, [tryFallback]);
 
   // Sync volume to Spotify player and fallback audio
   useEffect(() => {
@@ -103,25 +104,26 @@ export function useSpotifyPlayer() {
 
   // Auto-play when track changes and device is confirmed ready
   useEffect(() => {
-    if (!isHost || !currentTrackId) return;
+    if (!isHost || (!currentTrackId && !currentPreviewUrl)) return;
     if (phase !== 'playing') return;
-    if (currentTrackId === lastTrackRef.current) return;
+    const playbackKey = currentTrackId || currentPreviewUrl;
+    if (playbackKey === lastTrackRef.current) return;
 
     // For SDK playback, wait until device is confirmed
     if (spotifyToken && !spotifyReady) return;
 
-    lastTrackRef.current = currentTrackId;
+    lastTrackRef.current = playbackKey;
 
     if (spotifyToken) {
+      if (!currentTrackId) return;
       // SDK path: activate element and play via Spotify
       activateElement();
       attemptPlayTrack(currentTrackId);
     } else {
       // Preview-only mode (no Spotify token): play via fallback audio
-      const previewUrl = useGameStore.getState().currentPreviewUrl;
-      if (previewUrl) {
+      if (currentPreviewUrl) {
         setUsingFallback(true);
-        playPreviewUrl(previewUrl).then((ok) => {
+        playPreviewUrl(currentPreviewUrl).then((ok) => {
           if (ok) {
             useGameStore.setState({ isPlaying: true, autoplayBlocked: false });
           } else {
@@ -131,7 +133,7 @@ export function useSpotifyPlayer() {
         });
       }
     }
-  }, [isHost, spotifyToken, spotifyReady, currentTrackId, phase, attemptPlayTrack]);
+  }, [isHost, spotifyToken, spotifyReady, currentTrackId, currentPreviewUrl, phase, attemptPlayTrack]);
 
   // Auto-pause on reveal/game_over (keep music playing during challenge)
   useEffect(() => {
@@ -155,6 +157,7 @@ export function useSpotifyPlayer() {
     const {
       isPlaying: playing,
       currentTrackId: trackId,
+      currentPreviewUrl: previewUrl,
     } = useGameStore.getState();
 
     if (playing) {
@@ -170,13 +173,15 @@ export function useSpotifyPlayer() {
       // to satisfy browser autoplay policy
       await resume().catch(() => {});
 
-      if (trackId) {
+      if (!spotifyToken && previewUrl) {
+        await tryFallback();
+      } else if (trackId) {
         await attemptPlayTrack(trackId);
       } else {
         await togglePlay();
       }
     }
-  }, [attemptPlayTrack]);
+  }, [attemptPlayTrack, spotifyToken, tryFallback]);
 
   return {
     isHost,

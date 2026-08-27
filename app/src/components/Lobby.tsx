@@ -610,7 +610,9 @@ export function Lobby() {
 
             {settings.songPack === 'standard' && (
               <p className="text-xs text-white/40">
-                500+ songs spanning 1950s-2020s, balanced across decades
+                {hasSpotify
+                  ? '600+ songs spanning 1930s-2020s, balanced across decades'
+                  : 'Curated no-login preview catalogue; connect Spotify for the full library'}
               </p>
             )}
 
@@ -767,7 +769,9 @@ export function Lobby() {
 
             {settings.songPack === 'standard' && (
               <p className="text-xs text-white/40">
-                500+ songs spanning 1950s-2020s, balanced across decades
+                {hasSpotify
+                  ? '600+ songs spanning 1930s-2020s, balanced across decades'
+                  : 'Curated no-login preview catalogue; connect Spotify for the full library'}
               </p>
             )}
 
