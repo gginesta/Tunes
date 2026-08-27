@@ -57,6 +57,16 @@ export function getSessionPlaybackIntent(): PlaybackIntent | null {
   return null;
 }
 
+/** Migrate only when the restored room itself proves the original host's mode. */
+export function migrateSessionPlaybackIntent(
+  roomPlaybackMode: PlaybackIntent | undefined,
+  isOriginalHost: boolean,
+): void {
+  if (getSessionPlaybackIntent() === null && isOriginalHost && roomPlaybackMode) {
+    setSessionPlaybackIntent(roomPlaybackMode);
+  }
+}
+
 export function sessionAllowsSpotifyRestore(
   expectedRoomCode: string,
   expectedPlayerId: string,
@@ -85,14 +95,6 @@ export function getSession(): { roomCode: string; playerId: string } | null {
     if (ts && Date.now() - ts > SESSION_TTL_MS) {
       clearSession();
       return null;
-    }
-    // Sessions created before playback intent was introduced already used a
-    // saved refresh credential as the signal that the room was Spotify-hosted.
-    // Migrate that exact legacy shape once; current preview rooms always write
-    // an explicit `preview` intent and must never be upgraded from a stale token.
-    if (!localStorage.getItem(PLAYBACK_INTENT_KEY)
-      && localStorage.getItem('spotify_refresh_token')) {
-      localStorage.setItem(PLAYBACK_INTENT_KEY, 'spotify');
     }
     return { roomCode, playerId };
   } catch { /* localStorage unavailable */ }

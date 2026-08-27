@@ -1,5 +1,11 @@
 import { useEffect } from 'react';
-import { getSocket, saveSession, getSession, clearSession } from '../services/socket';
+import {
+  getSocket,
+  saveSession,
+  getSession,
+  clearSession,
+  migrateSessionPlaybackIntent,
+} from '../services/socket';
 import { useGameStore } from '../store';
 import { playBuzzSound, playBuzzAlertSound, playTurnSound } from '../services/sounds';
 import { restoreSpotifyForCurrentHost } from '../services/spotifySession';
@@ -41,6 +47,10 @@ export function useSocket() {
     });
 
     socket.on('room-joined', ({ room, playerId }) => {
+      migrateSessionPlaybackIntent(
+        room.playbackMode,
+        playerId === room.originalHostId,
+      );
       const store = useGameStore.getState();
       store.setMyId(playerId);
       store.setRoomCode(room.code);

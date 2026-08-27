@@ -172,6 +172,11 @@ function setupGameEndHook(engine: GameEngine, roomCode: string): void {
 export function restoreRoomsFromDatabase(_io: TunesServer): void {
   const saved = loadAllRooms();
   for (const { room, spotifyToken: legacySpotifyToken } of saved) {
+    // Pre-intent rows can be classified safely from server state: preview
+    // rooms never persisted a room token, while Spotify rooms did. Preserve
+    // only that mode marker; the unowned credential itself is still dropped.
+    room.playbackMode = room.playbackMode
+      ?? (legacySpotifyToken ? 'spotify' : 'preview');
     rooms.set(room.code, room);
     // Pre-owner rows cannot prove which player supplied the room-scoped token.
     // Never assign that credential to whoever happens to be host after restart.
@@ -241,6 +246,7 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
       players: { [playerId]: player },
       hostId: playerId,
       originalHostId: playerId,
+      playbackMode: spotifyAccessToken ? 'spotify' : 'preview',
       settings: { mode: 'original', cardsToWin: DEFAULT_CARDS_TO_WIN, songPack: 'standard' },
       gameState: createDefaultGameState(),
     };

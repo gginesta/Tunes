@@ -60,6 +60,8 @@ export interface Room {
   players: Record<string, Player>;
   hostId: string;
   originalHostId: string;
+  /** Persisted hosting choice; also migrates rooms created before client intent storage. */
+  playbackMode?: 'spotify' | 'preview';
   settings: GameSettings;
   gameState: GameState;
 }

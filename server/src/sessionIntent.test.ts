@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearSession,
-  getSession,
   getSessionPlaybackIntent,
+  migrateSessionPlaybackIntent,
   sessionAllowsSpotifyRestore,
   setSessionPlaybackIntent,
 } from '../../app/src/services/socket';
@@ -55,24 +55,22 @@ describe('session playback intent', () => {
     expect(values.get('spotify_refresh_token')).toBe('saved-refresh-token');
   });
 
-  it('migrates a valid pre-intent Spotify room session', () => {
-    values.set('tunes_room', 'ROOM');
-    values.set('tunes_player', 'player-a');
-    values.set('tunes_session_ts', String(Date.now()));
+  it('migrates legacy intent from server-proven original-host room state', () => {
     values.set('spotify_refresh_token', 'saved-refresh-token');
 
-    expect(getSession()).toEqual({ roomCode: 'ROOM', playerId: 'player-a' });
+    migrateSessionPlaybackIntent('spotify', true);
     expect(getSessionPlaybackIntent()).toBe('spotify');
   });
 
-  it('does not override an explicit preview room during migration', () => {
-    values.set('tunes_room', 'ROOM');
-    values.set('tunes_player', 'player-a');
-    values.set('tunes_session_ts', String(Date.now()));
+  it('preserves server-proven legacy preview rooms despite a stale refresh token', () => {
     values.set('spotify_refresh_token', 'stale-refresh-token');
-    setSessionPlaybackIntent('preview');
 
-    expect(getSession()).toEqual({ roomCode: 'ROOM', playerId: 'player-a' });
+    migrateSessionPlaybackIntent('preview', true);
     expect(getSessionPlaybackIntent()).toBe('preview');
+  });
+
+  it('does not let a non-original host inherit the room playback mode', () => {
+    migrateSessionPlaybackIntent('spotify', false);
+    expect(getSessionPlaybackIntent()).toBeNull();
   });
 });
