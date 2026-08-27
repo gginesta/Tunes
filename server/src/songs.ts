@@ -48,6 +48,28 @@ export function hasPreviewSongs(): boolean {
   return allSongs.filter((song) => !!song.previewUrl).length >= 10;
 }
 
+/**
+ * Merge baked preview metadata from the image seed into the persistent
+ * catalogue. Railway mounts /app/data from a volume, so replacing the image
+ * alone does not otherwise update an existing songs.json.
+ */
+function mergeSeedPreviewMetadata(songs: SongData[], seedSongs: SongData[]): number {
+  const seedBySong = new Map(
+    seedSongs.map((song) => [cacheKey(song), song]),
+  );
+  let updated = 0;
+
+  for (const song of songs) {
+    if (song.previewUrl) continue;
+    const seed = seedBySong.get(cacheKey(song));
+    if (!seed?.previewUrl) continue;
+    song.previewUrl = seed.previewUrl;
+    updated++;
+  }
+
+  return updated;
+}
+
 export function loadSongs() {
   logger.debug('Song loader paths', { __dirname, cwd: process.cwd() });
 
@@ -70,6 +92,18 @@ export function loadSongs() {
   try {
     const raw = fs.readFileSync(songsFilePath, 'utf-8');
     allSongs = JSON.parse(raw);
+
+    // Production images carry a curated preview catalogue in data-seed. Merge
+    // it into an existing Railway volume without discarding runtime metadata.
+    const seedPath = path.join(process.cwd(), 'data-seed', 'songs.json');
+    if (songsFilePath !== seedPath && fs.existsSync(seedPath)) {
+      const seedSongs: SongData[] = JSON.parse(fs.readFileSync(seedPath, 'utf-8'));
+      const updated = mergeSeedPreviewMetadata(allSongs, seedSongs);
+      if (updated > 0) {
+        fs.writeFileSync(songsFilePath, JSON.stringify(allSongs, null, 2) + '\n', 'utf-8');
+        logger.info('Merged baked preview metadata into persistent song catalogue', { updated });
+      }
+    }
     logger.info('Songs loaded successfully', { count: allSongs.length });
   } catch (err) {
     logger.error('Failed to load songs', { error: String(err) });
@@ -88,6 +122,7 @@ export function selectGameDeck(
   decades?: number[],
   genres?: string[],
   regions?: string[],
+  requirePreview: boolean = false,
 ): SongCard[] {
   if (allSongs.length === 0) {
     logger.warn('No songs loaded, returning empty deck');
@@ -110,6 +145,10 @@ export function selectGameDeck(
 
   if (regions && regions.length > 0) {
     pool = pool.filter((song) => song.region && regions.includes(song.region));
+  }
+
+  if (requirePreview) {
+    pool = pool.filter((song) => !!song.previewUrl);
   }
 
   if (pool.length === 0) {
