@@ -8,6 +8,7 @@
     "app"
   ],
   "scripts": {
+    "prebake:itunes": "node scripts/prebake-itunes-previews.mjs",
     "dev": "npm run build:shared && concurrently \"npm run server\" \"npm run app\"",
     "server": "npm run dev --workspace=server",
     "app": "npm run dev --workspace=app",

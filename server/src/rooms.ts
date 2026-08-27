@@ -514,7 +514,10 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
         const useDecades = (songPack === 'decades' || songPack === 'genre-decade') ? decades : undefined;
         const useGenres = (songPack === 'genre' || songPack === 'genre-decade') ? genres : undefined;
         const useRegions = regions && regions.length > 0 ? regions : undefined;
-        deck = selectGameDeck(undefined, useDecades, useGenres, useRegions);
+        // In preview mode, select from the playable catalogue up front. If we
+        // select first and filter afterwards, a healthy preview catalogue can
+        // still randomly produce too few playable cards.
+        deck = selectGameDeck(undefined, useDecades, useGenres, useRegions, !spotifyToken);
         if (deck.length === 0) {
           socket.emit('error', { message: 'Not enough songs for the selected filters. Try broadening your selection.' });
           return;
