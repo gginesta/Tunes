@@ -139,7 +139,7 @@ export function Lobby() {
     useGameStore.getState().setError(null);
 
     // Refresh Spotify token before starting to handle expiry
-    let freshToken: string | undefined;
+    let playbackToken = spotifyToken || undefined;
     if (spotifyToken) {
       try {
         const savedRefresh = localStorage.getItem('spotify_refresh_token');
@@ -150,14 +150,14 @@ export function Lobby() {
             spotifyRefreshToken: result.refreshToken,
           });
           localStorage.setItem('spotify_refresh_token', result.refreshToken);
-          freshToken = result.accessToken;
+          playbackToken = result.accessToken;
         }
       } catch {
         // Token refresh failed — try with the existing token
       }
     }
 
-    socket.emit('start-game', freshToken ? { spotifyAccessToken: freshToken } : undefined);
+    socket.emit('start-game', playbackToken ? { spotifyAccessToken: playbackToken } : undefined);
     // If the server never responds, don't just silently re-enable the
     // button — tell the host what happened.
     setTimeout(() => {

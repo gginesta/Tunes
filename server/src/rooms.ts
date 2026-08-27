@@ -34,6 +34,10 @@ import { registerGameActionHandlers } from './gameActionHandlers';
 import { registerStatsHandlers } from './statsHandlers';
 import { guestNameKey, isRecord, isShortString } from './validate';
 import { logger } from './logger';
+import {
+  spotifyTokenForHost,
+  type HostSpotifyCredential,
+} from './spotifyCredentials';
 
 type TunesSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 type TunesServer = Server<ClientToServerEvents, ServerToClientEvents>;
@@ -41,7 +45,7 @@ type TunesServer = Server<ClientToServerEvents, ServerToClientEvents>;
 const rooms = new Map<string, Room>();
 const games = new Map<string, GameEngine>();
 const socketToRoom = new Map<string, { code: string; playerId: string }>();
-const roomSpotifyTokens = new Map<string, string>();
+const roomSpotifyCredentials = new Map<string, HostSpotifyCredential>();
 
 /** Timers for delayed room cleanup when all players disconnect */
 const roomCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -79,7 +83,7 @@ function createDefaultGameState(): GameState {
 function persistRoom(code: string): void {
   const room = rooms.get(code);
   if (!room) return;
-  const spotifyToken = roomSpotifyTokens.get(code);
+  const spotifyToken = spotifyTokenForHost(room.hostId, roomSpotifyCredentials.get(code));
   try {
     saveRoom(code, room, spotifyToken);
   } catch (err) {
@@ -169,7 +173,7 @@ export function restoreRoomsFromDatabase(_io: TunesServer): void {
   for (const { room, spotifyToken } of saved) {
     rooms.set(room.code, room);
     if (spotifyToken) {
-      roomSpotifyTokens.set(room.code, spotifyToken);
+      roomSpotifyCredentials.set(room.code, { hostId: room.hostId, token: spotifyToken });
     }
 
     // Mark all players as disconnected since this is a fresh server start
@@ -242,7 +246,7 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
 
     if (spotifyAccessToken) {
       engine.setSpotifyToken(spotifyAccessToken);
-      roomSpotifyTokens.set(code, spotifyAccessToken);
+      roomSpotifyCredentials.set(code, { hostId: playerId, token: spotifyAccessToken });
     }
 
     persistRoom(code);
@@ -475,12 +479,18 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
 
       // Accept a fresh Spotify token from the client (handles token expiry)
       if (data?.spotifyAccessToken && isShortString(data.spotifyAccessToken, 1000)) {
-        roomSpotifyTokens.set(mapping.code, data.spotifyAccessToken);
+        roomSpotifyCredentials.set(mapping.code, {
+          hostId: mapping.playerId,
+          token: data.spotifyAccessToken,
+        });
         const engine = games.get(mapping.code);
         if (engine) engine.setSpotifyToken(data.spotifyAccessToken);
       }
 
-      const spotifyToken = roomSpotifyTokens.get(mapping.code);
+      const spotifyToken = spotifyTokenForHost(
+        room.hostId,
+        roomSpotifyCredentials.get(mapping.code),
+      );
       logger.info('Starting game', {
         code: mapping.code,
         hasSpotifyToken: !!spotifyToken,
@@ -707,6 +717,7 @@ function handleLeave(io: TunesServer, socket: TunesSocket, voluntary: boolean = 
           logger.info('Room destroyed (cleanup timer expired)', { code });
           rooms.delete(code);
           games.delete(code);
+          roomSpotifyCredentials.delete(code);
           deleteRoom(code);
         }
       }, ROOM_CLEANUP_DELAY_MS);
@@ -720,6 +731,11 @@ function handleLeave(io: TunesServer, socket: TunesSocket, voluntary: boolean = 
     const newHost = connectedPlayers[0];
     room.hostId = newHost.id;
     newHost.isHost = true;
+    // Spotify credentials belong to the departed host. The successor must
+    // explicitly provide their own token when starting, otherwise preview mode
+    // is used.
+    roomSpotifyCredentials.delete(mapping.code);
+    engine?.setSpotifyToken(null);
     logger.info('Host transferred', { code: mapping.code, newHostId: newHost.id });
     io.to(mapping.code).emit('state-sync', room);
     persistRoom(mapping.code);
