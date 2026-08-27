@@ -1,6 +1,6 @@
 /**
  * HTML5 Audio fallback for when Spotify Web Playback SDK fails.
- * Uses Spotify preview URLs (30-second clips) that work without Premium.
+ * Uses 30-second preview URLs that work without Premium.
  */
 
 let audio: HTMLAudioElement | null = null;
@@ -15,7 +15,7 @@ export async function playPreviewUrl(url: string): Promise<boolean> {
   try {
     if (!audio) {
       audio = new Audio();
-      audio.addEventListener('play', () => onStateChange?.(!audio!.paused));
+      audio.addEventListener('play', () => onStateChange?.(false));
       audio.addEventListener('pause', () => onStateChange?.(true));
       audio.addEventListener('ended', () => onStateChange?.(true));
       audio.addEventListener('error', (e) => {
