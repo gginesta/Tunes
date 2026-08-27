@@ -3,6 +3,10 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
+# better-sqlite3 does not publish a musl binary for every Node/Alpine patch
+# combination, so keep the native toolchain available for a source build.
+RUN apk add --no-cache python3 make g++
+
 # Copy package files for all workspaces
 COPY package.json package-lock.json* ./
 COPY shared/package.json shared/
@@ -40,8 +44,11 @@ COPY shared/package.json shared/
 COPY server/package.json server/
 COPY app/package.json app/
 
-# Install production dependencies only
-RUN npm install --omit=dev
+# Install production dependencies only. Remove the temporary native build
+# toolchain after better-sqlite3 has compiled.
+RUN apk add --no-cache --virtual .native-build-deps python3 make g++ && \
+    npm install --omit=dev && \
+    apk del .native-build-deps
 
 # Copy built shared library
 COPY --from=build /app/shared/dist/ shared/dist/
