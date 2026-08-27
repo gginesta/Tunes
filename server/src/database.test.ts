@@ -63,6 +63,7 @@ describe('room playback mode persistence', () => {
     database.saveRoom(room.code, room);
 
     expect(database.loadRoom(room.code)?.room.playbackMode).toBe('spotify');
+    expect(database.loadRoom(room.code)?.room.originalHostId).toBe('host-a');
     expect(database.loadRoom(room.code)?.spotifyToken).toBeNull();
   });
 });
