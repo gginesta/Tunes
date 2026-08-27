@@ -6,12 +6,13 @@
  */
 import { useGameStore } from '../store';
 import { refreshAccessToken } from './spotify';
-import { initPlayer, isInitialized } from './spotifyPlayer';
-import { initFallbackAudio } from './audioFallback';
+import { initPlayer, isInitialized, pause as pauseSpotify } from './spotifyPlayer';
+import { initFallbackAudio, isFallbackPlaying, pauseFallback } from './audioFallback';
 import { sessionAllowsSpotifyRestore } from './socket';
 
 /** True while playback is routed through the HTML5 preview fallback. */
 let usingFallback = false;
+let pendingSpotifyTrackId: string | null = null;
 type RefreshedSpotifyToken = Awaited<ReturnType<typeof refreshAccessToken>>;
 const pendingRefreshes = new Map<string, Promise<RefreshedSpotifyToken>>();
 
@@ -21,6 +22,58 @@ export function isUsingFallback(): boolean {
 
 export function setUsingFallback(value: boolean): void {
   usingFallback = value;
+}
+
+export function beginSpotifyPlaybackAttempt(trackId: string): void {
+  pendingSpotifyTrackId = trackId;
+}
+
+export function cancelSpotifyPlaybackAttempt(trackId?: string): void {
+  if (!trackId || pendingSpotifyTrackId === trackId) {
+    pendingSpotifyTrackId = null;
+  }
+}
+
+/** Keep a working preview alive when the SDK cannot autoplay the upgrade. */
+export function handleSpotifyAutoplayFailed(): void {
+  if (usingFallback && isFallbackPlaying()) {
+    useGameStore.setState({ isPlaying: true, autoplayBlocked: false });
+    console.log('[Tunes] Spotify autoplay blocked — keeping preview audio');
+    return;
+  }
+
+  useGameStore.setState({ isPlaying: false, autoplayBlocked: true });
+  console.log('[Tunes] Autoplay blocked — user must tap to unlock audio');
+}
+
+/** Hand off from preview audio only after the SDK confirms audible playback. */
+export function handleSpotifyPlayerStateChange(paused: boolean, trackId: string): void {
+  if (
+    !paused
+    && trackId !== pendingSpotifyTrackId
+    && (usingFallback || pendingSpotifyTrackId !== null)
+  ) {
+    // resume() can briefly surface the previously played SDK track. Stop it;
+    // any late/stale SDK track must also stop while preview audio owns playback.
+    void pauseSpotify();
+    return;
+  }
+
+  const requestedTrackStarted = !paused
+    && pendingSpotifyTrackId !== null
+    && trackId === pendingSpotifyTrackId;
+  if (requestedTrackStarted) {
+    pendingSpotifyTrackId = null;
+  }
+
+  if (requestedTrackStarted && usingFallback) {
+    usingFallback = false;
+    pauseFallback();
+  }
+
+  if (!usingFallback) {
+    useGameStore.setState({ isPlaying: !paused });
+  }
 }
 
 function refreshSpotifyCredential(refreshToken: string): Promise<RefreshedSpotifyToken> {
@@ -146,13 +199,10 @@ export function ensureSpotifySession(): void {
       useGameStore.setState({ spotifyError: message });
     },
     onAutoplayFailed: () => {
-      useGameStore.setState({ isPlaying: false, autoplayBlocked: true });
-      console.log('[Tunes] Autoplay blocked — user must tap to unlock audio');
+      handleSpotifyAutoplayFailed();
     },
-    onStateChange: (paused) => {
-      if (!usingFallback) {
-        useGameStore.setState({ isPlaying: !paused });
-      }
+    onStateChange: (paused, trackId) => {
+      handleSpotifyPlayerStateChange(paused, trackId);
     },
     onActive: (active) => {
       if (!active) {

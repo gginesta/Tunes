@@ -52,4 +52,16 @@ describe('preview fallback pause/resume', () => {
     expect(audio.currentTime).toBe(12.5);
     expect(audio.playCount).toBe(2);
   });
+
+  it('does not rewind a preview that is already playing', async () => {
+    const url = 'https://example.com/preview.mp3';
+    await expect(playPreviewUrl(url)).resolves.toBe(true);
+    audio.currentTime = 12.5;
+
+    await expect(playPreviewUrl(url)).resolves.toBe(true);
+
+    expect(audio.src).toBe(url);
+    expect(audio.currentTime).toBe(12.5);
+    expect(audio.playCount).toBe(1);
+  });
 });

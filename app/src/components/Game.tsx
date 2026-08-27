@@ -6,7 +6,7 @@ import { useGameStore } from '../store';
 import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
 import { useGameTimers } from '../hooks/useGameTimers';
 import { useGameSounds } from '../hooks/useGameSounds';
-import { preUnlockAudio, activateElement, resume } from '../services/spotifyPlayer';
+import { preUnlockAudio, activateElement } from '../services/spotifyPlayer';
 import { SKIP_COST, BUY_CARD_COST } from '@tunes/shared';
 import { SongHistory } from './SongHistory';
 import { WaitingState } from './WaitingState';
@@ -97,9 +97,8 @@ export function Game() {
     preUnlockAudio();
     // 2. Unlock the SDK's internal AudioContext (can be called multiple times)
     activateElement();
-    // 3. Resume the SDK player directly (goes through SDK's AudioContext)
-    resume().catch(() => {});
-    // 4. Then try the full playback flow (REST API + fallbacks)
+    // 3. Route the gesture to the current card. Preview-only cards must never
+    // resume the SDK's previous Spotify track.
     togglePlayback();
   };
 

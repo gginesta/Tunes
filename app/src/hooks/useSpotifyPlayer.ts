@@ -17,11 +17,13 @@ import {
 import {
   ensureFallbackAudio,
   ensureSpotifySession,
+  beginSpotifyPlaybackAttempt,
+  cancelSpotifyPlaybackAttempt,
   getSpotifyToken,
   isUsingFallback,
   setUsingFallback,
 } from '../services/spotifySession';
-import { getPlaybackRoute } from '../services/playbackRoute';
+import { getPlaybackAttemptKey, getPlaybackRoute } from '../services/playbackRoute';
 
 export function useSpotifyPlayer() {
   const spotifyToken = useGameStore((s) => s.spotifyToken);
@@ -71,13 +73,13 @@ export function useSpotifyPlayer() {
    * Attempt to play a track. Tries SDK first, falls back to preview URL.
    */
   const attemptPlayTrack = useCallback(async (trackId: string): Promise<boolean> => {
-    setUsingFallback(false);
-
+    beginSpotifyPlaybackAttempt(trackId);
     let token: string;
     try {
       token = await getSpotifyToken();
     } catch {
       console.warn('[Tunes] Could not get token for playback');
+      cancelSpotifyPlaybackAttempt(trackId);
       return tryFallback();
     }
 
@@ -95,6 +97,7 @@ export function useSpotifyPlayer() {
       console.warn('[Tunes] Token refresh failed');
     }
 
+    cancelSpotifyPlaybackAttempt(trackId);
     return tryFallback();
   }, [tryFallback]);
 
@@ -108,16 +111,17 @@ export function useSpotifyPlayer() {
   useEffect(() => {
     if (!isHost || (!currentTrackId && !currentPreviewUrl)) return;
     if (phase !== 'playing') return;
-    const playbackKey = currentTrackId || currentPreviewUrl;
-    if (playbackKey === lastTrackRef.current) return;
     const playbackRoute = getPlaybackRoute(
       currentTrackId,
       currentPreviewUrl,
       !!spotifyToken,
     );
-    // A returning Spotify host may still be restoring its access token. Do not
-    // consume this playback key until a playable route becomes available.
-    if (playbackRoute === 'none') return;
+    const playbackKey = getPlaybackAttemptKey(
+      playbackRoute,
+      currentTrackId,
+      currentPreviewUrl,
+    );
+    if (!playbackKey || playbackKey === lastTrackRef.current) return;
 
     // For SDK playback, wait until device is confirmed
     if (playbackRoute === 'spotify' && !spotifyReady) return;
@@ -129,6 +133,7 @@ export function useSpotifyPlayer() {
       activateElement();
       attemptPlayTrack(currentTrackId);
     } else if (playbackRoute === 'preview' && currentPreviewUrl) {
+      cancelSpotifyPlaybackAttempt();
       setUsingFallback(true);
       playPreviewUrl(currentPreviewUrl).then((ok) => {
         if (ok) {
@@ -145,6 +150,7 @@ export function useSpotifyPlayer() {
   useEffect(() => {
     if (!isHost) return;
     if (phase === 'reveal' || phase === 'game_over') {
+      cancelSpotifyPlaybackAttempt();
       pause();
       pauseFallback();
     }
@@ -169,6 +175,7 @@ export function useSpotifyPlayer() {
 
     if (playing) {
       if (isUsingFallback()) {
+        cancelSpotifyPlaybackAttempt();
         pauseFallback();
         useGameStore.setState({ isPlaying: false });
       } else {
@@ -176,11 +183,13 @@ export function useSpotifyPlayer() {
       }
     } else {
       if (playbackRoute === 'preview' && previewUrl) {
+        cancelSpotifyPlaybackAttempt();
         // Continue an existing preview from its paused position. Only assign
         // the URL again when there is no resumable fallback audio.
         const resumed = await resumeFallback();
         if (!resumed) await tryFallback();
       } else if (playbackRoute === 'spotify' && trackId) {
+        beginSpotifyPlaybackAttempt(trackId);
         // The SDK resume runs inside the gesture context, which browsers trust.
         await resume().catch(() => {});
         await attemptPlayTrack(trackId);
