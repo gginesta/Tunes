@@ -35,6 +35,7 @@ import { registerStatsHandlers } from './statsHandlers';
 import { guestNameKey, isRecord, isShortString } from './validate';
 import { logger } from './logger';
 import {
+  restoreHostSpotifyCredential,
   spotifyTokenForHost,
   type HostSpotifyCredential,
 } from './spotifyCredentials';
@@ -170,11 +171,12 @@ function setupGameEndHook(engine: GameEngine, roomCode: string): void {
  */
 export function restoreRoomsFromDatabase(_io: TunesServer): void {
   const saved = loadAllRooms();
-  for (const { room, spotifyToken } of saved) {
+  for (const { room, spotifyToken: legacySpotifyToken } of saved) {
     rooms.set(room.code, room);
-    if (spotifyToken) {
-      roomSpotifyCredentials.set(room.code, { hostId: room.hostId, token: spotifyToken });
-    }
+    // Pre-owner rows cannot prove which player supplied the room-scoped token.
+    // Never assign that credential to whoever happens to be host after restart.
+    const restoredCredential = restoreHostSpotifyCredential(legacySpotifyToken, undefined);
+    if (restoredCredential) roomSpotifyCredentials.set(room.code, restoredCredential);
 
     // Mark all players as disconnected since this is a fresh server start
     for (const player of Object.values(room.players)) {
@@ -193,6 +195,13 @@ export function restoreRoomsFromDatabase(_io: TunesServer): void {
         player.timeline = [];
         player.tokens = STARTING_TOKENS;
       }
+    }
+
+    if (legacySpotifyToken && !restoredCredential) {
+      // Rewrite the row without the unowned credential. A current Spotify host
+      // sends their own existing/refreshed token on the next Start action.
+      saveRoom(room.code, room);
+      logger.info('Discarded ownerless persisted Spotify credential', { code: room.code });
     }
 
     logger.info('Restored room from database', { code: room.code, phase: room.gameState.phase });

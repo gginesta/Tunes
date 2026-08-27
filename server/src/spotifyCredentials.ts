@@ -10,3 +10,15 @@ export function spotifyTokenForHost(
 ): string | undefined {
   return credential?.hostId === currentHostId ? credential.token : undefined;
 }
+
+/**
+ * Restore a persisted credential only when the database also proves its owner.
+ * Legacy Tunes rows contain a token but no owner ID, so they fail closed.
+ */
+export function restoreHostSpotifyCredential(
+  token: string | null,
+  ownerHostId: string | undefined,
+): HostSpotifyCredential | undefined {
+  if (!token || !ownerHostId) return undefined;
+  return { hostId: ownerHostId, token };
+}
