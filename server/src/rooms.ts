@@ -17,7 +17,9 @@ import { GameEngine } from './game';
 import { registerGameActionHandlers } from './gameActionHandlers';
 import { authenticateGuest, getOrCreateGuest, issueToken, matchesToken, tokenHash } from './guestSession';
 import { logger } from './logger';
-import { getLicensedPacks, getPartyDeck, isAuthorizedRecording } from './partyCatalogue';
+import {
+  getLicensedPacks, getPartyDeck, isAuthorizedRecording, isAuthorizedSpotifyRecording, spotifyClassicAvailable,
+} from './partyCatalogue';
 import { registerStatsHandlers } from './statsHandlers';
 import { isBoundedInt, isRecord, isShortString } from './validate';
 
@@ -95,7 +97,7 @@ function broadcastState(io: TunesServer, live: LiveRoom): void {
 function recoveryFor(live: LiveRoom): RoomRecovery {
   const { room, seats, engine } = live;
   return {
-    version: 1,
+    version: room.playbackMode === 'spotify' ? 2 : 1,
     seats,
     expiresAt: room.expiresAt,
     speakerId: room.speakerId,
@@ -199,6 +201,7 @@ function createLiveRoom(
     },
     send: (playerId, view) => sendView(io, playerId, view),
     canPlay: isAuthorizedRecording,
+    canPlaySpotify: isAuthorizedSpotifyRecording,
   });
   const live = { room, engine, seats, completedMatchIds };
   engine.onGameEnd(() => finishMatch(live));
@@ -247,9 +250,10 @@ function getRoomIfLive(code: string): LiveRoom | undefined {
 }
 
 export function restoreRoomsFromDatabase(io: TunesServer): void {
-  for (const { room, recovery, spotifyToken } of loadAllRooms()) {
-    const saved = recovery?.version === 1 ? recovery : undefined;
-    const legacyPlayback = room.playbackMode === 'spotify' || room.playbackMode === 'preview' || Boolean(spotifyToken);
+  for (const { room, recovery, hasLegacySpotifyCredential } of loadAllRooms()) {
+    const saved = recovery?.version === 1 || recovery?.version === 2 ? recovery : undefined;
+    const legacyPlayback = room.playbackMode === 'preview' || hasLegacySpotifyCredential ||
+      (room.playbackMode === 'spotify' && (saved?.version !== 2 || room.settings.mode === 'dinner'));
     for (const player of Object.values(room.players)) player.connected = false;
     if (legacyPlayback) room.playbackMode = 'manual';
     if (room.settings.songPack === 'playlist') {
@@ -257,7 +261,7 @@ export function restoreRoomsFromDatabase(io: TunesServer): void {
       room.settings.playlistUrl = undefined;
     }
     const live = createLiveRoom(io, room, saved?.seats, saved?.completedMatchIds);
-    // Legacy provider recordings stay unavailable after restart.
+    // Native Spotify snapshots revalidate their current recording and resume paused.
     if (saved?.game?.version === 1 && Array.isArray(saved.game.deck) && saved.game.state
       && (!legacyPlayback || room.gameState.phase === 'game_over')) {
       try {
@@ -427,7 +431,7 @@ function rejoinRoom(io: TunesServer, socket: TunesSocket, payload: unknown): voi
     void oldSocket?.leave(code);
     oldSocket?.emit('error', { message: 'This seat moved to another connection.', code: 'SEAT_REPLACED' });
     oldSocket?.disconnect(true);
-    if (room.gameState.audio?.operatorId === playerId && room.playbackMode === 'licensed') {
+    if (room.gameState.audio?.operatorId === playerId && room.gameState.audio.kind === 'automatic') {
       engine.handlePlayerDisconnect(playerId);
     }
     if (room.hostId === playerId) cancelStart(io, code);
@@ -468,25 +472,34 @@ function updateRoomSettings(room: Room, settings: unknown): boolean {
   if (dinnerRounds !== undefined && !isBoundedInt(dinnerRounds, 2, 24)) return false;
   if (dedicatedDjId !== undefined && dedicatedDjId !== ''
     && (!isShortString(dedicatedDjId, 64) || !Object.prototype.hasOwnProperty.call(room.players, dedicatedDjId))) return false;
-  if (playbackMode !== undefined && playbackMode !== 'licensed' && playbackMode !== 'manual') return false;
+  if (playbackMode !== undefined && playbackMode !== 'licensed' && playbackMode !== 'manual' && playbackMode !== 'spotify') return false;
+  const nextMode = (mode ?? room.settings.mode) as GameSettings['mode'];
+  let nextPlayback = playbackMode ?? room.playbackMode ?? 'manual';
+  if (nextPlayback === 'spotify' && nextMode === 'dinner' && playbackMode === undefined) nextPlayback = 'manual';
+  if (nextPlayback === 'spotify' && (nextMode === 'dinner' || !spotifyClassicAvailable())) return false;
   const packs = enabledLicensedPacks();
-  if (packId !== undefined && !packs.some((pack) => pack.id === packId)) return false;
-  if (playbackMode === 'licensed' && packs.length === 0) return false;
+  if (nextPlayback === 'licensed' && packId !== undefined && !packs.some((pack) => pack.id === packId)) return false;
+  if (nextPlayback === 'licensed' && !packs.length) return false;
 
   const typed = settings as Partial<GameSettings>;
   room.settings = {
     ...room.settings,
-    mode: typed.mode ?? room.settings.mode,
+    mode: nextMode,
     cardsToWin: typed.cardsToWin ?? room.settings.cardsToWin,
     songPack: typed.songPack ?? room.settings.songPack,
     decades: typed.decades ?? room.settings.decades,
     genres: typed.genres ?? room.settings.genres,
     regions: typed.regions ?? room.settings.regions,
     dinnerRounds: typed.dinnerRounds ?? room.settings.dinnerRounds,
-    dedicatedDjId: dedicatedDjId === undefined ? room.settings.dedicatedDjId : typed.dedicatedDjId || undefined,
-    packId: typed.packId ?? room.settings.packId ?? packs[0]?.id,
+    dedicatedDjId: nextPlayback === 'manual'
+      ? (dedicatedDjId === undefined ? room.settings.dedicatedDjId : typed.dedicatedDjId || undefined)
+      : undefined,
+    packId: nextPlayback === 'licensed'
+      ? typed.packId ?? packs.find((pack) => pack.id === room.settings.packId)?.id ?? packs[0]?.id
+      : undefined,
   };
-  if (playbackMode === 'manual' || playbackMode === 'licensed') room.playbackMode = playbackMode;
+  room.playbackMode = nextPlayback;
+  if (playbackMode === 'spotify') room.speakerId = room.hostId;
   return true;
 }
 
@@ -499,6 +512,9 @@ function recordingsNeeded(room: Room, playerCount: number): number {
 
 function startIssue(room: Room, playerCount: number, dedicatedDjReady: boolean, playable: number): string | undefined {
   if (room.settings.mode === 'dinner' && !dinnerStartsEnabled()) return 'Dinner Set is unavailable for new starts.';
+  if (room.playbackMode === 'spotify' && (room.settings.mode === 'dinner' || !spotifyClassicAvailable())) {
+    return 'Spotify is unavailable for new Classic starts.';
+  }
   if (room.playbackMode === 'licensed' && !enabledLicensedPacks().length) return 'Licensed playback is unavailable for new starts.';
   if (!dedicatedDjReady) return 'Connect your dedicated DJ to start.';
   if (playerCount < MIN_PLAYERS) return `Need at least ${MIN_PLAYERS} connected players.`;
@@ -554,10 +570,10 @@ async function startGame(io: TunesServer, socket: TunesSocket, rematchId?: strin
         : `Need at least ${MIN_PLAYERS} ${rematchId ? 'accepting' : 'connected'} players.`, action: 'start-game' });
       return;
     }
-    if (!rematchId && room.playbackMode === 'licensed' && !room.players[room.speakerId ?? '']?.connected) {
-      room.speakerId = room.hostId;
-    }
-    if (room.playbackMode === 'licensed' && !room.players[room.speakerId ?? '']?.connected) {
+    const automatic = room.playbackMode === 'licensed' || room.playbackMode === 'spotify';
+    const speakerId = (automatic && !room.players[room.speakerId ?? '']?.connected &&
+      (!rematchId || room.playbackMode === 'spotify')) ? room.hostId : room.speakerId;
+    if (automatic && !room.players[speakerId ?? '']?.connected) {
       socket.emit('error', { message: 'Connect the speaker before starting.', action: 'start-game' });
       return;
     }
@@ -574,6 +590,7 @@ async function startGame(io: TunesServer, socket: TunesSocket, rematchId?: strin
     if (deck.filter((card) => !heardKeys.has(card.recordingId ?? card.id)).length < needed) {
       message = 'Some recordings will repeat to complete this set.';
     }
+    room.speakerId = speakerId;
     room.recovery = undefined;
     room.startAvailability = undefined;
     live.startsAt = started;
@@ -702,6 +719,9 @@ function registerTableHandlers(io: TunesServer, socket: TunesSocket): void {
       if (config.playbackMode === 'licensed' && !enabledLicensedPacks().some((pack) => pack.id === config.settings.packId)) {
         config.playbackMode = 'manual';
       }
+      if (config.playbackMode === 'spotify' && (!spotifyClassicAvailable() || config.settings.mode === 'dinner')) {
+        config.playbackMode = 'manual';
+      }
       if (!dinnerStartsEnabled() && config.settings.mode === 'dinner') config.settings.mode = 'original';
       createRoom(io, socket, name, guest, config.playbackMode, config.settings, payload.tableId, config.heardRecordingIds);
     }
@@ -713,15 +733,16 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket): void
     if (!isRecord(payload) || refuseIfSeated(socket)) return;
     const name = parseName(payload, socket);
     if (!name) return;
-    if (payload.playbackMode !== undefined && payload.playbackMode !== 'manual' && payload.playbackMode !== 'licensed') {
-      socket.emit('error', { message: 'This music source is unavailable. Choose Manual DJ or an available licensed pack.' });
-      return;
-    }
-    if (payload.spotifyAccessToken) {
+    if ('spotifyAccessToken' in payload) {
       socket.emit('error', { message: 'Refresh Tunes to use the available hosting modes.', code: 'REFRESH_REQUIRED' });
       return;
     }
-    const playbackMode = payload.playbackMode === 'licensed' ? 'licensed' : 'manual';
+    const playbackMode = payload.playbackMode ?? 'manual';
+    if ((playbackMode !== 'manual' && playbackMode !== 'licensed' && playbackMode !== 'spotify') ||
+      (playbackMode === 'spotify' && !spotifyClassicAvailable())) {
+      socket.emit('error', { message: 'This music source is unavailable.' });
+      return;
+    }
     const packs = playbackMode === 'licensed' ? enabledLicensedPacks() : [];
     const pack = payload.packId ? packs.find((item) => item.id === payload.packId) : packs[0];
     if (playbackMode === 'licensed' && !pack) {
@@ -753,7 +774,7 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket): void
     if (!mapping || !live || live.room.hostId !== mapping.playerId || live.room.gameState.phase !== 'lobby') return;
     if (startAttempts.has(live.room.code)) return;
     const { room } = live;
-    const previous = { settings: room.settings, playbackMode: room.playbackMode };
+    const previous = { settings: room.settings, playbackMode: room.playbackMode, speakerId: room.speakerId };
     if (!updateRoomSettings(room, settings)) {
       socket.emit('error', { message: 'These settings are unavailable for this table.', action: 'update-settings' });
       return;
@@ -769,7 +790,13 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket): void
       socket.emit('error', { message: 'Could not save these settings. Try again.', action: 'update-settings' });
     }
   });
-  socket.on('start-game', () => void startGame(io, socket));
+  socket.on('start-game', (payload?: unknown) => {
+    if (isRecord(payload) && 'spotifyAccessToken' in payload) {
+      socket.emit('error', { message: 'Refresh Tunes to use the available hosting modes.', code: 'REFRESH_REQUIRED' });
+      return;
+    }
+    void startGame(io, socket);
+  });
   socket.on('start-rematch', (payload) => {
     if (isRecord(payload) && isShortString(payload.matchId, 64)) void startGame(io, socket, payload.matchId);
   });

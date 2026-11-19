@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -284,6 +284,173 @@ it('holds the remaining Classic clock through a six-minute simulated break', asy
     });
   } finally {
     future.mockRestore();
+  }
+});
+
+it('runs gated Spotify Classic in the same room and restores a private, paused cue', async () => {
+  const manifest = join(dataDir, 'spotify-fixture.json');
+  const manual = JSON.parse(readFileSync(join(__dirname, '../../data/manual-recordings.json'), 'utf8'));
+  const tracks = manual.slice(0, 12).map(({ recordingId }: { recordingId: string }, index: number) => ({
+    recordingId, spotifyTrackId: String(index + 1).padStart(22, 'X'),
+  }));
+  writeFileSync(manifest, JSON.stringify({ tracks }));
+  const gate = process.env.TUNES_SPOTIFY_CLASSIC_ENABLED;
+  const previousManifest = process.env.TUNES_SPOTIFY_MANIFEST;
+  vi.stubEnv('TUNES_SPOTIFY_MANIFEST', manifest);
+  vi.stubEnv('TUNES_SPOTIFY_CLASSIC_ENABLED', 'false');
+  try {
+    let host = await newClient();
+    let guest = await newClient();
+    const created = await hostRoom(host);
+    const joined = await joinRoom(guest, created.code);
+    const changeSource = (playbackMode: 'manual' | 'spotify') => {
+      const synced = once(host, 'state-sync', (room) => room.playbackMode === playbackMode);
+      host.emit('update-settings', { mode: 'original', playbackMode });
+      return synced;
+    };
+    const disabled = once(host, 'error', (error) => error.action === 'update-settings');
+    host.emit('update-settings', { mode: 'original', playbackMode: 'spotify' });
+    await disabled;
+
+    vi.stubEnv('TUNES_SPOTIFY_CLASSIC_ENABLED', 'true');
+    const dinnerRejected = once(host, 'error', (error) => error.action === 'update-settings');
+    host.emit('update-settings', { mode: 'dinner', playbackMode: 'spotify' });
+    await dinnerRejected;
+    expect(await changeSource('spotify')).toMatchObject({
+      code: created.code, settings: { mode: 'original' },
+      startAvailability: { playable: 12, required: 11, ready: true },
+    });
+    const dinner = once(host, 'state-sync', (room) => room.settings.mode === 'dinner');
+    host.emit('update-settings', { mode: 'dinner' });
+    expect((await dinner).playbackMode).toBe('manual');
+    await changeSource('spotify');
+
+    const tooFew = once(host, 'state-sync', (room) => room.settings.cardsToWin === 15);
+    host.emit('update-settings', { cardsToWin: 15 });
+    expect((await tooFew).startAvailability).toMatchObject({ playable: 12, required: 16, ready: false });
+    const rejected = once(host, 'error', (error) => error.action === 'start-game');
+    host.emit('start-game');
+    expect(await rejected).toMatchObject({ message: expect.stringContaining('Only 12 usable recordings') });
+    const enough = once(host, 'state-sync', (room) => room.startAvailability?.ready === true);
+    host.emit('update-settings', { cardsToWin: 10 });
+    await enough;
+
+    const anchored = once(host, 'state-sync', (room) => room.gameState.phase === 'anchor_preview');
+    host.emit('start-game');
+    const anchor = (await anchored).gameState;
+    const matchId = anchor.matchId!;
+    const nextCue = (client: Client) => once(client, 'state-sync', (room) => room.gameState.audio?.status === 'awaiting_audio');
+    const hostCue = nextCue(host);
+    const guestCue = nextCue(guest);
+    host.emit('skip-anchors', { matchId, roundId: anchor.roundId! });
+    const [speakerView, watcherView] = await Promise.all([hostCue, guestCue]);
+    const first = speakerView.gameState;
+    const scope = { matchId, roundId: first.roundId! };
+    const cue = { ...scope, cueId: first.audio!.cueId! };
+    const trackId = first.audio?.source?.spotifyTrackId;
+    expect(first.audio).toMatchObject({ kind: 'automatic', operatorId: created.playerId, source: { spotifyTrackId: expect.any(String) } });
+    expect(first.timing?.deadline).toBeNull();
+    expect(first.currentSong).toBeNull();
+    expect(JSON.stringify(watcherView)).not.toContain(trackId);
+
+    const blocked = once(guest, 'error', (error) => error.action === 'audio-ready');
+    guest.emit('audio-ready', cue);
+    expect(await blocked).toMatchObject({ code: 'CUE_MOVED_ON' });
+    const playing = once(host, 'state-sync', (room) => room.gameState.audio?.status === 'playing');
+    host.emit('audio-ready', cue);
+    expect((await playing).gameState.timing?.deadline).toBeGreaterThan(Date.now());
+    const hostGuesses = first.currentTurnPlayerId === created.playerId;
+    const guesser = hostGuesses ? host : guest;
+    const locked = once(host, 'state-sync', (room) => room.gameState.phase === 'challenge');
+    guesser.emit('place-card', { ...scope, position: 0 });
+    await locked;
+    const interrupted = once(host, 'state-sync', (room) => room.gameState.audio?.status === 'paused');
+    host.emit('audio-interrupted', cue);
+    expect((await interrupted).gameState).toMatchObject({ pendingPlacement: 0, timing: { deadline: null } });
+    const checkpoint = database.loadRoom(created.code)!;
+    expect(checkpoint.recovery?.version).toBe(2);
+    expect(checkpoint.spotifyToken).toBeNull();
+
+    await crashAndRestore();
+    const resumeSeat = async (client: Client, seat: typeof created | typeof joined) => {
+      const resumed = once(client, 'room-joined');
+      client.emit('rejoin-room', { code: created.code, playerId: seat.playerId, resumeToken: seat.resumeToken });
+      return (await resumed).room;
+    };
+    host = await newClient();
+    guest = await newClient();
+    const restored = await resumeSeat(host, created);
+    const recoveredWatcher = await resumeSeat(guest, joined);
+    expect(restored).toMatchObject({
+      playbackMode: 'spotify',
+      gameState: { ...scope, phase: 'challenge', pendingPlacement: 0,
+        audio: { status: 'paused', cueId: cue.cueId, reason: 'server-restart', source: { spotifyTrackId: trackId } } },
+    });
+    expect(JSON.stringify(recoveredWatcher)).not.toContain(trackId);
+
+    const resumed = nextCue(host);
+    host.emit('resume-audio', cue);
+    const renewed = (await resumed).gameState.audio!;
+    expect(renewed.cueId).not.toBe(cue.cueId);
+    const stale = once(host, 'error', (error) => error.action === 'audio-ready');
+    host.emit('audio-ready', cue);
+    expect(await stale).toMatchObject({ code: 'CUE_MOVED_ON' });
+    const resumedPlaying = once(guest, 'state-sync', (room) => room.gameState.audio?.status === 'playing');
+    host.emit('audio-ready', { ...scope, cueId: renewed.cueId! });
+    await resumedPlaying;
+    const paused = once(guest, 'state-sync', (room) => room.gameState.audio?.status === 'paused');
+    host.disconnect();
+    expect((await paused).gameState).toMatchObject({ pendingPlacement: 0, timing: { deadline: null } });
+
+    host = await newClient();
+    vi.stubEnv('TUNES_SPOTIFY_CLASSIC_ENABLED', 'false');
+    expect((await resumeSeat(host, created)).gameState.audio?.source).toBeUndefined();
+    const revoked = once(host, 'error', (error) => error.action === 'resume-audio');
+    host.emit('resume-audio', { ...scope, cueId: renewed.cueId! });
+    expect(await revoked).toMatchObject({ message: expect.stringContaining('unavailable') });
+    vi.stubEnv('TUNES_SPOTIFY_CLASSIC_ENABLED', 'true');
+
+    const sourceAgain = nextCue(host);
+    host.emit('resume-audio', { ...scope, cueId: renewed.cueId! });
+    const current = (await sourceAgain).gameState.audio!;
+    const playingAgain = once(host, 'state-sync', (room) => room.gameState.audio?.status === 'playing');
+    host.emit('audio-ready', { ...scope, cueId: current.cueId! });
+    await playingAgain;
+    const replacement = await newClient();
+    const fenced = once(host, 'error', (error) => error.code === 'SEAT_REPLACED');
+    expect((await resumeSeat(replacement, created)).gameState.audio).toMatchObject({ status: 'paused' });
+    await fenced;
+    const recued = nextCue(replacement);
+    replacement.emit('resume-audio', { ...scope, cueId: current.cueId! });
+    const finalCue = (await recued).gameState.audio!;
+    const audible = once(replacement, 'state-sync', (room) => room.gameState.audio?.status === 'playing');
+    replacement.emit('audio-ready', { ...scope, cueId: finalCue.cueId! });
+    await audible;
+    const guesserSeat = hostGuesses ? replacement : guest;
+    const challengerSeat = hostGuesses ? guest : replacement;
+    const named = once(guesserSeat, 'state-sync', (room) => room.gameState.classic?.myNamingDone === true);
+    guesserSeat.emit('done-guessing', scope);
+    await named;
+    const revealed = once(guest, 'state-sync', (room) => room.gameState.phase === 'reveal');
+    challengerSeat.emit('pass-challenge', scope);
+    const revealView = await revealed;
+    expect(revealView.gameState.reveal?.song.recordingId).toBe(tracks.find((track: { spotifyTrackId: string }) => track.spotifyTrackId === trackId)?.recordingId);
+    expect(JSON.stringify(revealView)).not.toContain(trackId);
+    const ended = once(replacement, 'state-sync', (room) => room.gameState.phase === 'game_over');
+    replacement.emit('end-match', scope);
+    await ended;
+    for (const client of [replacement, guest]) {
+      const consented = once(client, 'state-sync', (room) =>
+        room.gameState.rematchPlayerIds?.includes(client === replacement ? created.playerId : joined.playerId) === true);
+      client.emit('rematch-consent', { ...scope, accept: true });
+      await consented;
+    }
+    const rematched = once(replacement, 'state-sync', (room) => room.gameState.phase === 'anchor_preview');
+    replacement.emit('start-rematch', { matchId });
+    expect(await rematched).toMatchObject({ code: created.code, playbackMode: 'spotify' });
+  } finally {
+    vi.stubEnv('TUNES_SPOTIFY_CLASSIC_ENABLED', gate);
+    vi.stubEnv('TUNES_SPOTIFY_MANIFEST', previousManifest);
   }
 });
 

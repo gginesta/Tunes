@@ -9,7 +9,7 @@ import {
   dinnerStartsEnabled, enabledLicensedPacks, getRoomCount, getTotalPlayerCount, registerRoomHandlers,
   restoreRoomsFromDatabase, stopRoomRuntime,
 } from './rooms';
-import { registerLicensedAudioRoutes } from './partyCatalogue';
+import { registerLicensedAudioRoutes, spotifyClassicAvailable } from './partyCatalogue';
 import { closeDatabase, initDatabase } from './database';
 import { createRateLimiter } from './rateLimit';
 import { logger } from './logger';
@@ -88,6 +88,7 @@ io.on('connection', (socket) => {
     licensedPacksAvailable: licensedPacks.length > 0,
     licensedPacks,
     dinnerAvailable: dinnerStartsEnabled(),
+    spotifyClassicAvailable: spotifyClassicAvailable(),
     revision,
     protocolVersion,
   });

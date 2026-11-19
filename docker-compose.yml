@@ -4,11 +4,14 @@ services:
       context: .
       args:
         - BUILD_REVISION=${BUILD_REVISION:-development}
-        - VITE_SPOTIFY_CLASSIC_URL=${VITE_SPOTIFY_CLASSIC_URL:-}
+        - VITE_SPOTIFY_CLIENT_ID=${VITE_SPOTIFY_CLIENT_ID:-}
+        - VITE_SPOTIFY_REDIRECT_URI=${VITE_SPOTIFY_REDIRECT_URI:-}
     ports:
       - "3000:3000"
     volumes:
       - ./data:/app/data
     environment:
       - NODE_ENV=production
+      - TUNES_SPOTIFY_CLASSIC_ENABLED=${TUNES_SPOTIFY_CLASSIC_ENABLED:-false}
+      - TUNES_SPOTIFY_MANIFEST=${TUNES_SPOTIFY_MANIFEST:-}
     restart: unless-stopped

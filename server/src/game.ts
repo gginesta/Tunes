@@ -43,6 +43,7 @@ type GameHooks = {
   onChange?: () => void;
   send?: (playerId: string, room: Room) => void;
   canPlay?: (song: SongCard, settings: GameSettings) => boolean;
+  canPlaySpotify?: (song: SongCard) => boolean;
 };
 
 type RoundState = {
@@ -224,7 +225,13 @@ export class GameEngine {
     for (const player of Object.values(view.players)) player.timeline = player.timeline.map(recordingFacts);
     view.gameState.currentSong = gs.phase === 'reveal' && gs.currentSong ? recordingFacts(gs.currentSong) : null;
     view.gameState.sharedTimeline = gs.sharedTimeline.map(recordingFacts);
-    view.gameState.history = structuredClone(this.history);
+    view.gameState.history = this.history.map((entry) => ({ ...entry, song: recordingFacts(entry.song) }));
+    const { reveal, result } = view.gameState;
+    if (reveal) {
+      reveal.song = recordingFacts(reveal.song);
+      reveal.timeline = reveal.timeline.map(recordingFacts);
+    }
+    if (result?.decidingSong) result.decidingSong = recordingFacts(result.decidingSong);
     if (gs.phase === 'game_over') view.gameState.stats = structuredClone(this.stats);
     view.gameState.audio = this.publicAudio(playerId);
     if (this.dinner && gs.matchId) {
@@ -258,13 +265,19 @@ export class GameEngine {
       status: audio.status, kind: audio.kind, cueId: audio.cueId,
       operatorId: audio.operatorId, reason: audio.reason,
     };
-    if (playerId !== audio.operatorId || !currentSong || audio.status === 'idle') return base;
+    if (playerId !== audio.operatorId || !this.room.players[playerId]?.connected || !currentSong || audio.status === 'idle') return base;
     if (audio.kind === 'manual') return { ...base, recording: recordingFacts(currentSong) };
     const source = this.automaticSource(currentSong);
     return source ? { ...base, source } : base;
   }
 
-  private automaticSource(song: SongCard) {
+  private automaticSource(song: SongCard): RoundAudio['source'] {
+    if (this.room.playbackMode === 'spotify') {
+      if (!this.dinner && song.spotifyTrackId && this.hooks.canPlaySpotify?.(song)) {
+        return { spotifyTrackId: song.spotifyTrackId };
+      }
+      return;
+    }
     if (this.room.playbackMode !== 'licensed' || !song.audioUrl) return;
     if (!(this.audioExpiry(song) > Date.now())) return;
     if (this.hooks.canPlay && !this.hooks.canPlay(song, this.room.settings)) return;
@@ -543,7 +556,7 @@ export class GameEngine {
     }
     if (this.manual) return this.audioReady(playerId, cueId);
     if (!this.gs.currentSong || !this.automaticSource(this.gs.currentSong)) {
-      return reject('This clip is unavailable. Replace the recording to continue.');
+      return reject('This recording is unavailable. Replace the recording to continue.');
     }
     this.issueCue(playerId);
     this.changed();
@@ -558,7 +571,7 @@ export class GameEngine {
     if (audio.status === 'playing') return {};
     const song = this.gs.currentSong;
     if (!song || (!this.manual && (audio.status !== 'awaiting_audio' || !this.automaticSource(song)))) {
-      return reject('The clip did not start. Resume music or replace the recording.');
+      return reject('Playback did not start. Resume music or replace the recording.');
     }
     this.heard.add(song.recordingId || song.id);
     this.gs.audio = { ...audio, status: 'playing', reason: undefined };
@@ -1107,6 +1120,12 @@ export class GameEngine {
   private onDeadline() {
     try {
       this.withRollback(() => {
+        if (!this.manual && this.gs.currentSong && this.gs.audio?.status === 'playing' &&
+          !this.automaticSource(this.gs.currentSong)) {
+          this.pause('audio-unavailable');
+          this.changed();
+          return;
+        }
         this.clearClock();
         if (this.gs.phase === 'anchor_preview') this.startTurn();
         else if (this.gs.audio?.status !== 'playing') return;

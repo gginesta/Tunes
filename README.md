@@ -4,9 +4,7 @@ Tunes is a browser-based music game for 2–12 people. Pick the first release ye
 
 ## Start a table
 
-To host Classic with automatic Spotify playback, choose **Host Classic with Spotify** on Home or in the Classic host lobby. This opens the original Tunes host screen. Enter a stage name, choose **Host a room**, then **Host with Spotify**. Share the invite from that room. Guests who already joined a playtest room will need the new invite.
-
-For a room in the dinner-table edition, follow these steps.
+Every music choice uses the room created on Home. In a deployment enabled for Spotify Classic, the host can connect Spotify in the Classic lobby. The existing QR, guest seats, turn order and recovery flow all belong to that room. The Spotify sign-in window returns the host to Tunes.
 
 1. On Home, enter a stage name and choose **Host a room**. Share the QR code, invite link or four-letter room code. Guests can join without an account.
 2. The default is **Manual DJ**. The DJ sees the private artist, title and recording version, plays that recording using a source the group may use, and taps **Music is playing**. Cueing is untimed.
@@ -33,7 +31,15 @@ Dinner Set defaults to eight rounds with automatic audio. With a rotating manual
 
 - **Manual DJ** uses a catalogue of familiar recordings and their sourced release facts. The audio comes from the group's own permitted listening source. Check the exact version in the cue, especially for covers, remasters and alternate takes.
 - **Automatic music** includes a 24-track independent instrumental pack bundled under CC BY 4.0. These are different recordings from the familiar-song catalogue. The game plays clips on the designated speaker device. [Recording credits and sources](app/public/music-credits.html)
-- **Additional automatic packs** require a written decision covering recording list, territories, interactive-game use, excerpt and delivery terms, attribution, expiry and fees. Confirm rights for the intended territory before exposing a pack. Legacy Spotify, Apple preview and playlist references describe earlier versions of Tunes.
+- **Additional automatic packs** require a written decision covering recording list, territories, interactive-game use, excerpt and delivery terms, attribution, expiry and fees. Confirm rights for the intended territory before exposing a pack.
+
+### Spotify Classic
+
+Spotify’s standard developer policy prohibits games, including trivia. A Premium account and a development allowlist entry enable technical access. Using the service in this game requires separate authorization covering Tunes. The public playtest keeps this source off. [Spotify Developer Policy, section III](https://developer.spotify.com/policy#iii-some-prohibited-applications)
+
+For an authorized deployment, register the stable game origin’s exact `/callback.html` URL, build with its public app ID and redirect URI, and provide a recording manifest covered by the agreement. The server reloads `TUNES_SPOTIFY_MANIFEST` when the file changes. Its JSON object has a `tracks` array. Each entry maps a `recordingId` in `data/manual-recordings.json` to the 22-character `spotifyTrackId` of the same recording and edition. Set `TUNES_SPOTIFY_CLASSIC_ENABLED=true` on that deployment. When using Compose, put the manifest in the mounted data directory and specify its in-container path. [Spotify redirect URI requirements](https://developer.spotify.com/documentation/web-api/concepts/redirect_uri)
+
+The speaker signs in on its own phone. The room server receives cue confirmations, and its SQLite checkpoint contains game state and the selected recording. Spotify account tokens stay on the speaker’s browser. When required audio stops, the table pauses. Reopen the room on the same browser, then tap **Resume music** if prompted.
 
 ## Run locally
 
@@ -62,7 +68,8 @@ Set runtime variables in the shell or hosting service. To load a local copy of t
 | `PORT`, `DATA_DIR` | Default port 3000 and repository `data/`. Set `DATA_DIR` to a writable persistent directory on the host. |
 | `ALLOWED_ORIGINS` | Comma-separated list for a separately hosted client. Same-origin production hosting works with it unset. |
 | `BUILD_REVISION` | Server build stamp in logs, health and Home. Pass it as a build argument in Docker. |
-| `VITE_SPOTIFY_CLASSIC_URL` | Optional build argument for the independently deployed original Classic host. Defaults to `https://tunes.buzzrounds.com/`. Before moving the dinner-table edition to that domain, configure a distinct HTTPS Classic deployment with its Spotify callback registered. |
+| `VITE_SPOTIFY_CLIENT_ID`, `VITE_SPOTIFY_REDIRECT_URI` | Public client ID and exact same-origin callback for an authorized Spotify Classic deployment. Pass as build arguments in Docker. |
+| `TUNES_SPOTIFY_CLASSIC_ENABLED`, `TUNES_SPOTIFY_MANIFEST` | Server opt-in and absolute path to the deployment’s permitted recording list. Default is off. |
 | `TUNES_DINNER_ENABLED=false`, `TUNES_LICENSED_ENABLED=false` | Disable new starts for the respective pilot feature. Existing snapshots can still recover and finish, subject to recording eligibility. |
 | `TUNES_LICENSED_MANIFEST`, `TUNES_LICENSED_AUDIO_DIR` | Absolute paths to an optional JSON manifest and the clip directory. Restart the process to load a changed manifest. |
 | `TUNES_GEO_FENCED_TERRITORY` | Optional country code, for example `HK`, for an instance whose upstream access is already restricted to that territory. An unrestricted service should leave this unset and use tracks with `territories: ["*"]`. |
@@ -77,9 +84,12 @@ npm test
 npm run lint
 npm run build
 npm run test:multiplayer
+npm run test:spotify-room
 ```
 
 The test and multiplayer commands use loopback sockets and disposable SQLite files. The production rehearsal starts the compiled server, exercises concurrent 2-, 6- and 12-seat rooms, and reports snapshot payload sizes, SQLite checkpoint latency, and time to simulated first-audio acknowledgement by source. It checks the automatic audio route with byte ranges. CI also starts the production container, checks the matching health revision and SQLite integrity, and fetches the client route.
+
+`npm run test:spotify-room` uses installed Chrome and the compiled server. It builds a temporary client with a loopback callback and creates two seats. The test intercepts authorization, token and playback requests, verifies PKCE, waits for track confirmation, simulates a background interruption and reload, and checks the same guest, room, round and track after resume. Real Spotify approval, account playback and physical iPhone audio remain separate acceptance checks.
 
 At `LOG_LEVEL=debug`, capture checkpoint duration and the one-minute event-loop delay report. For a live pilot, use the matching build revision and pseudonymous room/match/seat IDs to correlate starts, first audio acknowledgements, disconnects, resumed phase, completions, abandonments and rematches. Record actual first sound and silent turns separately during the physical test.
 

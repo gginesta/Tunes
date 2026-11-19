@@ -17,12 +17,12 @@ import type {
 } from './types';
 
 export interface ClientToServerEvents {
-  'create-room': (data: { playerName: string; spotifyAccessToken?: string; guestToken?: string; playbackMode?: PlaybackMode; packId?: string }) => void;
+  'create-room': (data: { playerName: string; guestToken?: string; playbackMode?: PlaybackMode; packId?: string }) => void;
   'join-room': (data: { code: string; playerName: string; guestToken?: string }) => void;
   'rejoin-room': (data: { code: string; playerId: string; resumeToken: string }) => void;
   'leave-room': () => void;
   'update-settings': (settings: Partial<GameSettings> & { playbackMode?: PlaybackMode }) => void;
-  'start-game': (data?: { spotifyAccessToken?: string }) => void;
+  'start-game': () => void;
   'place-card': (data: RoundAction & { position: number }) => void;
   'challenge': (data: RoundAction & { position: number }) => void;
   'pass-challenge': (data: RoundAction) => void;
@@ -80,6 +80,7 @@ export interface ServerToClientEvents {
   'error': (data: { message: string; code?: string; action?: string }) => void;
   'server-config': (data: {
     previewSongsAvailable: boolean; dinnerAvailable?: boolean; licensedPacksAvailable?: boolean;
+    spotifyClassicAvailable: boolean;
     licensedPacks?: { id: string; name: string; trackCount: number }[];
     revision?: string; protocolVersion?: number;
   }) => void;

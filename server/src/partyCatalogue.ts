@@ -1,10 +1,12 @@
 import {createHash, randomUUID} from 'node:crypto';
-import {existsSync, readFileSync, realpathSync} from 'node:fs';
+import {existsSync, readFileSync, realpathSync, statSync} from 'node:fs';
 import path from 'node:path';
 import type {Express} from 'express';
 import type {GameSettings, PlaybackMode, SongCard, SongData} from '@tunes/shared';
+import {MIN_CARDS_TO_WIN} from '@tunes/shared';
 import {fisherYatesShuffle} from './shuffle';
 import {logger} from './logger';
+import {isRecord} from './validate';
 
 interface ClearedTrack extends SongData {
   recordingId: string;
@@ -15,6 +17,48 @@ interface ClearedTrack extends SongData {
 interface Pack { id: string; name: string; tracks: ClearedTrack[]; }
 interface Catalogue { manual: SongData[]; licensed: Pack[]; }
 let cache: Catalogue | null = null;
+let spotifyManifest: { path: string; revision: string; tracks: Map<string, string> } | undefined;
+
+function spotifyRecordings(): ReadonlyMap<string, string> | undefined {
+  const file = process.env.TUNES_SPOTIFY_MANIFEST;
+  if (process.env.TUNES_SPOTIFY_CLASSIC_ENABLED !== 'true' || !file) return;
+  try {
+    const info = statSync(file);
+    if (!info.isFile()) return;
+    const revision = `${info.ino}:${info.ctimeMs}:${info.mtimeMs}:${info.size}`;
+    if (spotifyManifest?.path === file && spotifyManifest.revision === revision) return spotifyManifest.tracks;
+
+    const tracks = new Map<string, string>();
+    spotifyManifest = { path: file, revision, tracks };
+    const contents: unknown = JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+    if (!isRecord(contents) || !Array.isArray(contents.tracks)) return;
+
+    const known = new Set(load().manual.map(({recordingId}) => recordingId));
+    const providerIds = new Set<string>();
+    const approved = new Map<string, string>();
+    for (const track of contents.tracks) {
+      if (!isRecord(track) || typeof track.recordingId !== 'string' || !known.has(track.recordingId) ||
+        typeof track.spotifyTrackId !== 'string' || !/^[a-zA-Z0-9]{22}$/.test(track.spotifyTrackId) ||
+        approved.has(track.recordingId) || providerIds.has(track.spotifyTrackId)) return;
+      approved.set(track.recordingId, track.spotifyTrackId);
+      providerIds.add(track.spotifyTrackId);
+    }
+    spotifyManifest.tracks = approved;
+    return approved;
+  } catch {
+    return;
+  }
+}
+
+export function spotifyClassicAvailable(): boolean {
+  // Five authorized cards can support the smallest Classic co-op match.
+  return (spotifyRecordings()?.size ?? 0) >= MIN_CARDS_TO_WIN;
+}
+
+export function isAuthorizedSpotifyRecording(song: SongCard): boolean {
+  return !!song.recordingId && !!song.spotifyTrackId &&
+    spotifyRecordings()?.get(song.recordingId) === song.spotifyTrackId;
+}
 
 function readSeed(name: string): unknown {
   // Railway's persistent data can predate this release. Load the versioned image seed first.
@@ -88,9 +132,11 @@ export function getLicensedPacks() {
 export function hasLicensedPack() { return getLicensedPacks().length > 0; }
 
 export function getPartyDeck(settings: GameSettings, mode: PlaybackMode = 'manual', heardKeys: readonly string[] = []): SongCard[] {
-  if (!['manual','licensed'].includes(mode) || settings.songPack === 'playlist') return [];
+  if (mode === 'preview' || settings.songPack === 'playlist' || (mode === 'spotify' && settings.mode === 'dinner')) return [];
   const all = load();
-  const candidates = mode === 'manual' ? all.manual :
+  const spotify = mode === 'spotify' ? spotifyRecordings() : undefined;
+  if (mode === 'spotify' && !spotify) return [];
+  const candidates = mode !== 'licensed' ? all.manual :
     (all.licensed.find(p => p.id === (settings.packId || getLicensedPacks()[0]?.id))?.tracks.filter(available) ?? []);
   const seen = new Set<string>();
   const heard = new Set(heardKeys);
@@ -98,6 +144,8 @@ export function getPartyDeck(settings: GameSettings, mode: PlaybackMode = 'manua
   const repeats: SongCard[] = [];
   for (const s of candidates) {
     if (!s.recordingId || seen.has(s.recordingId)) continue;
+    const spotifyTrackId = spotify?.get(s.recordingId);
+    if (spotify && !spotifyTrackId) continue;
     if (settings.regions?.length && !settings.regions.includes(s.region || 'global')) continue;
     if (['decades','genre-decade'].includes(settings.songPack) && settings.decades?.length &&
         !settings.decades.includes(Math.floor(s.year/10)*10)) continue;
@@ -106,6 +154,7 @@ export function getPartyDeck(settings: GameSettings, mode: PlaybackMode = 'manua
     seen.add(s.recordingId);
     const {title,artist,year,genre,region,recordingId,version,sourceUrl,recordingNote} = s;
     const card: SongCard = {id:randomUUID(),title,artist,year,genre,region,recordingId,version,sourceUrl,recordingNote};
+    if (spotifyTrackId) card.spotifyTrackId = spotifyTrackId;
     if (mode === 'licensed') {
       card.audioUrl = s.audioUrl;
       card.license = s.license;

@@ -1,89 +1,27 @@
 <!DOCTYPE html>
-<html>
-<head><title>Spotify Login</title></head>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="referrer" content="no-referrer">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Return to your Tunes room</title>
+</head>
 <body>
-<p>Completing login...</p>
-<script>
-(async function() {
-  // The opener may be on localhost while we're on 127.0.0.1, so read the saved origin
-  var openerOrigin = sessionStorage.getItem('spotify_opener_origin') || window.location.origin;
-
-  try {
-    var params = new URLSearchParams(window.location.search);
-    var code = params.get('code');
-    var error = params.get('error');
-
-    if (error || !code) {
-      window.opener.postMessage(
-        { type: 'spotify-auth-callback', error: error || 'No authorization code received' },
-        openerOrigin
-      );
-      window.close();
-      return;
+  <main>
+    <h1>Return to your Tunes room</h1>
+    <p id="status" role="status">Completing Spotify sign-in…</p>
+    <a href="/">Open Tunes</a>
+  </main>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    window.history.replaceState(null, '', window.location.pathname);
+    if (window.opener && params.get('state')) {
+      window.opener.postMessage({type:'tunes:spotify:code', state:params.get('state'),
+        code:params.get('code'), error:params.get('error')}, window.location.origin);
+      document.getElementById('status').textContent = 'Return to the Tunes tab where you started signing in.';
+    } else {
+      document.getElementById('status').textContent = 'Open your saved room and choose Connect Spotify to try again.';
     }
-
-    var codeVerifier = sessionStorage.getItem('spotify_code_verifier');
-    if (!codeVerifier) {
-      window.opener.postMessage(
-        { type: 'spotify-auth-callback', error: 'Missing PKCE verifier' },
-        openerOrigin
-      );
-      window.close();
-      return;
-    }
-
-    var clientId = sessionStorage.getItem('spotify_client_id');
-    if (!clientId) {
-      window.opener.postMessage(
-        { type: 'spotify-auth-callback', error: 'Missing client ID' },
-        openerOrigin
-      );
-      window.close();
-      return;
-    }
-
-    // Redirect URI must match what was sent to Spotify's /authorize
-    var redirectUri = window.location.origin + '/callback.html';
-
-    var res = await fetch('https://accounts.spotify.com/api/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: clientId,
-        grant_type: 'authorization_code',
-        code: code,
-        redirect_uri: redirectUri,
-        code_verifier: codeVerifier,
-      }),
-    });
-
-    if (!res.ok) {
-      var err = await res.json().catch(function() { return {}; });
-      throw new Error(err.error_description || 'Token exchange failed');
-    }
-
-    var data = await res.json();
-    sessionStorage.removeItem('spotify_code_verifier');
-    sessionStorage.removeItem('spotify_client_id');
-    sessionStorage.removeItem('spotify_opener_origin');
-    localStorage.setItem('spotify_refresh_token', data.refresh_token);
-
-    window.opener.postMessage({
-      type: 'spotify-auth-callback',
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token,
-      expiresIn: data.expires_in,
-    }, openerOrigin);
-
-    window.close();
-  } catch (err) {
-    window.opener.postMessage(
-      { type: 'spotify-auth-callback', error: err.message || 'Authentication failed' },
-      openerOrigin
-    );
-    window.close();
-  }
-})();
-</script>
+  </script>
 </body>
 </html>

@@ -266,7 +266,8 @@ interface RoomRow {
 }
 
 export interface RoomRecovery {
-  version: 1;
+  /** Version 2 identifies native Spotify rounds without legacy host credentials. */
+  version: 1 | 2;
   seats: Record<string, { guestId: string; resumeTokenHash: string }>;
   expiresAt?: number;
   speakerId?: string;
@@ -279,6 +280,7 @@ export interface RoomRecovery {
 interface SavedRoom {
   room: Room;
   spotifyToken: string | null;
+  hasLegacySpotifyCredential: boolean;
   recovery?: RoomRecovery;
 }
 
@@ -329,6 +331,7 @@ function readRoom(row: RoomRow): SavedRoom {
       players: JSON.parse(row.players),
     },
     spotifyToken: row.spotify_token ? decryptToken(row.spotify_token) : null,
+    hasLegacySpotifyCredential: row.spotify_token !== null,
     recovery,
   };
 }
@@ -646,7 +649,7 @@ interface SavedTableRow {
 export function getSavedTableConfig(
   tableId: string,
   guestId: string,
-): { settings: Room['settings']; playbackMode: 'manual' | 'licensed'; heardRecordingIds: string[] } | undefined {
+): { settings: Room['settings']; playbackMode: 'manual' | 'licensed' | 'spotify'; heardRecordingIds: string[] } | undefined {
   const row = db.prepare(`
     SELECT st.* FROM saved_tables st JOIN saved_table_members m ON st.id = m.table_id
     WHERE st.id = ? AND m.guest_id = ?
@@ -654,7 +657,7 @@ export function getSavedTableConfig(
   if (!row) return undefined;
   return {
     settings: JSON.parse(row.settings),
-    playbackMode: row.playback_mode === 'licensed' ? 'licensed' : 'manual',
+    playbackMode: row.playback_mode === 'licensed' || row.playback_mode === 'spotify' ? row.playback_mode : 'manual',
     heardRecordingIds: JSON.parse(row.heard_recordings),
   };
 }

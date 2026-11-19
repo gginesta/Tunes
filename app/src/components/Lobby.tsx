@@ -3,8 +3,10 @@ import { BookOpen, Check, ChevronDown, Copy, Headphones, Play, Share2, SlidersHo
 import { QRCodeSVG } from 'qrcode.react';
 import { getDinnerRoundCount, MIN_PLAYERS, type GameMode, type GameSettings, type PlaybackMode, type SongGenre, type SongRegion } from '@tunes/shared';
 import { getSocket, leaveTable } from '../services/socket';
+import { disconnectSpotifySpeaker } from '../services/tableAudio';
+import { hasTableSpotifyCredential } from '../services/tableSpotifyCredential';
+import { useSpotifyClassic } from '../hooks/useSpotifyClassic';
 import { useGameStore } from '../store';
-import { SpotifyClassicHost } from './SpotifyClassicHost';
 import { Brand, Message, MODE_NAMES, WorkedExample } from './TableUi';
 
 const MODES: { id: GameMode; help: string }[] = [
@@ -92,6 +94,8 @@ export function Lobby() {
   const startProgress = useGameStore((s) => s.startProgress);
   const licensedPacks = useGameStore((s) => s.licensedPacks);
   const dinnerAvailable = useGameStore((s) => s.dinnerAvailable);
+  const hasSpotifyGrant = useGameStore((s) => !!s.room && hasTableSpotifyCredential(s.room.code, s.myId));
+  const spotify = useSpotifyClassic();
   const [customize, setCustomize] = useState(false);
   const [showExample, setShowExample] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -116,6 +120,11 @@ export function Lobby() {
   const isHost = myId === hostId;
   const manual = playbackMode === 'manual' || !playbackMode;
   const isDinner = settings.mode === 'dinner';
+  const spotifySelected = playbackMode === 'spotify';
+  const speakerId = room.speakerId && players[room.speakerId]?.connected ? room.speakerId : hostId;
+  const needsSpotifyGrant = spotifySelected && speakerId === myId && (!spotify.available || !hasSpotifyGrant);
+  const canChooseSpotify = spotify.available && !isDinner && (!spotifySelected || !hasSpotifyGrant);
+  const spotifyAction = hasSpotifyGrant ? 'Use Spotify' : spotifySelected ? 'Reconnect Spotify' : 'Connect Spotify';
   const dedicated = manual && !!settings.dedicatedDjId;
   const requiredSeats = dedicated ? MIN_PLAYERS + 1 : MIN_PLAYERS;
   const eligible = online.filter((player) => !dedicated || player.id !== settings.dedicatedDjId);
@@ -128,9 +137,21 @@ export function Lobby() {
     if (socket.connected) socket.emit('update-settings', values);
   }
 
+  async function selectSpotify() {
+    if (!spotify.available || !connected || isPreparing || !isHost || isDinner) return;
+    if (!hasSpotifyGrant && !await spotify.connect(code, myId)) return;
+    const current = useGameStore.getState();
+    if (current.room?.code === code && current.myId === myId && current.room.hostId === myId &&
+      current.room.settings.mode !== 'dinner' && current.room.gameState.phase === 'lobby') {
+      if (current.room.playbackMode !== 'spotify' || current.room.speakerId !== myId) {
+        update({ playbackMode: 'spotify' });
+      }
+    }
+  }
+
   function start() {
     const socket = getSocket();
-    if (!socket.connected || starting) return;
+    if (!socket.connected || starting || needsSpotifyGrant || spotify.pending) return;
     useGameStore.getState().setError(null);
     setStarting(true);
     socket.emit('start-game');
@@ -165,29 +186,44 @@ export function Lobby() {
           </div>
           <p className="tunes-muted">{modeHelp}</p>
           <div className="tunes-chip-row">
-            <span className="tunes-pill"><Headphones size={16} aria-hidden="true" /> {manual ? (dedicated ? 'Dedicated DJ' : 'Rotating DJ') : 'Automatic music'}</span>
+            <span className="tunes-pill"><Headphones size={16} aria-hidden="true" /> {spotifySelected ? 'Spotify' : manual ? (dedicated ? 'Dedicated DJ' : 'Rotating DJ') : 'Automatic music'}</span>
             <span className="tunes-pill">{isDinner ? `${songCount} songs` : `${settings.cardsToWin} cards to win`}</span>
           </div>
           <div className="tunes-lobby-start" aria-label="Start the game">
             {isHost ? (
               <>
-                <button className="tunes-button tunes-button-primary" onClick={start} disabled={!connected || online.length < requiredSeats || (dedicated && !online.some((player) => player.id === settings.dedicatedDjId)) || availability?.ready === false || isPreparing}>
+                <button className="tunes-button tunes-button-primary" onClick={start} disabled={!connected || online.length < requiredSeats || (dedicated && !online.some((player) => player.id === settings.dedicatedDjId)) || availability?.ready === false || isPreparing || spotify.pending || needsSpotifyGrant}>
                   <Play size={19} aria-hidden="true" /> {startProgress || (isPreparing ? 'Preparing the pack…' : `Start ${MODE_NAMES[settings.mode]}`)}
                 </button>
-                {availability?.issue ? <p className="tunes-muted" role="status">{availability.issue}</p> : online.length < requiredSeats ? <p className="tunes-muted">You need {requiredSeats} people to start{dedicated ? ' with a dedicated DJ' : ''}.</p> : availability?.ready ? <p className="tunes-muted">{availability.playable} usable recordings in this pack.</p> : null}
+                {needsSpotifyGrant ? <p className="tunes-muted" role="status">{spotify.available ? 'Reconnect Spotify on this device or choose another music source to start.' : 'Choose another music source to start.'}</p> : availability?.issue ? <p className="tunes-muted" role="status">{availability.issue}</p> : online.length < requiredSeats ? <p className="tunes-muted">You need {requiredSeats} people to start{dedicated ? ' with a dedicated DJ' : ''}.</p> : availability?.ready ? <p className="tunes-muted">{availability.playable} usable recordings in this pack.</p> : null}
                 {isPreparing && <button className="tunes-link" disabled={!connected} onClick={() => { getSocket().emit('cancel-start'); setStarting(false); }}>Cancel start</button>}
               </>
             ) : <Message>Waiting for {players[hostId]?.name || 'the controller'} to start.</Message>}
           </div>
-          {isHost && !isDinner && <SpotifyClassicHost lobby />}
+          {isHost && (!isDinner || hasSpotifyGrant) && (
+            <div className="tunes-spotify-host">
+              {hasSpotifyGrant && <>
+                <p className="tunes-muted" role="status"><Check size={16} aria-hidden="true" /> Spotify connected on this device.</p>
+                <button className="tunes-link" type="button" disabled={!connected || isPreparing || spotify.pending} onClick={() => disconnectSpotifySpeaker(code, myId)}>Forget Spotify on this device</button>
+              </>}
+              {canChooseSpotify && <>
+                <button className="tunes-button tunes-button-secondary" disabled={!connected || isPreparing || spotify.pending} onClick={() => void selectSpotify()}>
+                  <Headphones size={18} aria-hidden="true" /> {spotify.pending ? 'Connecting Spotify…' : spotifyAction}
+                </button>
+                {!hasSpotifyGrant && <p className="tunes-muted">Sign in with Spotify Premium to play music in this room.</p>}
+              </>}
+              {!isDinner && !spotify.available && <p className="tunes-muted">Spotify playback isn’t enabled for this room.</p>}
+              {spotify.error && <Message kind="error">{spotify.error}</Message>}
+            </div>
+          )}
           {isHost && customize && (
             <div id="customize-options" className="tunes-customize">
-              <fieldset className="tunes-fieldset" disabled={!connected || isPreparing}>
+              <fieldset className="tunes-fieldset" disabled={!connected || isPreparing || spotify.pending}>
                 <legend>Game mode</legend>
                 <div className="tunes-choice-grid">
                   {MODES.filter((mode) => mode.id !== 'dinner' || dinnerAvailable || isDinner).map((mode) => (
                     <button type="button" key={mode.id} className="tunes-mode-choice" aria-pressed={settings.mode === mode.id} onClick={() => update({ mode: mode.id })}>
-                      <b>{MODE_NAMES[mode.id]}</b><span>{mode.help}</span>
+                      <b>{MODE_NAMES[mode.id]}</b><span>{mode.help}{mode.id === 'dinner' && spotifySelected ? ' Switching uses Manual DJ.' : ''}</span>
                     </button>
                   ))}
                 </div>
@@ -223,19 +259,21 @@ export function Lobby() {
                   </label>
                 )}
               </div>
-              {licensedPacks.length > 0 && (
+              {(licensedPacks.length > 0 || (!isDinner && (spotify.available || spotifySelected))) && (
                 <div className="tunes-stack">
                   <label className="tunes-field">Music source
-                    <select disabled={!connected || isPreparing} value={playbackMode === 'licensed' ? settings.packId ?? licensedPacks[0].id : 'manual'} onChange={(event) => {
+                    <select disabled={!connected || isPreparing || spotify.pending} value={spotifySelected ? 'spotify' : playbackMode === 'licensed' ? settings.packId ?? licensedPacks[0]?.id ?? 'manual' : 'manual'} onChange={(event) => {
                       const pick = event.target.value;
                       if (pick === 'manual') update({ playbackMode: 'manual', songPack: 'standard' });
+                      else if (pick === 'spotify') void selectSpotify();
                       else update({ playbackMode: 'licensed', packId: pick, songPack: 'standard' });
                     }}>
                       <option value="manual">Manual DJ · Use your own music</option>
+                      {!isDinner && (spotify.available || spotifySelected) && <option value="spotify" disabled={!spotify.available}>Spotify Premium</option>}
                       {licensedPacks.map((pack) => <option value={pack.id} key={pack.id}>{pack.name} · {pack.trackCount} recordings</option>)}
                     </select>
                   </label>
-                  <a className="tunes-link" href="/music-credits.html" target="_blank" rel="noreferrer">Automatic music credits</a>
+                  {licensedPacks.length > 0 && <a className="tunes-link" href="/music-credits.html" target="_blank" rel="noreferrer">Automatic music credits</a>}
                 </div>
               )}
               <fieldset className="tunes-fieldset" disabled={!connected || isPreparing}>

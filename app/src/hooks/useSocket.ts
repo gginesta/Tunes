@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import type { Room } from '@tunes/shared';
 import { clearSession, getGuestToken, getSession, getSocket, resumeSavedRoom, saveSession } from '../services/socket';
 import { useGameStore } from '../store';
+import { clearTableSpotifyCredential } from '../services/tableSpotifyCredential';
 
 export function useSocket() {
   useEffect(() => {
@@ -10,6 +11,11 @@ export function useSocket() {
     const reset = () => {
       store.getState().reset();
       store.setState({ connected: socket.connected });
+    };
+    const left = () => {
+      const { room, myId } = store.getState();
+      if (room && myId) clearTableSpotifyCredential(room.code, myId);
+      reset();
     };
     const legacy = () => {
       const roomCode = getSession()?.roomCode ?? null;
@@ -47,7 +53,7 @@ export function useSocket() {
     socket.on('room-joined', joined);
     socket.on('room-left', () => {
       clearSession();
-      reset();
+      left();
       const guestToken = getGuestToken();
       if (guestToken) socket.emit('get-my-tables', {guestToken});
     });
@@ -65,6 +71,7 @@ export function useSocket() {
           ? import.meta.env.VITE_BUILD_REVISION + ' · server ' + config.revision
           : config.revision || import.meta.env.VITE_BUILD_REVISION || 'local',
         dinnerAvailable: config.dinnerAvailable !== false,
+        spotifyClassicAvailable: config.spotifyClassicAvailable === true,
         licensedPackAvailable: !!config.licensedPacksAvailable,
         licensedPacks: config.licensedPacks || [],
       });
@@ -93,13 +100,13 @@ export function useSocket() {
       store.setState((s) => ({savedTables: [table, ...s.savedTables.filter(t => t.id !== table.id)]}));
       store.getState().setNotice('Table saved. You can find it on Home.');
     });
-    window.addEventListener('tunes:left', reset);
+    window.addEventListener('tunes:left', left);
     window.addEventListener('tunes:legacy-seat', legacy);
     window.addEventListener('tunes:resuming', resuming);
     if (socket.connected) connected();
     else socket.connect();
     return () => {
-      window.removeEventListener('tunes:left', reset);
+      window.removeEventListener('tunes:left', left);
       window.removeEventListener('tunes:legacy-seat', legacy);
       window.removeEventListener('tunes:resuming', resuming);
       socket.removeAllListeners();

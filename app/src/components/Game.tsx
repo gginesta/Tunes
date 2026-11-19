@@ -3,6 +3,8 @@ import { ArrowRight, Check, Clock3, Flag, Headphones, History, Lock, Play, Repea
 import { BUY_CARD_COST, SKIP_COST, type CueAction, type Room, type RoundAction, type RoundReveal, type SongCard, type SongGuess } from '@tunes/shared';
 import { getSocket, leaveTable } from '../services/socket';
 import { startSpeakerAudio } from '../services/tableAudio';
+import { hasTableSpotifyCredential } from '../services/tableSpotifyCredential';
+import { useSpotifyClassic } from '../hooks/useSpotifyClassic';
 import { useGameStore } from '../store';
 import { Brand, gapLabel, makeActionId, Message, MODE_NAMES, RecordArt } from './TableUi';
 import { GapTimeline } from './game/GapTimeline';
@@ -184,6 +186,7 @@ function RoundBoard({ room, myId }: { room: Room; myId: string }) {
   const buzzedPlayers = useGameStore((s) => s.buzzedPlayers);
   const volume = useGameStore((s) => s.volume);
   const setVolume = useGameStore((s) => s.setVolume);
+  const spotify = useSpotifyClassic();
   const [position, setPosition] = useState<number | null>(null);
   const [challengePosition, setChallengePosition] = useState<number | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -200,8 +203,10 @@ function RoundBoard({ room, myId }: { room: Room; myId: string }) {
   const isCoop = settings.mode === 'coop';
   const shared = isDinner || isCoop;
   const manual = audio?.kind === 'manual' || (!audio && room.playbackMode === 'manual');
+  const spotifyPlayback = room.playbackMode === 'spotify';
   const isDJ = manual && audio?.operatorId === myId;
-  const isSpeaker = !manual && (speakerId === myId || audio?.operatorId === myId);
+  const isSpeaker = !manual && (audio?.operatorId ?? speakerId) === myId;
+  const spotifyConnected = spotifyPlayback && isSpeaker && hasTableSpotifyCredential(room.code, myId);
   const dj = manual && audio?.operatorId ? players[audio.operatorId] : undefined;
   const speaker = !manual && (speakerId || audio?.operatorId) ? players[speakerId || audio?.operatorId || ''] : undefined;
   const isActive = turnPlayer?.id === myId;
@@ -345,9 +350,17 @@ function RoundBoard({ room, myId }: { room: Room; myId: string }) {
                   {isDJ && (isCueing || (timingFrozen && audio?.reason !== 'guesser-away')) && (
                     <button className="tunes-button tunes-button-primary" disabled={!allowControls || pending} onClick={() => runCue('audio-ready')}><Play size={18} aria-hidden="true" /> Music is playing</button>
                   )}
-                  {isSpeaker && (waitingForAudio || (timingFrozen && audio?.reason !== 'guesser-away')) && (
-                    <button className="tunes-button tunes-button-primary" disabled={!connected || pending} onClick={() => void startSpeakerAudio()}><Play size={18} aria-hidden="true" /> {timingFrozen ? 'Resume music' : 'Play music'}</button>
+                  {isSpeaker && (waitingForAudio || (timingFrozen && audio?.reason !== 'guesser-away')) && (!spotifyPlayback || (spotify.available && spotifyConnected)) && (
+                    <button className="tunes-button tunes-button-primary" disabled={!connected || pending || spotify.pending} onClick={() => void startSpeakerAudio()}><Play size={18} aria-hidden="true" /> {timingFrozen ? 'Resume music' : 'Play music'}</button>
                   )}
+                  {isSpeaker && spotifyPlayback && (waitingForAudio || timingFrozen || audioError) && (
+                    spotify.available ? (
+                      <button className={`tunes-button ${spotifyConnected ? 'tunes-button-secondary' : 'tunes-button-primary'}`} disabled={!connected || pending || spotify.pending} onClick={() => void spotify.connect(room.code, myId)}>
+                        <Headphones size={18} aria-hidden="true" /> {spotify.pending ? 'Connecting Spotify…' : spotifyConnected ? 'Reconnect Spotify' : 'Connect Spotify'}
+                      </button>
+                    ) : <Message>Spotify playback isn’t enabled on this device.</Message>
+                  )}
+                  {isSpeaker && spotifyPlayback && spotify.error && <Message kind="error">{spotify.error}</Message>}
                   {isSpeaker && (audioError || autoplayBlocked) && <Message kind="error">{audioError || 'Tap Play music to allow audio on this phone.'}</Message>}
                   {hasMusicControls && (isDJ || isSpeaker) && audio?.status === 'playing' && (
                     <button className="tunes-link" disabled={!allowControls || pending} onClick={() => runCue('audio-interrupted')}>Pause the table</button>

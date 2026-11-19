@@ -1,5 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@tunes/shared';
+import { clearTableSpotifyCredential } from './tableSpotifyCredential';
 
 export type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -139,6 +140,9 @@ export function leaveTable(): void {
 
 export function clearSession(): void {
   try {
+    const roomCode = localStorage.getItem('tunes_room');
+    const playerId = localStorage.getItem('tunes_player');
+    if (roomCode && playerId) clearTableSpotifyCredential(roomCode, playerId);
     localStorage.removeItem('tunes_room');
     localStorage.removeItem('tunes_player');
     localStorage.removeItem('tunes_seat_token');

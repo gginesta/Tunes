@@ -4,16 +4,23 @@ import type { GamePhase, RoundAudio } from '@tunes/shared';
 type TestState = {
   myId: string;
   connected: boolean;
-  room: { gameState: { matchId: string; roundId: number; phase: GamePhase; audio: RoundAudio } } | null;
+  room: {
+    code?: string;
+    hostId?: string;
+    playbackMode?: string;
+    gameState: { matchId: string; roundId: number; phase: GamePhase; audio: RoundAudio };
+  } | null;
   volume: number;
   isPlaying: boolean;
   autoplayBlocked: boolean;
+  spotifyError?: string | null;
   wakeLockStatus: 'active' | 'off' | 'unavailable';
 };
 type StoreListener = (state: TestState, old: TestState) => void;
 
 const mocks = vi.hoisted(() => ({
   emit: vi.fn(), getState: vi.fn(), setState: vi.fn(), subscribe: vi.fn(), useEffect: vi.fn(),
+  refresh: vi.fn(), login: vi.fn(), fetch: vi.fn(),
 }));
 
 vi.mock('../../app/src/store', () => ({
@@ -24,6 +31,12 @@ vi.mock('../../app/src/store', () => ({
 }));
 vi.mock('../../app/src/services/socket', () => ({ getSocket: () => ({ emit: mocks.emit }) }));
 vi.mock('react', () => ({ useEffect: mocks.useEffect }));
+vi.mock('../../app/src/services/spotify', () => ({
+  refreshAccessToken: mocks.refresh,
+  openSpotifyLogin: mocks.login,
+  isSpotifyClientConfigured: () => true,
+  SpotifySignInExpiredError: class extends Error {},
+}));
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -136,7 +149,201 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const cleanup of effects) cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+class FakeSpotify {
+  static instances: FakeSpotify[] = [];
+  listeners = new Map<string, (value?: unknown) => void>();
+  playback: unknown = null;
+  connect = vi.fn(async () => {
+    this.emit('ready', { device_id: 'this-table-device' });
+    return true;
+  });
+  disconnect = vi.fn();
+  activateElement = vi.fn();
+  setVolume = vi.fn(async () => {});
+  pause = vi.fn(async () => {});
+  getCurrentState = vi.fn(async () => this.playback);
+
+  constructor() { FakeSpotify.instances.push(this); }
+
+  addListener(event: string, callback: (value?: unknown) => void) { this.listeners.set(event, callback); }
+  emit(event: string, value?: unknown) { this.listeners.get(event)?.(value); }
+
+  changeTrack(trackId: string, paused = false, position = 1000) {
+    this.playback = { paused, position, track_window: { current_track: { id: trackId } } };
+    this.emit('player_state_changed', this.playback);
+  }
+}
+
+const credential = { accessToken: 'access', refreshToken: 'refresh', expiresIn: 3600 };
+
+function spotifyCue(status: RoundAudio['status'], cueId: string, trackId: string, roundId: number, operatorId = 'speaker') {
+  setState({
+    room: { code: 'TUNE', hostId: 'speaker', playbackMode: 'spotify', gameState: {
+      matchId: 'match-1', roundId, phase: 'playing',
+      audio: { kind: 'automatic', status, cueId, operatorId, source: { spotifyTrackId: trackId } },
+    } },
+  });
+}
+
+function mockSpotify() {
+  vi.useFakeTimers();
+  FakeSpotify.instances = [];
+  Object.assign(screen, { Spotify: { Player: FakeSpotify } });
+  const storage = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => storage.set(key, value),
+    removeItem: (key: string) => storage.delete(key),
+  });
+  vi.stubGlobal('fetch', mocks.fetch);
+  mocks.fetch.mockReset().mockResolvedValue({ ok: true, status: 204 });
+  mocks.login.mockReset().mockResolvedValue(credential);
+  mocks.refresh.mockReset().mockResolvedValue(credential);
+}
+
+describe('Spotify table speaker', () => {
+  it('waits for the expected SDK track after each API acceptance and targets only the registered speaker', async () => {
+    mockSpotify();
+    const service = await import('../../app/src/services/tableAudio');
+    const { saveTableSpotifyCredential } = await import('../../app/src/services/tableSpotifyCredential');
+    saveTableSpotifyCredential('TUNE', 'speaker', credential);
+    spotifyCue('awaiting_audio', 'first', 'firstTrack', 1);
+    service.syncSpeakerAudio();
+    await vi.advanceTimersByTimeAsync(200);
+    const sdk = FakeSpotify.instances[0];
+    expect(mocks.fetch).toHaveBeenCalledExactlyOnceWith(
+      'https://api.spotify.com/v1/me/player/play?device_id=this-table-device',
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify({uris: ['spotify:track:firstTrack'], position_ms: 0}) }),
+    );
+    sdk.changeTrack('wrongTrack');
+    await vi.advanceTimersByTimeAsync(200);
+    expect(mocks.emit).not.toHaveBeenCalled();
+    sdk.changeTrack('firstTrack', true);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(mocks.emit).not.toHaveBeenCalled();
+    sdk.changeTrack('firstTrack');
+    await vi.advanceTimersByTimeAsync(200);
+    expect(mocks.emit).toHaveBeenCalledExactlyOnceWith('audio-ready', { matchId: 'match-1', roundId: 1, cueId: 'first' });
+
+    spotifyCue('awaiting_audio', 'second', 'secondTrack', 2);
+    service.syncSpeakerAudio();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(mocks.emit).toHaveBeenCalledTimes(1);
+    sdk.changeTrack('secondTrack');
+    await vi.advanceTimersByTimeAsync(200);
+    expect(mocks.emit).toHaveBeenLastCalledWith('audio-ready', { matchId: 'match-1', roundId: 2, cueId: 'second' });
+    expect(FakeAudio.instances).toHaveLength(0);
+  });
+
+  it('restores the same-room refresh credential without playing a paused room, then resumes on a tap', async () => {
+    mockSpotify();
+    const original = await import('../../app/src/services/tableSpotifyCredential');
+    original.saveTableSpotifyCredential('TUNE', 'speaker', credential);
+    vi.resetModules();
+    const service = await import('../../app/src/services/tableAudio');
+    spotifyCue('paused', 'paused', 'track', 1);
+    service.syncSpeakerAudio();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(mocks.emit).not.toHaveBeenCalled();
+
+    const sdk = FakeSpotify.instances[0];
+    service.startSpeakerAudio();
+    expect(sdk.activateElement).toHaveBeenCalledTimes(1);
+    expect(mocks.emit).toHaveBeenCalledExactlyOnceWith('resume-audio', { matchId: 'match-1', roundId: 1, cueId: 'paused' });
+    spotifyCue('awaiting_audio', 'resumed', 'track', 1);
+    service.syncSpeakerAudio();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(mocks.refresh).toHaveBeenCalledExactlyOnceWith('refresh');
+    sdk.changeTrack('track');
+    await vi.advanceTimersByTimeAsync(200);
+    expect(mocks.emit).toHaveBeenLastCalledWith('audio-ready', { matchId: 'match-1', roundId: 1, cueId: 'resumed' });
+  });
+
+  it('pauses on visibility loss, disconnects on handoff and ignores a stale SDK result', async () => {
+    mockSpotify();
+    const service = await import('../../app/src/services/tableAudio');
+    const { saveTableSpotifyCredential } = await import('../../app/src/services/tableSpotifyCredential');
+    saveTableSpotifyCredential('TUNE', 'speaker', credential);
+    spotifyCue('awaiting_audio', 'beforeHide', 'track', 1);
+    service.syncSpeakerAudio();
+    await vi.advanceTimersByTimeAsync(200);
+    const sdk = FakeSpotify.instances[0];
+    page.hidden = true;
+    service.interruptSpeaker();
+    sdk.changeTrack('track');
+    await vi.advanceTimersByTimeAsync(200);
+    page.hidden = false;
+    service.syncSpeakerAudio();
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    expect(mocks.emit).toHaveBeenCalledExactlyOnceWith('audio-interrupted', {
+      matchId: 'match-1', roundId: 1, cueId: 'beforeHide',
+    });
+    expect(sdk.pause).toHaveBeenCalled();
+
+    spotifyCue('awaiting_audio', 'handedOff', 'track', 1, 'other');
+    service.syncSpeakerAudio();
+    expect(sdk.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a rejected Spotify playback request through the active cue only', async () => {
+    mockSpotify();
+    const service = await import('../../app/src/services/tableAudio');
+    spotifyCue('paused', 'paused', 'track', 1);
+    await service.connectSpotifySpeaker('TUNE', 'speaker');
+    mocks.fetch.mockResolvedValue({ ok: false, status: 403 });
+    spotifyCue('awaiting_audio', 'unavailable', 'track', 1);
+    service.syncSpeakerAudio();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(state.spotifyError).toMatch(/could not play/);
+    expect(mocks.emit).toHaveBeenCalledExactlyOnceWith('audio-interrupted', {
+      matchId: 'match-1', roundId: 1, cueId: 'unavailable',
+    });
+  });
+
+  it('retries a blocked Spotify autoplay cue only from a fresh speaker gesture', async () => {
+    mockSpotify();
+    const service = await import('../../app/src/services/tableAudio');
+    const { saveTableSpotifyCredential } = await import('../../app/src/services/tableSpotifyCredential');
+    saveTableSpotifyCredential('TUNE', 'speaker', credential);
+    spotifyCue('awaiting_audio', 'needs-tap', 'track', 1);
+    service.syncSpeakerAudio();
+    await vi.advanceTimersByTimeAsync(200);
+    const sdk = FakeSpotify.instances[0];
+    sdk.emit('autoplay_failed');
+    await vi.advanceTimersByTimeAsync(200);
+    expect(state.autoplayBlocked).toBe(true);
+    service.syncSpeakerAudio();
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    expect(mocks.emit).not.toHaveBeenCalled();
+    service.startSpeakerAudio();
+    expect(sdk.activateElement).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+    sdk.changeTrack('track');
+    await vi.advanceTimersByTimeAsync(200);
+    expect(mocks.emit).toHaveBeenCalledExactlyOnceWith('audio-ready', {
+      matchId: 'match-1', roundId: 1, cueId: 'needs-tap',
+    });
+  });
+
+  it('keeps blocked-storage credentials in memory and forgets only the selected seat', async () => {
+    mockSpotify();
+    vi.stubGlobal('localStorage', new Proxy({}, { get() { throw new Error('Storage blocked'); } }));
+    const { clearTableSpotifyCredential, getTableSpotifyToken, hasTableSpotifyCredential,
+      saveTableSpotifyCredential } = await import('../../app/src/services/tableSpotifyCredential');
+    expect(hasTableSpotifyCredential('TUNE', 'speaker')).toBe(false);
+    saveTableSpotifyCredential('TUNE', 'speaker', credential);
+    saveTableSpotifyCredential('TUNE', 'other', credential);
+    expect(await getTableSpotifyToken('TUNE', 'speaker', () => true)).toBe('access');
+    clearTableSpotifyCredential('TUNE', 'speaker');
+    expect(hasTableSpotifyCredential('TUNE', 'speaker')).toBe(false);
+    expect(hasTableSpotifyCredential('TUNE', 'other')).toBe(true);
+  });
 });
 
 describe('speaker playback', () => {

@@ -36,6 +36,7 @@ interface GameStore {
   buildId: string;
   errorAction: string | null;
   dinnerAvailable: boolean;
+  spotifyClassicAvailable: boolean;
   licensedPackAvailable: boolean;
   licensedPacks: { id: string; name: string; trackCount: number }[];
   startProgress: string | null;
@@ -179,6 +180,7 @@ const initialState = {
   buildId: import.meta.env.VITE_BUILD_REVISION || 'local',
   errorAction: null as string | null,
   dinnerAvailable: true,
+  spotifyClassicAvailable: false,
   licensedPackAvailable: false,
   licensedPacks: [] as GameStore['licensedPacks'],
   startProgress: null as string | null,
@@ -393,6 +395,7 @@ export const useGameStore = create<GameStore>((set) => ({
     savedTables: state.savedTables,
     buildId: state.buildId,
     dinnerAvailable: state.dinnerAvailable,
+    spotifyClassicAvailable: state.spotifyClassicAvailable,
     licensedPackAvailable: state.licensedPackAvailable,
     licensedPacks: state.licensedPacks,
   })),

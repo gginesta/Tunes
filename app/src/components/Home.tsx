@@ -3,7 +3,7 @@ import { ArrowDownRight, ArrowRight, Bookmark, BookOpen, Disc3, Radio, RotateCcw
 import type { SavedTable } from '@tunes/shared';
 import { createTable, getGuestToken, getSession, getSocket, joinTable, resumeSavedRoom } from '../services/socket';
 import { useGameStore } from '../store';
-import { SpotifyClassicHost } from './SpotifyClassicHost';
+import { useSpotifyClassicAvailable } from '../hooks/useSpotifyClassic';
 import { Brand, Message, RecordArt } from './TableUi';
 
 function readStageName() {
@@ -30,6 +30,7 @@ export function Home() {
   const notice = useGameStore((s) => s.notice);
   const buildId = useGameStore((s) => s.buildId);
   const licensedPacks = useGameStore((s) => s.licensedPacks);
+  const spotifyClassicAvailable = useSpotifyClassicAvailable();
   const recoveryStatus = useGameStore((s) => s.recoveryStatus);
   const savedTables = useGameStore((s) => s.savedTables);
   const setError = useGameStore((s) => s.setError);
@@ -133,7 +134,6 @@ export function Home() {
             <button aria-pressed={mode === 'host'} onClick={() => { setMode('host'); setFormError(null); setError(null); }}><Disc3 size={18} aria-hidden="true" /> Host</button>
             <button aria-pressed={mode === 'join'} onClick={() => { setMode('join'); setFormError(null); setError(null); }}><Users size={18} aria-hidden="true" /> Join</button>
           </div>
-          {mode === 'host' && <SpotifyClassicHost />}
           <form className="tunes-stack" onSubmit={submit}>
             <label className="tunes-field">Stage name
               <input ref={nameInput} id="stage-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Ella" autoComplete="nickname" autoCapitalize="words" maxLength={20} />
@@ -144,6 +144,7 @@ export function Home() {
               </label>
             )}
             {mode === 'host' && <p className="tunes-muted">Cue songs with your own music{licensedPacks.length ? ', or choose an automatic pack in the lobby' : ''}.</p>}
+            {mode === 'host' && <p className="tunes-muted">{spotifyClassicAvailable ? 'For Classic with Spotify Premium, host a room and connect Spotify in the lobby.' : 'Spotify playback isn’t enabled here.'}</p>}
             {(formError || error) && <Message kind="error">{formError || error}</Message>}
             {!error && (recoveryStatus === 'expired' || recoveryStatus === 'legacy' || recoveryStatus === 'replaced') && <Message>{recoveryStatus === 'expired' ? 'Your previous room has expired. Host or join a new table.' : recoveryStatus === 'legacy' ? 'This older room needs a fresh match. Join again to get a new seat.' : 'This seat is active in another tab or on another device.'}</Message>}
             {notice && !error && recoveryStatus === 'idle' && <Message>{notice}</Message>}

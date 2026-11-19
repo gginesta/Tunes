@@ -137,49 +137,92 @@ const guest = await newPage('guest',320,780);
 const third = await newPage('third',390,844);
 const desktop = await newPage('desktop',1180,850,false);
 const roomCode = (page) => page.evaluate('document.querySelector(".tunes-room-code").innerText.trim()');
-const spotifyClassicLabel = 'Host Classic with Spotify';
-const findSpotifyClassicLink = `Array.from(document.links).find(link => link.innerText.trim() === ${JSON.stringify(spotifyClassicLabel)})`;
+const spotifyFixture = process.env.TUNES_BROWSER_TEST_SPOTIFY_FIXTURE === '1';
+const noExternalSpotifyLink = '!Array.from(document.links).some(link => link.hostname === "tunes.buzzrounds.com")';
+const spotifyConnectButton = 'Array.from(document.querySelectorAll("button")).some(button => button.innerText.trim() === "Connect Spotify")';
 
-async function verifySpotifyClassicLink(page, expectedVisible) {
-  const links = await page.evaluate(`Array.from(document.links)
-    .filter(link => link.innerText.trim() === ${JSON.stringify(spotifyClassicLabel)})
-    .map(link => ({ href: link.href, target: link.target, rel: [...link.relList] }))`);
-  assert.equal(links.length, expectedVisible ? 1 : 0, `${page.name} Spotify Classic link count`);
-  if (expectedVisible) {
-    assert.equal(links[0].href, 'https://tunes.buzzrounds.com/');
-    assert.equal(links[0].target, '_blank');
-    assert.ok(links[0].rel.includes('noopener'));
-  }
+async function verifySpotifyControls(page, { lobbyHost = false, homeHost = false } = {}) {
+  assert.equal(await page.evaluate(noExternalSpotifyLink), true, page.name + ' has no outgoing Classic link');
+  if (spotifyFixture && lobbyHost) await page.waitFor(spotifyConnectButton, 'native Spotify connect button');
+  else assert.equal(await page.evaluate(spotifyConnectButton), false, page.name + ' native Spotify connect button count');
+  if (!spotifyFixture && lobbyHost) await page.text('Spotify playback isn’t enabled for this room.');
+  if (!spotifyFixture && homeHost) await page.text('Spotify playback isn’t enabled here.');
+  if (spotifyFixture && homeHost) await page.text('connect Spotify in the lobby');
 }
 
-async function verifySpotifyClassicTab(page) {
-  await verifySpotifyClassicLink(page, true);
-  const fixtureUrl = new URL('/health?classic-spotify-tab', origin).href;
-  const originalUrl = await page.evaluate('location.href');
-  // Exercise the anchor's real tab behavior on loopback after checking the production URL.
+async function verifySpotifyInRoom(page, guest, code) {
+  await verifySpotifyControls(page, {lobbyHost:true});
+  if (!spotifyFixture) return;
   await page.evaluate(`(() => {
-    const link = ${findSpotifyClassicLink};
-    const originalHref = link.href;
-    link.href = ${JSON.stringify(fixtureUrl)};
-    try { link.click(); } finally { link.href = originalHref; }
-  })()`, true);
-  let openedTab;
-  for (let attempt = 0; attempt < 50; attempt++) {
-    const { targetInfos } = await call('Target.getTargets');
-    openedTab = targetInfos.find(target => target.type === 'page' && target.url === fixtureUrl && target.browserContextId === page.browserContextId);
-    if (openedTab) break;
-    await pause(100);
-  }
-  assert.ok(openedTab, `${page.name} opened Classic in a separate tab`);
-  await call('Target.closeTarget', { targetId: openedTab.targetId });
-  assert.equal(await page.evaluate('location.href'), originalUrl);
-  await verifySpotifyClassicLink(page, true);
+    const fetchOriginal = window.fetch;
+    window.fetch = (input, options) => {
+      const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url, location.origin);
+      if (!/(^|\\.)spotify\\.com$|(^|\\.)scdn\\.co$/.test(url.hostname)) return fetchOriginal(input, options);
+      if (url.href !== 'https://accounts.spotify.com/api/token') throw Error('Unexpected Spotify fixture request ' + url.pathname);
+      const body = options.body;
+      if (body.get('code') !== 'browser-fixture-code' || body.get('grant_type') !== 'authorization_code' ||
+        body.get('redirect_uri') !== location.origin + '/callback.html' || body.get('code_verifier')?.length !== 64) {
+        throw Error('Unexpected Spotify token request');
+      }
+      return Promise.resolve(new Response(JSON.stringify({access_token:'fixture-access', refresh_token:'fixture-refresh', expires_in:3600})));
+    };
+    window.tunesTestSpotifyApprove = false;
+    window.open = (url) => {
+      if (url !== 'about:blank') throw Error('Unexpected Spotify popup URL');
+      const popup = {
+        closed: false,
+        close() { this.closed = true; },
+        location: {replace(raw) {
+          const authorization = new URL(raw);
+          const params = authorization.searchParams;
+          if (authorization.origin !== 'https://accounts.spotify.com' || params.get('code_challenge_method') !== 'S256' ||
+              params.get('redirect_uri') !== location.origin + '/callback.html' || params.get('state')?.length !== 64) {
+            throw Error('Unexpected Spotify authorization request');
+          }
+          const result = window.tunesTestSpotifyApprove ? {code:'browser-fixture-code'} : {error:'access_denied'};
+          window.dispatchEvent(Object.assign(new Event('message'), {
+            origin:location.origin, source:popup, data:{type:'tunes:spotify:code', state:params.get('state'), ...result},
+          }));
+        }},
+      };
+      return popup;
+    };
+  })()`);
+  await page.click('Connect Spotify');
+  await page.text('Spotify sign-in was cancelled or denied.');
+  await page.text('Rotating DJ');
+  assert.equal(await roomCode(page), code);
+  assert.equal(await roomCode(guest), code);
+  await page.evaluate('window.tunesTestSpotifyApprove = true');
+  await page.click('Customize');
+  await page.setSelect('Music source', 'spotify');
+  await page.text('Spotify connected on this device.');
+  await guest.waitFor('Array.from(document.querySelectorAll(".tunes-pill")).some(pill => pill.innerText.trim() === "Spotify")');
+  assert.equal(await roomCode(page), code);
+  assert.equal(await roomCode(guest), code);
+  assert.equal(await page.decodeQr(), origin + '/join/' + code);
+  await page.text('Ella');
+  assert.equal(await page.evaluate('document.querySelector("select option[value=spotify]").selected'), true);
+  await page.waitFor('Array.from(document.querySelectorAll("button")).some(button => button.innerText.trim() === "Start Classic" && !button.disabled)', 'signed-in speaker can start');
+  await page.click('Forget Spotify on this device');
+  await page.text('Reconnect Spotify on this device or choose another music source to start.');
+  await page.open();
+  await page.text('Invite the table');
+  await page.text('Reconnect Spotify on this device or choose another music source to start.');
+  assert.equal(await page.evaluate('Array.from(document.querySelectorAll("button")).find(button => button.innerText.trim() === "Start Classic")?.disabled'), true);
+  assert.equal(await roomCode(page), code);
+  assert.equal(await roomCode(guest), code);
+  await page.click('Customize');
+  assert.equal(await page.evaluate('document.querySelector("select option[value=spotify]").selected'), true);
+  await page.setSelect('Music source', 'manual');
+  await page.text('Rotating DJ');
+  await page.click('Customize');
 }
 
 const joinGuest = async (page, code, name) => {
   await page.open('/join/' + code);
   await page.text('Find your table');
-  await verifySpotifyClassicLink(page, false);
+  await verifySpotifyControls(page);
   assert.equal(await page.evaluate('document.querySelectorAll("form input")[1].value'), code);
   await page.fill('#stage-name', name);
   await page.click('Join room');
@@ -237,7 +280,7 @@ try {
   await desktop.snap('01-desktop-home');
   await host.open();
   await host.text('Drop the');
-  await verifySpotifyClassicLink(host, true);
+  await verifySpotifyControls(host, {homeHost:true});
   await host.fit('390 home');
   await host.snap('02-mobile-home');
   await host.fill('#stage-name','Guillermo');
@@ -251,7 +294,7 @@ try {
   await third.open();
   await third.click('Join');
   await third.text('Find your table');
-  await verifySpotifyClassicLink(third, false);
+  await verifySpotifyControls(third);
   await third.fill('#stage-name', 'Miles');
   await third.evaluate('document.querySelectorAll("form input")[1].focus()');
   await third.send('Input.insertText', { text: origin + '/join/' + code });
@@ -264,8 +307,8 @@ try {
   await host.click('Dinner Set\nEveryone guesses, then the table reveals together.');
   await host.waitFor('document.querySelector(".tunes-lobby").dataset.mode === "dinner"');
   await guest.waitFor('document.querySelector(".tunes-lobby").dataset.mode === "dinner"');
-  await verifySpotifyClassicLink(host, false);
-  await verifySpotifyClassicLink(guest, false);
+  await verifySpotifyControls(host);
+  await verifySpotifyControls(guest);
   await host.setSelect('Length', '3');
   await host.text('3 songs');
   await host.click('Start Dinner Set');
@@ -338,8 +381,8 @@ try {
   const classicCode = await roomCode(host);
   await joinGuest(guest, classicCode, 'Ella');
   await host.text('Ella');
-  await verifySpotifyClassicLink(guest, false);
-  await verifySpotifyClassicTab(host);
+  await verifySpotifyControls(guest);
+  await verifySpotifyInRoom(host, guest, classicCode);
   assert.equal(await roomCode(host), classicCode);
   assert.equal(await roomCode(guest), classicCode);
   await host.text('Ella');
@@ -414,7 +457,8 @@ try {
   await guest.text('Match ended early');
   assert.equal(await host.evaluate('document.querySelectorAll(".tunes-podium [data-leader]").length'), 0);
   assert.deepEqual(errors, []);
-  process.stdout.write('PASS responsive layout, reduced motion, QR and pasted invites, legacy and replaced tabs, Dinner guess recovery and rematch, saved tables, Classic Spotify link and separate tab, Expert year validation, automatic music handoff, and abandoned results.\n');
+  const spotifyCheck = spotifyFixture ? 'same-room Spotify sign-in and cancellation' : 'unconfigured Spotify availability';
+  process.stdout.write(`PASS responsive layout, reduced motion, QR and pasted invites, legacy and replaced tabs, Dinner guess recovery and rematch, saved tables, ${spotifyCheck}, Expert year validation, automatic music handoff, and abandoned results.\n`);
 } finally {
   await Promise.allSettled(contexts.map((browserContextId) => call('Target.disposeBrowserContext', { browserContextId })));
   ws.close();

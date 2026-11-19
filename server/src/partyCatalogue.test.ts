@@ -3,7 +3,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import type {GameSettings} from '@tunes/shared';
-import {getPartyDeck} from './partyCatalogue';
+import {getPartyDeck, isAuthorizedSpotifyRecording, spotifyClassicAvailable} from './partyCatalogue';
 
 const settings: GameSettings = {mode: 'dinner', cardsToWin: 10, songPack: 'standard'};
 
@@ -31,6 +31,38 @@ describe('party recordings', () => {
     vi.unstubAllEnvs();
     vi.resetModules();
     for (const dir of folders.splice(0)) rmSync(dir, {recursive:true, force:true});
+  });
+
+  it('admits only explicitly mapped Spotify recordings and revokes a withdrawn manifest', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tunes-spotify-manifest-'));
+    folders.push(dir);
+    const manifest = join(dir, 'spotify.json');
+    const classic: GameSettings = {...settings, mode: 'original'};
+    const tracks = getPartyDeck(classic).slice(0, 6).map(({recordingId}, index) => ({
+      recordingId, spotifyTrackId: String(index + 1).padStart(22, 'T'),
+    }));
+    writeFileSync(manifest, JSON.stringify({tracks}));
+    vi.stubEnv('TUNES_SPOTIFY_MANIFEST', manifest);
+    vi.stubEnv('TUNES_SPOTIFY_CLASSIC_ENABLED', undefined);
+    expect(spotifyClassicAvailable()).toBe(false);
+    expect(getPartyDeck(classic, 'spotify')).toEqual([]);
+
+    vi.stubEnv('TUNES_SPOTIFY_CLASSIC_ENABLED', 'true');
+    expect(spotifyClassicAvailable()).toBe(true);
+    expect(getPartyDeck(settings, 'spotify')).toEqual([]);
+    expect(getPartyDeck({...classic, songPack: 'playlist'}, 'spotify')).toEqual([]);
+    const deck = getPartyDeck(classic, 'spotify');
+    expect(deck.map(({spotifyTrackId}) => spotifyTrackId).sort()).toEqual(tracks.map((track) => track.spotifyTrackId));
+    for (const card of deck) {
+      expect(isAuthorizedSpotifyRecording(card)).toBe(true);
+      expect(isAuthorizedSpotifyRecording({...card, spotifyTrackId: 'Z'.repeat(22)})).toBe(false);
+    }
+    const invalidRow = {recordingId: 'unverified-recording', spotifyTrackId: 'Z'.repeat(22)};
+    writeFileSync(manifest, JSON.stringify({tracks: [...tracks, invalidRow]}));
+    expect(spotifyClassicAvailable()).toBe(false);
+    expect(isAuthorizedSpotifyRecording(deck[0])).toBe(false);
+    unlinkSync(manifest);
+    expect(isAuthorizedSpotifyRecording(deck[0])).toBe(false);
   });
 
   it('fails closed on expired grants, expired files, territorial restrictions and lost files', async () => {

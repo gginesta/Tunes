@@ -18,6 +18,8 @@ jobs:
           VITE_BUILD_REVISION: ${{ github.sha }}
       - run: npm test
       - run: npm run test:multiplayer
+      - name: Verify Spotify Classic room recovery with a simulated player
+        run: npm run test:spotify-room
       - run: npm run lint
       - name: Build production image
         run: docker build --build-arg BUILD_REVISION="$GITHUB_SHA" -t tunes-ci .
