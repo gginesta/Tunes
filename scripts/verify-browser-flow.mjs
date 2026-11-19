@@ -362,7 +362,7 @@ try {
   await guest.text('Match ended early');
   assert.equal(await host.evaluate('document.querySelectorAll(".tunes-podium [data-leader]").length'), 0);
   assert.deepEqual(errors, []);
-  process.stdout.write('PASS desktop and phone layouts, large text, QR decode/deep-link, manual Dinner privacy/lock/reload/reveal/results, saved table, rematch, Classic Expert validation, automatic clip play/pause/resume/handoff, and no browser exceptions.\n');
+  process.stdout.write('PASS responsive layout, reduced motion, QR and pasted invites, legacy and replaced tabs, Dinner guess recovery and rematch, saved tables, Expert year validation, automatic music handoff, and abandoned results.\n');
 } finally {
   await Promise.allSettled(contexts.map((browserContextId) => call('Target.disposeBrowserContext', { browserContextId })));
   ws.close();
