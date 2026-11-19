@@ -59,8 +59,8 @@ async function newPage(name, width, height, mobile = true, sharedContextId) {
       },
     });
   ` });
-  const evaluate = async (expression) => {
-    const answer = await send('Runtime.evaluate', { expression, returnByValue:true, awaitPromise:true });
+  const evaluate = async (expression, userGesture = false) => {
+    const answer = await send('Runtime.evaluate', { expression, returnByValue:true, awaitPromise:true, userGesture });
     if (answer.exceptionDetails) throw Error(answer.exceptionDetails.exception?.description ?? answer.exceptionDetails.text);
     return answer.result.value;
   };
@@ -137,9 +137,49 @@ const guest = await newPage('guest',320,780);
 const third = await newPage('third',390,844);
 const desktop = await newPage('desktop',1180,850,false);
 const roomCode = (page) => page.evaluate('document.querySelector(".tunes-room-code").innerText.trim()');
+const spotifyClassicLabel = 'Host Classic with Spotify';
+const findSpotifyClassicLink = `Array.from(document.links).find(link => link.innerText.trim() === ${JSON.stringify(spotifyClassicLabel)})`;
+
+async function verifySpotifyClassicLink(page, expectedVisible) {
+  const links = await page.evaluate(`Array.from(document.links)
+    .filter(link => link.innerText.trim() === ${JSON.stringify(spotifyClassicLabel)})
+    .map(link => ({ href: link.href, target: link.target, rel: [...link.relList] }))`);
+  assert.equal(links.length, expectedVisible ? 1 : 0, `${page.name} Spotify Classic link count`);
+  if (expectedVisible) {
+    assert.equal(links[0].href, 'https://tunes.buzzrounds.com/');
+    assert.equal(links[0].target, '_blank');
+    assert.ok(links[0].rel.includes('noopener'));
+  }
+}
+
+async function verifySpotifyClassicTab(page) {
+  await verifySpotifyClassicLink(page, true);
+  const fixtureUrl = new URL('/health?classic-spotify-tab', origin).href;
+  const originalUrl = await page.evaluate('location.href');
+  // Exercise the anchor's real tab behavior on loopback after checking the production URL.
+  await page.evaluate(`(() => {
+    const link = ${findSpotifyClassicLink};
+    const originalHref = link.href;
+    link.href = ${JSON.stringify(fixtureUrl)};
+    try { link.click(); } finally { link.href = originalHref; }
+  })()`, true);
+  let openedTab;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const { targetInfos } = await call('Target.getTargets');
+    openedTab = targetInfos.find(target => target.type === 'page' && target.url === fixtureUrl && target.browserContextId === page.browserContextId);
+    if (openedTab) break;
+    await pause(100);
+  }
+  assert.ok(openedTab, `${page.name} opened Classic in a separate tab`);
+  await call('Target.closeTarget', { targetId: openedTab.targetId });
+  assert.equal(await page.evaluate('location.href'), originalUrl);
+  await verifySpotifyClassicLink(page, true);
+}
+
 const joinGuest = async (page, code, name) => {
   await page.open('/join/' + code);
   await page.text('Find your table');
+  await verifySpotifyClassicLink(page, false);
   assert.equal(await page.evaluate('document.querySelectorAll("form input")[1].value'), code);
   await page.fill('#stage-name', name);
   await page.click('Join room');
@@ -197,6 +237,7 @@ try {
   await desktop.snap('01-desktop-home');
   await host.open();
   await host.text('Drop the');
+  await verifySpotifyClassicLink(host, true);
   await host.fit('390 home');
   await host.snap('02-mobile-home');
   await host.fill('#stage-name','Guillermo');
@@ -209,6 +250,8 @@ try {
   await joinGuest(guest, code, 'Ella');
   await third.open();
   await third.click('Join');
+  await third.text('Find your table');
+  await verifySpotifyClassicLink(third, false);
   await third.fill('#stage-name', 'Miles');
   await third.evaluate('document.querySelectorAll("form input")[1].focus()');
   await third.send('Input.insertText', { text: origin + '/join/' + code });
@@ -220,6 +263,9 @@ try {
   await host.click('Customize');
   await host.click('Dinner Set\nEveryone guesses, then the table reveals together.');
   await host.waitFor('document.querySelector(".tunes-lobby").dataset.mode === "dinner"');
+  await guest.waitFor('document.querySelector(".tunes-lobby").dataset.mode === "dinner"');
+  await verifySpotifyClassicLink(host, false);
+  await verifySpotifyClassicLink(guest, false);
   await host.setSelect('Length', '3');
   await host.text('3 songs');
   await host.click('Start Dinner Set');
@@ -291,6 +337,12 @@ try {
   await host.text('Invite the table');
   const classicCode = await roomCode(host);
   await joinGuest(guest, classicCode, 'Ella');
+  await host.text('Ella');
+  await verifySpotifyClassicLink(guest, false);
+  await verifySpotifyClassicTab(host);
+  assert.equal(await roomCode(host), classicCode);
+  assert.equal(await roomCode(guest), classicCode);
+  await host.text('Ella');
   await host.click('Customize');
   await host.click('Classic Expert\nPlace the card, name it and pin down the year.');
   await host.click('Start Classic Expert');
@@ -362,7 +414,7 @@ try {
   await guest.text('Match ended early');
   assert.equal(await host.evaluate('document.querySelectorAll(".tunes-podium [data-leader]").length'), 0);
   assert.deepEqual(errors, []);
-  process.stdout.write('PASS responsive layout, reduced motion, QR and pasted invites, legacy and replaced tabs, Dinner guess recovery and rematch, saved tables, Expert year validation, automatic music handoff, and abandoned results.\n');
+  process.stdout.write('PASS responsive layout, reduced motion, QR and pasted invites, legacy and replaced tabs, Dinner guess recovery and rematch, saved tables, Classic Spotify link and separate tab, Expert year validation, automatic music handoff, and abandoned results.\n');
 } finally {
   await Promise.allSettled(contexts.map((browserContextId) => call('Target.disposeBrowserContext', { browserContextId })));
   ws.close();

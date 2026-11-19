@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { getDinnerRoundCount, MIN_PLAYERS, type GameMode, type GameSettings, type PlaybackMode, type SongGenre, type SongRegion } from '@tunes/shared';
 import { getSocket, leaveTable } from '../services/socket';
 import { useGameStore } from '../store';
+import { SpotifyClassicHost } from './SpotifyClassicHost';
 import { Brand, Message, MODE_NAMES, WorkedExample } from './TableUi';
 
 const MODES: { id: GameMode; help: string }[] = [
@@ -178,6 +179,7 @@ export function Lobby() {
               </>
             ) : <Message>Waiting for {players[hostId]?.name || 'the controller'} to start.</Message>}
           </div>
+          {isHost && !isDinner && <SpotifyClassicHost lobby />}
           {isHost && customize && (
             <div id="customize-options" className="tunes-customize">
               <fieldset className="tunes-fieldset" disabled={!connected || isPreparing}>

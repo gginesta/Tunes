@@ -24,6 +24,8 @@ COPY server/ server/
 
 ARG BUILD_REVISION=development
 ENV VITE_BUILD_REVISION=${BUILD_REVISION}
+ARG VITE_SPOTIFY_CLASSIC_URL
+ENV VITE_SPOTIFY_CLASSIC_URL=${VITE_SPOTIFY_CLASSIC_URL}
 
 # Build shared, then app, then server
 RUN npm run build

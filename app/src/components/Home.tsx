@@ -3,6 +3,7 @@ import { ArrowDownRight, ArrowRight, Bookmark, BookOpen, Disc3, Radio, RotateCcw
 import type { SavedTable } from '@tunes/shared';
 import { createTable, getGuestToken, getSession, getSocket, joinTable, resumeSavedRoom } from '../services/socket';
 import { useGameStore } from '../store';
+import { SpotifyClassicHost } from './SpotifyClassicHost';
 import { Brand, Message, RecordArt } from './TableUi';
 
 function readStageName() {
@@ -132,6 +133,7 @@ export function Home() {
             <button aria-pressed={mode === 'host'} onClick={() => { setMode('host'); setFormError(null); setError(null); }}><Disc3 size={18} aria-hidden="true" /> Host</button>
             <button aria-pressed={mode === 'join'} onClick={() => { setMode('join'); setFormError(null); setError(null); }}><Users size={18} aria-hidden="true" /> Join</button>
           </div>
+          {mode === 'host' && <SpotifyClassicHost />}
           <form className="tunes-stack" onSubmit={submit}>
             <label className="tunes-field">Stage name
               <input ref={nameInput} id="stage-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Ella" autoComplete="nickname" autoCapitalize="words" maxLength={20} />

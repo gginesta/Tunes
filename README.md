@@ -4,6 +4,10 @@ Tunes is a browser-based music game for 2–12 people. Pick the first release ye
 
 ## Start a table
 
+To host Classic with automatic Spotify playback, choose **Host Classic with Spotify** on Home or in the Classic host lobby. This opens the original Tunes host screen. Enter a stage name, choose **Host a room**, then **Host with Spotify**. Share the invite from that room. Guests who already joined a playtest room will need the new invite.
+
+For a room in the dinner-table edition, follow these steps.
+
 1. On Home, enter a stage name and choose **Host a room**. Share the QR code, invite link or four-letter room code. Guests can join without an account.
 2. The default is **Manual DJ**. The DJ sees the private artist, title and recording version, plays that recording using a source the group may use, and taps **Music is playing**. Cueing is untimed.
 3. Choose **Customize** to change the game mode, pack or DJ. The table checks the connected roster and playable recordings before Start. A dedicated DJ requires at least two scoring players in addition to the DJ.
@@ -27,7 +31,7 @@ Dinner Set defaults to eight rounds with automatic audio. With a rotating manual
 
 ### Music choices
 
-- **Manual DJ** uses a 144-card catalogue of familiar recordings and their sourced release facts. The audio comes from the group's own permitted listening source. Check the exact version in the cue, especially for covers, remasters and alternate takes.
+- **Manual DJ** uses a catalogue of familiar recordings and their sourced release facts. The audio comes from the group's own permitted listening source. Check the exact version in the cue, especially for covers, remasters and alternate takes.
 - **Automatic music** includes a 24-track independent instrumental pack bundled under CC BY 4.0. These are different recordings from the familiar-song catalogue. The game plays clips on the designated speaker device. [Recording credits and sources](app/public/music-credits.html)
 - **Additional automatic packs** require a written decision covering recording list, territories, interactive-game use, excerpt and delivery terms, attribution, expiry and fees. Confirm rights for the intended territory before exposing a pack. Legacy Spotify, Apple preview and playlist references describe earlier versions of Tunes.
 
@@ -58,6 +62,7 @@ Set runtime variables in the shell or hosting service. To load a local copy of t
 | `PORT`, `DATA_DIR` | Default port 3000 and repository `data/`. Set `DATA_DIR` to a writable persistent directory on the host. |
 | `ALLOWED_ORIGINS` | Comma-separated list for a separately hosted client. Same-origin production hosting works with it unset. |
 | `BUILD_REVISION` | Server build stamp in logs, health and Home. Pass it as a build argument in Docker. |
+| `VITE_SPOTIFY_CLASSIC_URL` | Optional build argument for the independently deployed original Classic host. Defaults to `https://tunes.buzzrounds.com/`. Before moving the dinner-table edition to that domain, configure a distinct HTTPS Classic deployment with its Spotify callback registered. |
 | `TUNES_DINNER_ENABLED=false`, `TUNES_LICENSED_ENABLED=false` | Disable new starts for the respective pilot feature. Existing snapshots can still recover and finish, subject to recording eligibility. |
 | `TUNES_LICENSED_MANIFEST`, `TUNES_LICENSED_AUDIO_DIR` | Absolute paths to an optional JSON manifest and the clip directory. Restart the process to load a changed manifest. |
 | `TUNES_GEO_FENCED_TERRITORY` | Optional country code, for example `HK`, for an instance whose upstream access is already restricted to that territory. An unrestricted service should leave this unset and use tracks with `territories: ["*"]`. |

@@ -113,6 +113,12 @@
 .tunes-button-primary:hover:not(:disabled) { background: var(--t-accent-strong); }
 .tunes-button-secondary { border-color: var(--t-line); background: var(--t-panel); color: var(--t-accent-strong); }
 .tunes-button-secondary:hover:not(:disabled) { background: var(--t-accent-soft); }
+.tunes-spotify-host {
+  display: grid;
+  gap: .4rem;
+  padding-block: .8rem;
+  border-block: 1px solid var(--t-line);
+}
 .tunes-button-resume {
   justify-content: flex-start;
   display: grid;

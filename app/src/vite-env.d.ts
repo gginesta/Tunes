@@ -3,6 +3,7 @@
 interface ImportMetaEnv {
   readonly VITE_SERVER_URL: string;
   readonly VITE_SPOTIFY_CLIENT_ID: string;
+  readonly VITE_SPOTIFY_CLASSIC_URL?: string;
 }
 
 interface ImportMeta {
