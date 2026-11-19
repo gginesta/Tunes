@@ -27,7 +27,9 @@ export function preUnlockAudio(): void {
   if (audioUnlocked) return;
   try {
     // Method 1: Resume an AudioContext
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const AudioContextConstructor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextConstructor) return;
+    const ctx = new AudioContextConstructor();
     if (ctx.state === 'suspended') {
       ctx.resume().catch(() => {});
     }

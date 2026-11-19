@@ -78,15 +78,17 @@ export function sessionAllowsSpotifyRestore(
     && expectedPlayerId === currentPlayerId;
 }
 
-export function saveSession(roomCode: string, playerId: string): void {
+export function saveSession(roomCode: string, playerId: string, resumeToken: string, guestToken?: string): void {
   try {
     localStorage.setItem('tunes_room', roomCode);
     localStorage.setItem('tunes_player', playerId);
+    localStorage.setItem('tunes_seat_token', resumeToken);
+    if (guestToken) localStorage.setItem('tunes_guest_token', guestToken);
     localStorage.setItem('tunes_session_ts', String(Date.now()));
   } catch { /* localStorage unavailable */ }
 }
 
-export function getSession(): { roomCode: string; playerId: string } | null {
+export function getSession(): { roomCode: string; playerId: string; resumeToken: string } | null {
   try {
     const roomCode = localStorage.getItem('tunes_room');
     const playerId = localStorage.getItem('tunes_player');
@@ -96,15 +98,50 @@ export function getSession(): { roomCode: string; playerId: string } | null {
       clearSession();
       return null;
     }
-    return { roomCode, playerId };
+    return { roomCode, playerId, resumeToken: localStorage.getItem('tunes_seat_token') || '' };
   } catch { /* localStorage unavailable */ }
   return null;
+}
+
+export function getGuestToken(): string | undefined {
+  try { return localStorage.getItem('tunes_guest_token') || undefined; } catch { return undefined; }
+}
+
+export function createTable(playerName: string): void {
+  const client = getSocket();
+  if (client.connected) client.emit('create-room', { playerName: playerName.trim(), guestToken: getGuestToken(), playbackMode: 'manual' });
+}
+
+export function joinTable(code: string, playerName: string): void {
+  const client = getSocket();
+  if (client.connected) client.emit('join-room', { code: code.trim().toUpperCase(), playerName: playerName.trim(), guestToken: getGuestToken() });
+}
+
+export function resumeSavedRoom(): void {
+  const session = getSession();
+  if (!session) return;
+  window.dispatchEvent(new Event('tunes:resuming'));
+  if (!session.resumeToken) {
+    window.dispatchEvent(new Event('tunes:legacy-seat'));
+    return;
+  }
+  const client = getSocket();
+  if (!client.connected) { client.connect(); return; }
+  client.emit('rejoin-room', { code: session.roomCode, playerId: session.playerId, resumeToken: session.resumeToken });
+}
+
+export function leaveTable(): void {
+  const client = getSocket();
+  clearSession();
+  if (client.connected) client.emit('leave-room');
+  window.dispatchEvent(new Event('tunes:left'));
 }
 
 export function clearSession(): void {
   try {
     localStorage.removeItem('tunes_room');
     localStorage.removeItem('tunes_player');
+    localStorage.removeItem('tunes_seat_token');
     localStorage.removeItem('tunes_session_ts');
     localStorage.removeItem(PLAYBACK_INTENT_KEY);
   } catch { /* localStorage unavailable */ }

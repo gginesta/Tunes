@@ -1,13 +1,21 @@
 import { Socket } from 'socket.io';
-import type { ClientToServerEvents, ServerToClientEvents } from '@tunes/shared';
-import { getLeaderboard, getPlayerStats, getPlayerGameHistory } from './database';
-import { guestNameKey, isRecord, isShortString } from './validate';
+import type { ClientToServerEvents, ServerToClientEvents, SavedTable } from '@tunes/shared';
+import { getLeaderboard, getPlayerStats, getPlayerGameHistory, getSavedTables } from './database';
+import { authenticateGuest } from './guestSession';
+import { isRecord } from './validate';
 import { logger } from './logger';
 
 type TunesSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
 /** Leaderboard and per-guest stats/history lookups. */
-export function registerStatsHandlers(socket: TunesSocket): void {
+export function registerStatsHandlers(
+  socket: TunesSocket,
+  guestForSeat: () => string | undefined,
+  withLiveRooms: (tables: SavedTable[]) => SavedTable[],
+): void {
+  function ownIdentity(payload: unknown): string | undefined {
+    return guestForSeat() ?? authenticateGuest(isRecord(payload) ? payload.guestToken : undefined);
+  }
   socket.on('get-leaderboard', () => {
     try {
       const entries = getLeaderboard(20);
@@ -18,30 +26,29 @@ export function registerStatsHandlers(socket: TunesSocket): void {
   });
 
   socket.on('get-my-stats', (payload) => {
-    const name = isRecord(payload) && isShortString(payload.name, 100) ? guestNameKey(payload.name) : '';
-    if (!name) {
-      socket.emit('my-stats', { stats: null });
-      return;
-    }
     try {
-      const stats = getPlayerStats(name);
-      socket.emit('my-stats', { stats });
+      const guestId = ownIdentity(payload);
+      socket.emit('my-stats', { stats: guestId ? getPlayerStats(guestId) : null });
     } catch (err) {
       logger.error('Failed to fetch player stats', { error: String(err) });
     }
   });
 
   socket.on('get-my-history', (payload) => {
-    const name = isRecord(payload) && isShortString(payload.name, 100) ? guestNameKey(payload.name) : '';
-    if (!name) {
-      socket.emit('my-history', { games: [] });
-      return;
-    }
     try {
-      const games = getPlayerGameHistory(name, 20);
-      socket.emit('my-history', { games });
+      const guestId = ownIdentity(payload);
+      socket.emit('my-history', { games: guestId ? getPlayerGameHistory(guestId, 20) : [] });
     } catch (err) {
       logger.error('Failed to fetch player history', { error: String(err) });
+    }
+  });
+
+  socket.on('get-my-tables', (payload) => {
+    try {
+      const guestId = ownIdentity(payload);
+      socket.emit('my-tables', { tables: guestId ? withLiveRooms(getSavedTables(guestId)) : [] });
+    } catch (err) {
+      logger.error('Failed to fetch saved tables', { error: String(err) });
     }
   });
 }

@@ -66,10 +66,12 @@
   {
     "title": "My Funny Valentine",
     "artist": "Chet Baker",
-    "year": 1937,
+    "year": 1954,
     "genre": "jazz",
     "region": "global",
-    "previewUrl": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview211/v4/71/2e/93/712e93b3-c09c-82a5-b58c-4425e950d685/mzaf_582111910534553844.plus.aac.p.m4a"
+    "recordingId": "8cd2c60f-411d-410d-9b9b-351ed33ca6bf",
+    "version": "Chet Baker Sings, original vocal recording",
+    "sourceUrl": "https://musicbrainz.org/recording/8cd2c60f-411d-410d-9b9b-351ed33ca6bf"
   },
   {
     "title": "A-Tisket, A-Tasket",
@@ -291,10 +293,12 @@
   {
     "title": "Fly Me to the Moon",
     "artist": "Frank Sinatra",
-    "year": 1954,
+    "year": 1964,
     "genre": "pop",
     "region": "global",
-    "previewUrl": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview211/v4/88/30/08/8830086e-a020-d902-6c9f-90dfeec6e1d4/mzaf_14335189078733210073.plus.aac.p.m4a"
+    "recordingId": "96e25e14-65be-47bb-971a-be6fd28c741f",
+    "version": "Original studio recording with Count Basie",
+    "sourceUrl": "https://musicbrainz.org/recording/96e25e14-65be-47bb-971a-be6fd28c741f"
   },
   {
     "title": "Shake, Rattle and Roll",

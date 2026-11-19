@@ -1,738 +1,293 @@
-import { useState, useCallback, useEffect } from 'react';
-import { Users, Crown, Settings, LogOut, Play, Music, ListMusic, Link, Share2, Check, Globe, CheckCircle, XCircle, ArrowDownToLine } from 'lucide-react';
-import { motion } from 'motion/react';
-import { getSocket, clearSession, getSessionPlaybackIntent } from '../services/socket';
+import { useEffect, useState } from 'react';
+import { BookOpen, Check, ChevronDown, Copy, Headphones, Play, Share2, SlidersHorizontal, Users, X } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { getDinnerRoundCount, MIN_PLAYERS, type GameMode, type GameSettings, type PlaybackMode, type SongGenre, type SongRegion } from '@tunes/shared';
+import { getSocket, leaveTable } from '../services/socket';
 import { useGameStore } from '../store';
-import { requestActivation, preUnlockAudio } from '../services/spotifyPlayer';
-import {
-  restoreSavedSpotifyAccessToken,
-  restoreSpotifyForCurrentHost,
-} from '../services/spotifySession';
-import type { GameMode, SongPack, SongGenre, SongRegion } from '@tunes/shared';
-import { MIN_CARDS_TO_WIN, MAX_CARDS_TO_WIN, MIN_PLAYERS } from '@tunes/shared';
+import { Brand, Message, MODE_NAMES, WorkedExample } from './TableUi';
 
-const AVAILABLE_DECADES = [
-  { value: 1950, label: '50s' },
-  { value: 1960, label: '60s' },
-  { value: 1970, label: '70s' },
-  { value: 1980, label: '80s' },
-  { value: 1990, label: '90s' },
-  { value: 2000, label: '00s' },
-  { value: 2010, label: '10s' },
-  { value: 2020, label: '20s' },
+const MODES: { id: GameMode; help: string }[] = [
+  { id: 'original', help: 'Take turns building your own timeline.' },
+  { id: 'dinner', help: 'Everyone guesses, then the table reveals together.' },
+  { id: 'pro', help: 'Place the card and name the song and artist.' },
+  { id: 'expert', help: 'Place the card, name it and pin down the year.' },
+  { id: 'coop', help: 'Build one timeline together.' },
 ];
 
-const AVAILABLE_GENRES: { value: SongGenre; label: string }[] = [
+const DECADES = [1950, 1960, 1970, 1980, 1990, 2000, 2010, 2020];
+const GENRES: { value: SongGenre; label: string }[] = [
   { value: 'rock', label: 'Rock' },
   { value: 'pop', label: 'Pop' },
-  { value: 'hip-hop', label: 'Hip-Hop' },
+  { value: 'hip-hop', label: 'Hip-hop' },
   { value: 'r-and-b', label: 'R&B' },
   { value: 'country', label: 'Country' },
   { value: 'electronic', label: 'Electronic' },
   { value: 'jazz', label: 'Jazz' },
   { value: 'latin', label: 'Latin' },
 ];
-
-const AVAILABLE_REGIONS: { value: SongRegion; label: string }[] = [
+const REGIONS: { value: SongRegion; label: string }[] = [
   { value: 'uk', label: 'UK' },
   { value: 'latin', label: 'Latin' },
-  { value: 'kpop', label: 'K-Pop' },
+  { value: 'kpop', label: 'K-pop' },
   { value: 'bollywood', label: 'Bollywood' },
 ];
 
-/** Curated Spotify playlists for genre packs */
-const GENRE_PACKS = [
-  { label: 'Summer Hits', icon: '\u2600', playlistId: '37i9dQZF1DXdwTUxmGKrdN', dec: 'dec-1970s' },
-  { label: 'Movie Soundtracks', icon: '\uD83C\uDFAC', playlistId: '37i9dQZF1DX4dyzvuaRJ0n', dec: 'dec-1960s' },
-  { label: 'Rock Classics', icon: '\uD83E\uDD18', playlistId: '37i9dQZF1DWXRqgorJj26U', dec: 'dec-1950s' },
-  { label: 'Hip-Hop', icon: '\uD83C\uDFA4', playlistId: '37i9dQZF1DX48TTZL62Yht', dec: 'dec-1940s' },
-  { label: 'Latin Hits', icon: '\uD83D\uDD25', playlistId: '37i9dQZF1DX10zKzsJ2jva', dec: 'dec-1980s' },
-  { label: '90s Throwback', icon: '\uD83D\uDCFC', playlistId: '37i9dQZF1DXbTxRt5MxAvz', dec: 'dec-2000s' },
-  { label: 'Indie Hits', icon: '\uD83C\uDF3B', playlistId: '37i9dQZF1DX2Nc3B70tvx0', dec: 'dec-2020s' },
-  { label: 'All-Time Greatest', icon: '\uD83C\uDFC6', playlistId: '37i9dQZF1DXcBWIGoYBM5M', dec: 'dec-1930s' },
-];
+function toggled<T>(values: T[] | undefined, value: T) {
+  const current = values ?? [];
+  return current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
+}
 
-export function Lobby() {
-  const players = useGameStore((s) => s.players);
-  const myId = useGameStore((s) => s.myId);
-  const roomCode = useGameStore((s) => s.roomCode);
-  const hostId = useGameStore((s) => s.hostId);
-  const settings = useGameStore((s) => s.settings);
-  const error = useGameStore((s) => s.error);
-  const reset = useGameStore((s) => s.reset);
-  const spotifyToken = useGameStore((s) => s.spotifyToken);
+function InviteBlock({ code }: { code: string }) {
+  const link = new URL(`/join/${code}`, window.location.origin).href;
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
 
-  const isHost = hostId === myId;
-  const hasSpotify = !!spotifyToken;
-  const playerList = Object.values(players);
-  const socket = getSocket();
-
-  const [playlistInput, setPlaylistInput] = useState(settings.playlistUrl || '');
-  const [playlistImported, setPlaylistImported] = useState(!!settings.playlistUrl);
-  const [copied, setCopied] = useState(false);
-  const [starting, setStarting] = useState(false);
-
-  // Reset starting state when an error arrives from the server
-  useEffect(() => {
-    if (error) setStarting(false);
-  }, [error]);
-
-  // Zustand is intentionally ephemeral, while the refresh credential survives
-  // a tab reload. Restore it when an authenticated player regains host status.
-  useEffect(() => {
-    if (!isHost || spotifyToken) return;
-    void restoreSpotifyForCurrentHost(roomCode, myId, hostId).catch(() => {});
-  }, [hostId, isHost, myId, roomCode, spotifyToken]);
-
-  /** Check if a string looks like a valid Spotify playlist URL/URI */
-  const isValidPlaylistUrl = useCallback((url: string): boolean => {
-    if (!url.trim()) return false;
-    return /open\.spotify\.com\/playlist\/[a-zA-Z0-9]+/.test(url)
-      || /spotify:playlist:[a-zA-Z0-9]+/.test(url);
-  }, []);
-
-  const handleCopyInviteLink = async () => {
-    const link = `${window.location.origin}/join/${roomCode}`;
+  async function copy() {
     try {
-      // Use native share sheet on mobile — opens as overlay, no app switch needed
-      if (navigator.share) {
-        await navigator.share({ title: 'Join my Tunes game!', text: `Room code: ${roomCode}`, url: link });
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      } else {
-        await navigator.clipboard.writeText(link);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }
+      await navigator.clipboard.writeText(link);
+      setCopyState('copied');
     } catch {
-      // User cancelled share or clipboard failed — try clipboard as fallback
-      try {
-        await navigator.clipboard.writeText(link);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      } catch { /* nothing */ }
+      setCopyState('failed');
     }
-  };
+  }
 
-  const handleLeave = () => {
-    socket.emit('leave-room');
-    clearSession();
-    reset();
-  };
-
-  const handleStart = async () => {
-    // Pre-unlock audio synchronously from the click gesture BEFORE any async work
-    preUnlockAudio();
-    requestActivation();
-    setStarting(true);
-    useGameStore.getState().setError(null);
-
-    // Refresh Spotify token before starting to handle expiry
-    const playbackIntent = getSessionPlaybackIntent();
-    let playbackToken = playbackIntent === 'spotify' ? spotifyToken || undefined : undefined;
-    const savedRefresh = localStorage.getItem('spotify_refresh_token');
-    if (savedRefresh && playbackIntent === 'spotify') {
-      try {
-        playbackToken = await restoreSavedSpotifyAccessToken(savedRefresh, roomCode, myId);
-      } catch {
-        // Token refresh failed — try with the existing token
-      }
+  async function share() {
+    if (!navigator.share) return copy();
+    try {
+      await navigator.share({ title: 'Join my Tunes table', text: `Room code ${code}`, url: link });
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) await copy();
     }
-
-    const currentState = useGameStore.getState();
-    if (currentState.roomCode !== roomCode || currentState.myId !== myId) return;
-    if (getSessionPlaybackIntent() !== 'spotify') playbackToken = undefined;
-
-    socket.emit('start-game', playbackToken ? { spotifyAccessToken: playbackToken } : undefined);
-    // If the server never responds, don't just silently re-enable the
-    // button — tell the host what happened.
-    setTimeout(() => {
-      setStarting(false);
-      const state = useGameStore.getState();
-      if (state.screen === 'lobby' && state.phase === 'lobby' && !state.error) {
-        state.setError('The server is not responding — please try starting again.');
-      }
-    }, 10000);
-  };
-
-  const handleUpdateMode = (mode: GameMode) => {
-    socket.emit('update-settings', { mode });
-  };
-
-  const handleUpdateCards = (cardsToWin: number) => {
-    socket.emit('update-settings', { cardsToWin });
-  };
-
-  const handleSetSongPack = (songPack: SongPack) => {
-    socket.emit('update-settings', { songPack, decades: undefined, genres: undefined, playlistUrl: undefined });
-  };
-
-  const handleToggleDecade = (decade: number) => {
-    const current = settings.decades || [];
-    const next = current.includes(decade)
-      ? current.filter((d) => d !== decade)
-      : [...current, decade];
-    const pack = settings.songPack === 'genre-decade' ? 'genre-decade' : 'decades';
-    socket.emit('update-settings', { songPack: pack, decades: next });
-  };
-
-  const handleToggleGenre = (genre: SongGenre) => {
-    const current = settings.genres || [];
-    const next = current.includes(genre)
-      ? current.filter((g) => g !== genre)
-      : [...current, genre];
-    socket.emit('update-settings', { genres: next });
-  };
-
-  const handleToggleRegion = (region: SongRegion) => {
-    const current = settings.regions || [];
-    const next = current.includes(region)
-      ? current.filter((r) => r !== region)
-      : [...current, region];
-    socket.emit('update-settings', { regions: next });
-  };
-
-  const handleSelectGenrePack = (playlistId: string) => {
-    const url = `https://open.spotify.com/playlist/${playlistId}`;
-    setPlaylistInput(url);
-    setPlaylistImported(true);
-    socket.emit('update-settings', { songPack: 'playlist', playlistUrl: url });
-  };
-
-  const handlePlaylistUrlChange = (url: string) => {
-    setPlaylistInput(url);
-    setPlaylistImported(false);
-  };
-
-  const handleImportPlaylist = () => {
-    if (!isValidPlaylistUrl(playlistInput)) return;
-    setPlaylistImported(true);
-    socket.emit('update-settings', { songPack: 'playlist', playlistUrl: playlistInput });
-  };
-
-  const modes: { value: GameMode; label: string; desc: string }[] = [
-    { value: 'original', label: 'Original', desc: 'Place correctly to keep the card' },
-    { value: 'pro', label: 'Pro', desc: 'Must also name the song' },
-    { value: 'expert', label: 'Expert', desc: 'Name song + guess exact year' },
-    { value: 'coop', label: 'Co-op', desc: 'Shared timeline, work together' },
-  ];
-
-  const songPackLabel = settings.songPack === 'standard'
-    ? 'Standard Mix'
-    : settings.songPack === 'decades'
-      ? `Decades: ${(settings.decades || []).sort().map(d => `${d}s`).join(', ') || 'None'}`
-      : settings.songPack === 'genre'
-        ? `Genre: ${(settings.genres || []).join(', ') || 'None'}`
-        : settings.songPack === 'genre-decade'
-          ? `Genre+Decade`
-          : 'Spotify Playlist';
-
-  const needsGenreSelection = hasSpotify && (settings.songPack === 'genre' || settings.songPack === 'genre-decade');
-  const needsDecadeSelection = hasSpotify && (settings.songPack === 'decades' || settings.songPack === 'genre-decade');
+  }
 
   return (
-    <div className="flex flex-col min-h-screen p-6 text-white">
-      <div className="flex justify-between items-center mb-8">
-        <button
-          onClick={handleLeave}
-          className="btn-icon"
-          aria-label="Leave"
-        >
-          <LogOut className="w-5 h-5" />
-        </button>
-        <div className="text-center">
-          <p className="text-[10px] text-neon-cyan uppercase tracking-[0.3em] font-bold mb-1">
-            ROOM CODE
-          </p>
-          <h2 className="font-display text-5xl tracking-widest text-neon-pink text-glow-pink leading-none">
-            {roomCode}
-          </h2>
-          <button
-            onClick={handleCopyInviteLink}
-            className="mt-2 inline-flex items-center gap-1.5 text-xs text-white/65 hover:text-white transition-colors px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10"
-          >
-            {copied ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-neon-pink" />
-                <span className="text-neon-pink">Copied!</span>
-              </>
-            ) : (
-              <>
-                <Share2 className="w-3.5 h-3.5" />
-                Copy Invite Link
-              </>
-            )}
-          </button>
+    <section className="tunes-panel tunes-invite" aria-labelledby="invite-title">
+      <div className="tunes-invite-top">
+        <div className="tunes-qr"><QRCodeSVG value={link} size={112} marginSize={4} title={`Scan to join room ${code}`} /></div>
+        <div>
+          <h2 id="invite-title">Invite the table</h2>
+          <p className="tunes-room-code" aria-label={`Room code ${code.split('').join(' ')}`}>{code}</p>
+          <p className="tunes-muted">Scan the QR or enter this code.</p>
         </div>
-        <div className="w-9" />
       </div>
+      <div className="tunes-inline">
+        <button className="tunes-button tunes-button-secondary" onClick={() => void copy()}>
+          {copyState === 'copied' ? <Check size={17} aria-hidden="true" /> : <Copy size={17} aria-hidden="true" />}
+          {copyState === 'copied' ? 'Link copied' : 'Copy link'}
+        </button>
+        {typeof navigator.share === 'function' && <button className="tunes-button tunes-button-secondary" onClick={() => void share()}><Share2 size={17} aria-hidden="true" /> Share</button>}
+      </div>
+      {copyState === 'failed' && <label className="tunes-field">Invitation link<input readOnly value={link} onFocus={(event) => event.currentTarget.select()} /></label>}
+      <span className="sr-only" role="status">{copyState === 'copied' ? 'Invitation link copied' : ''}</span>
+    </section>
+  );
+}
 
-      {error && (
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="text-red-400 text-sm text-center bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2 mb-4"
-        >
-          {error}
-        </motion.p>
-      )}
+export function Lobby() {
+  const room = useGameStore((s) => s.room);
+  const connected = useGameStore((s) => s.connected);
+  const myId = useGameStore((s) => s.myId);
+  const error = useGameStore((s) => s.error);
+  const notice = useGameStore((s) => s.notice);
+  const startProgress = useGameStore((s) => s.startProgress);
+  const licensedPacks = useGameStore((s) => s.licensedPacks);
+  const dinnerAvailable = useGameStore((s) => s.dinnerAvailable);
+  const [customize, setCustomize] = useState(false);
+  const [showExample, setShowExample] = useState(false);
+  const [starting, setStarting] = useState(false);
 
-      <div className="flex-1 space-y-6 max-w-lg mx-auto w-full overflow-y-auto">
-        {/* Player list */}
-        <div className="panel p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-[10px] uppercase tracking-[0.3em] font-bold text-white/50 flex items-center gap-2">
-              <Users className="w-4 h-4 text-neon-pink" />
-              PLAYERS · {playerList.length}/12
-            </h3>
+  useEffect(() => { if (error || !connected) setStarting(false); }, [error, connected]);
+  useEffect(() => { if (startProgress === null) setStarting(false); }, [startProgress]);
+
+  useEffect(() => {
+    if (!starting) return;
+    const id = window.setTimeout(() => {
+      setStarting(false);
+      if (!useGameStore.getState().error) useGameStore.getState().setError('The room is taking a while to start. Try again.');
+    }, 25_000);
+    return () => window.clearTimeout(id);
+  }, [starting]);
+
+  if (!room) return null;
+  const { code, hostId, players, settings, playbackMode } = room;
+  const availability = room.startAvailability;
+  const playerList = Object.values(players);
+  const online = playerList.filter((player) => player.connected);
+  const isHost = myId === hostId;
+  const manual = playbackMode === 'manual' || !playbackMode;
+  const isDinner = settings.mode === 'dinner';
+  const dedicated = manual && !!settings.dedicatedDjId;
+  const requiredSeats = dedicated ? MIN_PLAYERS + 1 : MIN_PLAYERS;
+  const eligible = online.filter((player) => !dedicated || player.id !== settings.dedicatedDjId);
+  const rotationSize = Math.max(1, eligible.length);
+  const songCount = getDinnerRoundCount(settings, manual ? 'manual' : playbackMode, eligible.length);
+  const isPreparing = starting || !!startProgress;
+
+  function update(values: Partial<GameSettings> & { playbackMode?: PlaybackMode }) {
+    const socket = getSocket();
+    if (socket.connected) socket.emit('update-settings', values);
+  }
+
+  function start() {
+    const socket = getSocket();
+    if (!socket.connected || starting) return;
+    useGameStore.getState().setError(null);
+    setStarting(true);
+    socket.emit('start-game');
+  }
+
+  const modeHelp = MODES.find((mode) => mode.id === settings.mode)?.help;
+  const connectedWord = `${online.length} ${online.length === 1 ? 'person' : 'people'} ready`;
+  return (
+    <main className="tunes-shell tunes-lobby" data-mode={isDinner ? 'dinner' : 'classic'}>
+      <Brand>
+        <span className="tunes-pill tunes-pill-room">Room {code}</span>
+        <button className="tunes-link" onClick={leaveTable}>Leave</button>
+      </Brand>
+      <div className="tunes-page-heading">
+        <h1>The table</h1>
+        <p>{isHost ? 'Share the invite, then start when everyone is here.' : 'You’re in. The controller starts the game.'}</p>
+      </div>
+      {!connected && <Message>Reconnecting to room {code}…</Message>}
+      {error && <Message kind="error">{error}</Message>}
+      {notice && !error && <Message>{notice}</Message>}
+      {room.recovery === 'restart-required' && <Message>This older table needs a fresh match. Invite the table and choose Start when everyone is ready.</Message>}
+      <div className="tunes-lobby-grid">
+        <InviteBlock code={code} />
+        <section className="tunes-panel tunes-lobby-options" aria-labelledby="session-title">
+          <div className="tunes-row-title">
+            <h2 id="session-title">{MODE_NAMES[settings.mode]}</h2>
+            {isHost && (
+              <button className="tunes-link" type="button" aria-expanded={customize} aria-controls="customize-options" onClick={() => setCustomize((value) => !value)}>
+                <SlidersHorizontal size={17} aria-hidden="true" /> Customize <ChevronDown size={14} aria-hidden="true" />
+              </button>
+            )}
           </div>
-
-          <div className="space-y-2">
-            {playerList.map((player) => (
-              <motion.div
-                key={player.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="flex items-center justify-between bg-black/25 p-3 rounded-xl border border-white/[0.04]"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="avatar">
-                    {player.name.charAt(0).toUpperCase()}
-                  </div>
-                  <span className="font-medium text-base">{player.name}</span>
-                  {player.id === myId && (
-                    <span className="chip chip-mode-cyan text-[9px]">YOU</span>
-                  )}
-                  {!player.connected && (
-                    <span className="text-[9px] bg-red-500/20 border border-red-500/30 px-2 py-0.5 rounded-full text-red-400 font-bold uppercase tracking-wider">
-                      Offline
-                    </span>
-                  )}
-                </div>
-                {player.isHost && <Crown className="w-5 h-5 text-neon-amber" />}
-              </motion.div>
-            ))}
+          <p className="tunes-muted">{modeHelp}</p>
+          <div className="tunes-chip-row">
+            <span className="tunes-pill"><Headphones size={16} aria-hidden="true" /> {manual ? (dedicated ? 'Dedicated DJ' : 'Rotating DJ') : 'Automatic music'}</span>
+            <span className="tunes-pill">{isDinner ? `${songCount} songs` : `${settings.cardsToWin} cards to win`}</span>
           </div>
-        </div>
-
-        {/* Settings */}
-        {isHost ? (
-          <div className="panel p-5 space-y-6">
-            <h3 className="text-[10px] uppercase tracking-[0.3em] font-bold text-white/50 flex items-center gap-2">
-              <Settings className="w-5 h-5 text-white/55" />
-              Game Settings
-            </h3>
-
-            <div className="space-y-4">
-              <div>
-                <label className="text-xs text-white/60 font-bold uppercase tracking-wider mb-2 block">
-                  Game Mode
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {modes.map(({ value, label, desc }) => (
-                    <button
-                      key={value}
-                      onClick={() => handleUpdateMode(value)}
-                      className={`py-3 px-3 rounded-xl text-left transition-all ${
-                        settings.mode === value
-                          ? 'bg-neon-pink text-[#0a0318] glow-pink'
-                          : 'bg-black/30 text-white/75 hover:bg-black/50 border border-white/[0.06]'
-                      }`}
-                    >
-                      <span className="text-sm font-bold block">{label}</span>
-                      <span className={`text-[10px] block mt-0.5 ${
-                        settings.mode === value ? 'text-black/60' : 'text-white/40'
-                      }`}>{desc}</span>
+          <div className="tunes-lobby-start" aria-label="Start the game">
+            {isHost ? (
+              <>
+                <button className="tunes-button tunes-button-primary" onClick={start} disabled={!connected || online.length < requiredSeats || (dedicated && !online.some((player) => player.id === settings.dedicatedDjId)) || availability?.ready === false || isPreparing}>
+                  <Play size={19} aria-hidden="true" /> {startProgress || (isPreparing ? 'Preparing the pack…' : `Start ${MODE_NAMES[settings.mode]}`)}
+                </button>
+                {availability?.issue ? <p className="tunes-muted" role="status">{availability.issue}</p> : online.length < requiredSeats ? <p className="tunes-muted">You need {requiredSeats} people to start{dedicated ? ' with a dedicated DJ' : ''}.</p> : availability?.ready ? <p className="tunes-muted">{availability.playable} usable recordings in this pack.</p> : null}
+                {isPreparing && <button className="tunes-link" disabled={!connected} onClick={() => { getSocket().emit('cancel-start'); setStarting(false); }}>Cancel start</button>}
+              </>
+            ) : <Message>Waiting for {players[hostId]?.name || 'the controller'} to start.</Message>}
+          </div>
+          {isHost && customize && (
+            <div id="customize-options" className="tunes-customize">
+              <fieldset className="tunes-fieldset" disabled={!connected || isPreparing}>
+                <legend>Game mode</legend>
+                <div className="tunes-choice-grid">
+                  {MODES.filter((mode) => mode.id !== 'dinner' || dinnerAvailable || isDinner).map((mode) => (
+                    <button type="button" key={mode.id} className="tunes-mode-choice" aria-pressed={settings.mode === mode.id} onClick={() => update({ mode: mode.id })}>
+                      <b>{MODE_NAMES[mode.id]}</b><span>{mode.help}</span>
                     </button>
                   ))}
                 </div>
-              </div>
-
-              <div>
-                <div className="flex justify-between mb-2">
-                  <label className="text-xs text-white/60 font-bold uppercase tracking-wider">
-                    Cards to Win
+              </fieldset>
+              <div className="tunes-field-grid">
+                {!isDinner && (
+                  <label className="tunes-field">Cards to win
+                    <select disabled={!connected || isPreparing} value={settings.cardsToWin} onChange={(event) => update({ cardsToWin: Number(event.target.value) })}>
+                      {Array.from({ length: 11 }, (_, index) => index + 5).map((number) => <option key={number} value={number}>{number} cards</option>)}
+                    </select>
                   </label>
-                  <span className="text-neon-amber font-display text-2xl tabular-nums">
-                    {settings.cardsToWin}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={MIN_CARDS_TO_WIN}
-                  max={MAX_CARDS_TO_WIN}
-                  value={settings.cardsToWin}
-                  onChange={(e) => handleUpdateCards(parseInt(e.target.value))}
-                  className="w-full accent-[#1DB954]"
-                />
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="panel p-5">
-            <div className="text-center space-y-2 text-white/55 mb-4">
-              <p className="text-sm">
-                Mode: <span className="text-white font-medium">{modes.find(m => m.value === settings.mode)?.label ?? settings.mode}</span>
-                {' · '}
-                Cards to win: <span className="text-white font-medium">{settings.cardsToWin}</span>
-              </p>
-              <p className="text-xs text-white/40">
-                {modes.find(m => m.value === settings.mode)?.desc}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Song Packs — host only */}
-        {isHost && hasSpotify ? (
-          <div className="panel p-5 space-y-5">
-            <h3 className="text-[10px] uppercase tracking-[0.3em] font-bold text-white/50 flex items-center gap-2">
-              <Music className="w-5 h-5 text-neon-pink" />
-              Song Source
-            </h3>
-
-            {/* Pack type selector */}
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                onClick={() => handleSetSongPack('standard')}
-                className={`py-3 px-2 rounded-xl text-center transition-all ${
-                  settings.songPack === 'standard'
-                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
-                    : 'bg-black/30 text-white/75 hover:bg-black/50 border border-white/[0.06]'
-                }`}
-              >
-                <ListMusic className={`w-5 h-5 mx-auto mb-1 ${settings.songPack === 'standard' ? 'text-[#0a0318]' : 'text-white/70'}`} />
-                <span className="text-xs font-bold block">Standard</span>
-              </button>
-              <button
-                onClick={() => handleSetSongPack('decades')}
-                className={`py-3 px-2 rounded-xl text-center transition-all ${
-                  settings.songPack === 'decades'
-                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
-                    : 'bg-black/30 text-white/75 hover:bg-black/50 border border-white/[0.06]'
-                }`}
-              >
-                <span className={`text-lg block ${settings.songPack === 'decades' ? 'text-[#0a0318]' : 'text-white/70'}`}>#</span>
-                <span className="text-xs font-bold block">Decades</span>
-              </button>
-              <button
-                onClick={() => handleSetSongPack('genre')}
-                className={`py-3 px-2 rounded-xl text-center transition-all ${
-                  settings.songPack === 'genre'
-                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
-                    : 'bg-black/30 text-white/75 hover:bg-black/50 border border-white/[0.06]'
-                }`}
-              >
-                <Music className={`w-5 h-5 mx-auto mb-1 ${settings.songPack === 'genre' ? 'text-[#0a0318]' : 'text-white/70'}`} />
-                <span className="text-xs font-bold block">By Genre</span>
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => handleSetSongPack('genre-decade')}
-                className={`py-3 px-2 rounded-xl text-center transition-all ${
-                  settings.songPack === 'genre-decade'
-                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
-                    : 'bg-black/30 text-white/75 hover:bg-black/50 border border-white/[0.06]'
-                }`}
-              >
-                <span className={`text-xs font-bold block ${settings.songPack === 'genre-decade' ? 'text-[#0a0318]' : 'text-white/70'}`}>Genre + Decade</span>
-              </button>
-              <button
-                onClick={() => handleSetSongPack('playlist')}
-                className={`py-3 px-2 rounded-xl text-center transition-all ${
-                  settings.songPack === 'playlist'
-                    ? 'bg-neon-pink text-[#0a0318] glow-pink'
-                    : 'bg-black/30 text-white/75 hover:bg-black/50 border border-white/[0.06]'
-                }`}
-              >
-                <Link className={`w-5 h-5 mx-auto mb-1 ${settings.songPack === 'playlist' ? 'text-[#0a0318]' : 'text-white/70'}`} />
-                <span className="text-xs font-bold block">Playlist</span>
-              </button>
-            </div>
-
-            {/* Genre chips */}
-            {needsGenreSelection && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="space-y-2"
-              >
-                <label className="text-xs text-white/55 font-bold uppercase tracking-wider block">
-                  Select genres (pick at least one)
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {AVAILABLE_GENRES.map(({ value, label }) => {
-                    const selected = (settings.genres || []).includes(value);
-                    return (
-                      <button
-                        key={value}
-                        onClick={() => handleToggleGenre(value)}
-                        className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
-                          selected
-                            ? 'bg-neon-pink text-[#0a0318] glow-pink'
-                            : 'bg-black/30 text-white/75 hover:bg-black/50 border border-white/[0.06]'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </motion.div>
-            )}
-
-            {/* Decade chips */}
-            {needsDecadeSelection && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="space-y-2"
-              >
-                <label className="text-xs text-white/55 font-bold uppercase tracking-wider block">
-                  Select decades (pick at least one)
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {AVAILABLE_DECADES.map(({ value, label }) => {
-                    const selected = (settings.decades || []).includes(value);
-                    return (
-                      <button
-                        key={value}
-                        onClick={() => handleToggleDecade(value)}
-                        className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
-                          selected
-                            ? 'bg-neon-pink text-[#0a0318] glow-pink'
-                            : 'bg-black/30 text-white/75 hover:bg-black/50 border border-white/[0.06]'
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </motion.div>
-            )}
-
-            {/* Playlist input + genre presets */}
-            {settings.songPack === 'playlist' && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="space-y-4"
-              >
-                {/* Genre presets as album-art-style cards */}
-                <label className="text-xs text-white/55 font-bold uppercase tracking-wider block">
-                  Quick Pick a Playlist
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  {GENRE_PACKS.map(({ label, icon, playlistId, dec }) => {
-                    const isActive = playlistInput.includes(playlistId);
-                    return (
-                      <button
-                        key={playlistId}
-                        onClick={() => handleSelectGenrePack(playlistId)}
-                        className={`relative overflow-hidden rounded-2xl p-4 text-left transition-all transform hover:scale-[1.02] active:scale-95 ${dec} ${
-                          isActive
-                            ? 'ring-2 ring-neon-pink ring-offset-2 ring-offset-[#0a0318] glow-pink'
-                            : ''
-                        }`}
-                      >
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-transparent" />
-                        <div className="relative z-10">
-                          <span className="text-2xl block mb-1">{icon}</span>
-                          <span className="text-sm font-bold text-white block leading-tight drop-shadow">{label}</span>
-                        </div>
-                        {isActive && (
-                          <div className="absolute top-2 right-2 z-10">
-                            <CheckCircle className="w-5 h-5 text-white drop-shadow" />
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs text-white/55 font-bold uppercase tracking-wider block">
-                    Or paste a Spotify playlist link
+                )}
+                {manual && (
+                  <label className="tunes-field">Who cues music?
+                    <select disabled={!connected || isPreparing} value={settings.dedicatedDjId || ''} onChange={(event) => update({ dedicatedDjId: event.target.value })}>
+                      <option value="">Rotate the DJ</option>
+                      {playerList.map((player) => <option key={player.id} value={player.id}>{player.name} · dedicated DJ</option>)}
+                    </select>
                   </label>
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
-                      <input
-                        type="search"
-                        placeholder="https://open.spotify.com/playlist/..."
-                        value={playlistInput}
-                        onChange={(e) => handlePlaylistUrlChange(e.target.value)}
-                        onBlur={handleImportPlaylist}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleImportPlaylist(); }}
-                        autoComplete="off"
-                        autoCorrect="off"
-                        autoCapitalize="off"
-                        spellCheck={false}
-                        className={`w-full bg-black/30 border rounded-xl px-4 py-3 pr-10 text-base text-white placeholder-white/30 focus:outline-none transition-all ${
-                          playlistInput.trim() === ''
-                            ? 'border-white/10'
-                            : isValidPlaylistUrl(playlistInput)
-                              ? 'border-green-500/50'
-                              : 'border-red-500/50'
-                        }`}
-                      />
-                      {playlistInput.trim() !== '' && (
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                          {isValidPlaylistUrl(playlistInput) ? (
-                            <CheckCircle className="w-4 h-4 text-green-500" />
-                          ) : (
-                            <XCircle className="w-4 h-4 text-red-500" />
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      onClick={handleImportPlaylist}
-                      disabled={!isValidPlaylistUrl(playlistInput)}
-                      className="btn btn-primary whitespace-nowrap"
-                    >
-                      <ArrowDownToLine className="w-4 h-4" />
-                      Import
-                    </button>
-                  </div>
-                  {playlistImported && isValidPlaylistUrl(playlistInput) && (
-                    <motion.p
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="text-xs text-green-400 flex items-center gap-1.5"
-                    >
-                      <CheckCircle className="w-3.5 h-3.5" />
-                      Playlist loaded — ready to start
-                    </motion.p>
-                  )}
-                  {playlistInput.trim() !== '' && !isValidPlaylistUrl(playlistInput) && (
-                    <p className="text-xs text-red-400">
-                      Enter a valid Spotify playlist URL (e.g. https://open.spotify.com/playlist/...)
-                    </p>
-                  )}
+                )}
+                {isDinner && manual && !dedicated && (
+                  <label className="tunes-field">Length
+                    <select disabled={!connected || isPreparing} value={songCount} onChange={(event) => update({ dinnerRounds: Number(event.target.value) })}>
+                      {[1, 2].map((rotation) => <option key={rotation} value={rotation * rotationSize}>{rotation * rotationSize} songs · {rotation} {rotation === 1 ? 'rotation' : 'rotations'}</option>)}
+                    </select>
+                  </label>
+                )}
+                {isDinner && (!manual || dedicated) && (
+                  <label className="tunes-field">Length
+                    <select disabled={!connected || isPreparing} value={songCount} onChange={(event) => update({ dinnerRounds: Number(event.target.value) })}>
+                      {[6, 8, 10, 12].map((count) => <option key={count} value={count}>{count} songs</option>)}
+                    </select>
+                  </label>
+                )}
+              </div>
+              {licensedPacks.length > 0 && (
+                <div className="tunes-stack">
+                  <label className="tunes-field">Music source
+                    <select disabled={!connected || isPreparing} value={playbackMode === 'licensed' ? settings.packId ?? licensedPacks[0].id : 'manual'} onChange={(event) => {
+                      const pick = event.target.value;
+                      if (pick === 'manual') update({ playbackMode: 'manual', songPack: 'standard' });
+                      else update({ playbackMode: 'licensed', packId: pick, songPack: 'standard' });
+                    }}>
+                      <option value="manual">Manual DJ · Use your own music</option>
+                      {licensedPacks.map((pack) => <option value={pack.id} key={pack.id}>{pack.name} · {pack.trackCount} recordings</option>)}
+                    </select>
+                  </label>
+                  <a className="tunes-link" href="/music-credits.html" target="_blank" rel="noreferrer">Automatic music credits</a>
                 </div>
-              </motion.div>
-            )}
-
-            {settings.songPack === 'standard' && (
-              <p className="text-xs text-white/40">
-                {hasSpotify
-                  ? '600+ songs spanning 1930s-2020s, balanced across decades'
-                  : 'Curated no-login preview catalogue; connect Spotify for the full library'}
-              </p>
-            )}
-
-            {/* Regional Packs — combine with any song pack */}
-            <div className="space-y-2 pt-2 border-t border-white/10">
-              <label className="text-xs text-white/55 font-bold uppercase tracking-wider flex items-center gap-1.5">
-                <Globe className="w-3.5 h-3.5" />
-                Regional Packs (optional, combines with selection above)
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {AVAILABLE_REGIONS.map(({ value, label }) => {
-                  const selected = (settings.regions || []).includes(value);
-                  return (
-                    <button
-                      key={value}
-                      onClick={() => handleToggleRegion(value)}
-                      className={`px-4 py-2 rounded-full text-sm font-bold transition-all ${
-                        selected
-                          ? 'bg-neon-pink text-[#0a0318] glow-pink'
-                          : 'bg-black/30 text-white/75 hover:bg-black/50 border border-white/[0.06]'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="text-[10px] text-white/40">
-                Select regions to include songs from those regions. Leave empty to include all.
-              </p>
+              )}
+              <fieldset className="tunes-fieldset" disabled={!connected || isPreparing}>
+                <legend>Decades</legend>
+                <div className="tunes-chip-row">
+                  {DECADES.map((decade) => <button key={decade} type="button" className="tunes-filter" aria-pressed={settings.decades?.includes(decade) ?? false} onClick={() => {
+                    const decades = toggled(settings.decades, decade);
+                    update({ decades, songPack: decades.length ? (settings.genres?.length ? 'genre-decade' : 'decades') : (settings.genres?.length ? 'genre' : 'standard') });
+                  }}>{decade}s</button>)}
+                </div>
+              </fieldset>
+              <fieldset className="tunes-fieldset" disabled={!connected || isPreparing}>
+                <legend>Genres</legend>
+                <div className="tunes-chip-row">
+                  {GENRES.map(({ value, label }) => <button key={value} className="tunes-filter" type="button" aria-pressed={settings.genres?.includes(value) ?? false} onClick={() => {
+                    const genres = toggled(settings.genres, value);
+                    update({ genres, songPack: genres.length ? (settings.decades?.length ? 'genre-decade' : 'genre') : (settings.decades?.length ? 'decades' : 'standard') });
+                  }}>{label}</button>)}
+                </div>
+              </fieldset>
+              <fieldset className="tunes-fieldset" disabled={!connected || isPreparing}>
+                <legend>Regions</legend>
+                <div className="tunes-chip-row">
+                  {REGIONS.map(({ value, label }) => <button key={value} className="tunes-filter" type="button" aria-pressed={settings.regions?.includes(value) ?? false} onClick={() => update({ regions: toggled(settings.regions, value) })}>{label}</button>)}
+                </div>
+              </fieldset>
             </div>
-          </div>
-        ) : isHost && !hasSpotify ? (
-          <div className="panel p-5 space-y-5">
-            <h3 className="text-[10px] uppercase tracking-[0.3em] font-bold text-white/50 flex items-center gap-2">
-              <Music className="w-5 h-5 text-neon-pink" />
-              Song Source
-            </h3>
-
-            <p className="text-xs text-neon-amber bg-neon-amber/10 border border-neon-amber/30 rounded-xl px-3 py-2">
-              Preview mode: 30-second clips from the built-in song library
-            </p>
-
-            {/* The baked preview catalogue only guarantees the standard mix. */}
-            <div className="grid grid-cols-1 gap-2">
-              <button
-                onClick={() => handleSetSongPack('standard')}
-                className="py-3 px-2 rounded-xl text-center transition-all bg-neon-pink text-[#0a0318] glow-pink"
-              >
-                <ListMusic className="w-5 h-5 mx-auto mb-1 text-[#0a0318]" />
-                <span className="text-xs font-bold block">Standard Preview Mix</span>
-              </button>
-            </div>
-            <p className="text-xs text-white/40">
-              Curated no-login preview catalogue. Connect Spotify to unlock decade, genre, regional, and playlist filters.
-            </p>
-          </div>
-        ) : isHost ? null : (
-          /* Non-host: show what the host picked */
-          settings.songPack !== 'standard' && (
-            <div className="panel p-4">
-              <p className="text-sm text-white/55 text-center">
-                <Music className="w-4 h-4 inline-block mr-1 -mt-0.5" />
-                {songPackLabel}
-              </p>
-            </div>
-          )
-        )}
-
-        {/* Non-host waiting message */}
-        {!isHost && (
-          <div className="panel p-5">
-            <div className="flex flex-col items-center justify-center py-6 text-white/55">
-              <div className="animate-pulse flex space-x-2 mb-4">
-                <div className="w-3 h-3 bg-neon-pink rounded-full" />
-                <div className="w-3 h-3 bg-neon-pink rounded-full" style={{ animationDelay: '200ms' }} />
-                <div className="w-3 h-3 bg-neon-pink rounded-full" style={{ animationDelay: '400ms' }} />
-              </div>
-              <p className="font-medium">Waiting for host to start...</p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {isHost && (
-        <div className="mt-6 max-w-lg mx-auto w-full space-y-3">
-          {error && (
-            <p className="text-red-400 text-sm text-center bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2">
-              {error}
-            </p>
           )}
-
-          <button
-            onClick={handleStart}
-            disabled={
-              starting
-              || playerList.length < MIN_PLAYERS
-              || (needsDecadeSelection && (!settings.decades || settings.decades.length === 0))
-              || (needsGenreSelection && (!settings.genres || settings.genres.length === 0))
-              || (hasSpotify && settings.songPack === 'playlist' && !settings.playlistUrl)
-            }
-            className="btn btn-primary btn-lg w-full"
-          >
-            <Play className="w-6 h-6 fill-current" />
-            {starting ? 'STARTING…' : 'START GAME'}
+        </section>
+        <section className="tunes-panel tunes-roster" aria-labelledby="seats-title">
+          <div className="tunes-row-title">
+            <h2 id="seats-title">Who’s here</h2>
+            <span className="tunes-pill"><Users size={15} aria-hidden="true" /> {connectedWord}</span>
+          </div>
+          <ul className="tunes-player-list">
+            {playerList.map((player) => (
+              <li key={player.id}>
+                <div className="tunes-avatar" aria-hidden="true">{player.name[0]?.toUpperCase() || '?'}</div>
+                <div className="tunes-player-label">
+                  <b>{player.name}{player.id === myId ? ' (you)' : ''}</b>
+                  <span>{[player.id === hostId && 'Controller', dedicated && player.id === settings.dedicatedDjId && 'Dedicated DJ'].filter(Boolean).join(' · ')}</span>
+                </div>
+                <span className={`tunes-seat-status ${player.connected ? 'is-ready' : ''}`}>{player.connected ? 'Ready' : 'Away'}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+        <section className="tunes-lobby-example">
+          <button className="tunes-link" onClick={() => setShowExample((value) => !value)} aria-expanded={showExample} aria-controls="lobby-example">
+            {showExample ? <X size={17} aria-hidden="true" /> : <BookOpen size={17} aria-hidden="true" />} {showExample ? 'Close example' : 'See a placement example'}
           </button>
-          {playerList.length < MIN_PLAYERS && (
-            <p className="text-white/40 text-xs text-center">
-              Need at least {MIN_PLAYERS} players to start
-            </p>
-          )}
-        </div>
-      )}
-    </div>
+          {showExample && <div id="lobby-example"><WorkedExample /></div>}
+        </section>
+      </div>
+    </main>
   );
 }

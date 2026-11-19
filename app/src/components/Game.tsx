@@ -1,386 +1,476 @@
-import { useState, useEffect, useRef } from 'react';
-import { SkipForward, AlertTriangle, ShoppingCart, Star, Play, Clock } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { getSocket } from '../services/socket';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { ArrowRight, Check, Clock3, Flag, Headphones, History, Lock, Play, Repeat2, ShoppingBag, SkipForward, Star, Users } from 'lucide-react';
+import { BUY_CARD_COST, SKIP_COST, type CueAction, type Room, type RoundAction, type RoundReveal, type SongCard, type SongGuess } from '@tunes/shared';
+import { getSocket, leaveTable } from '../services/socket';
+import { startSpeakerAudio } from '../services/tableAudio';
 import { useGameStore } from '../store';
-import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
-import { useGameTimers } from '../hooks/useGameTimers';
-import { useGameSounds } from '../hooks/useGameSounds';
-import { preUnlockAudio, activateElement } from '../services/spotifyPlayer';
-import { SKIP_COST, BUY_CARD_COST } from '@tunes/shared';
-import { SongHistory } from './SongHistory';
+import { Brand, gapLabel, makeActionId, Message, MODE_NAMES, RecordArt } from './TableUi';
+import { GapTimeline } from './game/GapTimeline';
+import { TableDialog } from './game/TableDialog';
 import { WaitingState } from './WaitingState';
-import { StopConfirmDialog } from './game/StopConfirmDialog';
-import { BuzzAlert } from './game/BuzzAlert';
-import { AnchorCardsOverlay } from './game/AnchorCardsOverlay';
-import { GameTopBar } from './game/GameTopBar';
-import { DisconnectBanners } from './game/DisconnectBanners';
-import { RevealOverlay } from './game/RevealOverlay';
-import { VinylDeck } from './game/VinylDeck';
-import { RevealActions } from './game/RevealActions';
-import { NamingForm } from './game/NamingForm';
-import { ChallengeBar } from './game/ChallengeBar';
-import { TimelineStrip } from './game/TimelineStrip';
 
-export function Game() {
-  const myId = useGameStore((s) => s.myId);
-  const hostId = useGameStore((s) => s.hostId);
-  const players = useGameStore((s) => s.players);
-  const currentTurnPlayerId = useGameStore((s) => s.currentTurnPlayerId);
-  const phase = useGameStore((s) => s.phase);
-  const lastReveal = useGameStore((s) => s.lastReveal);
-  const settings = useGameStore((s) => s.settings);
-  const isPlayingMusic = useGameStore((s) => s.isPlaying);
-  const spotifyError = useGameStore((s) => s.spotifyError);
-  const notice = useGameStore((s) => s.notice);
-  const isHost = myId === hostId;
-
-  // Stop game confirmation
-  const [showStopConfirm, setShowStopConfirm] = useState(false);
-
-  const [noChallengeClicked, setNoChallengeClicked] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-
-  const [guessTitle, setGuessTitle] = useState('');
-  const [guessArtist, setGuessArtist] = useState('');
-  const [guessYear, setGuessYear] = useState('');
-  const [selectedPosition, setSelectedPosition] = useState<number | null>(null);
-  const [buyCardToast, setBuyCardToast] = useState(false);
-  const songNameResult = useGameStore((s) => s.songNameResult);
-
-  // Timeline toggle: view own vs active player's timeline
-  const [viewingOwnTimeline, setViewingOwnTimeline] = useState(false);
-  // Auto-reset to active player's timeline on turn change
-  useEffect(() => { setViewingOwnTimeline(false); }, [currentTurnPlayerId]);
-
-  // Reset "no challenge" when phase changes
+function useSeconds(deadline: number | null | undefined, remainingMs: number | null | undefined) {
+  const [now, setNow] = useState(Date.now);
   useEffect(() => {
-    if (phase !== 'challenge') setNoChallengeClicked(false);
-  }, [phase]);
+    if (!deadline) return;
+    setNow(Date.now());
+    const id = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(id);
+  }, [deadline]);
+  const ms = deadline ? Math.max(0, deadline - now) : remainingMs;
+  return ms === null || ms === undefined ? null : Math.ceil(ms / 1000);
+}
 
-  // Countdown timers (challenge / turn / disconnect)
-  const { countdown, turnCountdown, disconnectCountdowns } = useGameTimers();
-
-  // Sound effects + volume mute toggle
-  const { volume, handleToggleMute, VolumeIcon } = useGameSounds(countdown);
-
-  const { isHost: isSpotifyHost, togglePlayback } = useSpotifyPlayer();
-
-  // Track whether music has actually started playing for the host.
-  // Show a big play button until it does.
-  const [musicStarted, setMusicStarted] = useState(false);
-  useEffect(() => {
-    if (isPlayingMusic) setMusicStarted(true);
-  }, [isPlayingMusic]);
-  // Reset when track changes (new turn)
-  const prevTrackRef = useRef(currentTurnPlayerId);
-  useEffect(() => {
-    if (currentTurnPlayerId !== prevTrackRef.current) {
-      prevTrackRef.current = currentTurnPlayerId;
-      setMusicStarted(false);
-    }
-  }, [currentTurnPlayerId]);
-
-  // Clear guess inputs when turn changes
-  useEffect(() => {
-    setGuessTitle('');
-    setGuessArtist('');
-    setGuessYear('');
-    useGameStore.setState({ songNameResult: null });
-  }, [currentTurnPlayerId]);
-
-  const needsPlayButton = isHost && phase === 'playing' && !musicStarted && !isPlayingMusic;
-
-  const handlePlayTap = () => {
-    // Call everything synchronously from the gesture context:
-    // 1. Pre-unlock a generic AudioContext
-    preUnlockAudio();
-    // 2. Unlock the SDK's internal AudioContext (can be called multiple times)
-    activateElement();
-    // 3. Route the gesture to the current card. Preview-only cards must never
-    // resume the SDK's previous Spotify track.
-    togglePlayback();
-  };
-
-  const socket = getSocket();
-  const isMyTurn = currentTurnPlayerId === myId;
-  const me = players[myId];
-  const activePlayer = currentTurnPlayerId ? players[currentTurnPlayerId] : null;
-  const mode = settings.mode;
-  const isCoop = mode === 'coop';
-
-  const [challengePosition, setChallengePosition] = useState<number | null>(null);
-
-  // Reset challenge position when phase changes
-  useEffect(() => {
-    if (phase !== 'challenge') setChallengePosition(null);
-  }, [phase]);
-
-  if (!me || !activePlayer) return null;
-
-  const handlePlaceCard = () => {
-    if (selectedPosition === null) return;
-    socket.emit('place-card', { position: selectedPosition });
-    setSelectedPosition(null);
-  };
-
-  const handleSkip = () => {
-    socket.emit('skip-song');
-    setGuessTitle('');
-    setGuessArtist('');
-    setGuessYear('');
-    useGameStore.setState({ songNameResult: null });
-  };
-
-  const handleChallenge = () => {
-    if (challengePosition === null) return;
-    socket.emit('challenge', { position: challengePosition });
-  };
-
-  const handleNameSong = () => {
-    if (!guessTitle.trim()) return;
-    // Pro/Expert require both title and artist; Original/Coop allow title-only
-    const needsArtist = mode === 'pro' || mode === 'expert';
-    if (needsArtist && !guessArtist.trim()) return;
-    const guess: { title: string; artist: string; year?: number } = {
-      title: guessTitle.trim(),
-      artist: guessArtist.trim() || '',
-    };
-    if (mode === 'expert' && guessYear.trim()) {
-      guess.year = parseInt(guessYear.trim(), 10);
-    }
-    socket.emit('name-song', guess);
-  };
-
-  const handleBuyCard = () => {
-    socket.emit('buy-card');
-    setBuyCardToast(true);
-    setTimeout(() => setBuyCardToast(false), 2500);
-  };
-
-  const handleConfirmReveal = () => {
-    socket.emit('confirm-reveal');
-    setGuessTitle('');
-    setGuessArtist('');
-    setGuessYear('');
-    setSelectedPosition(null);
-    useGameStore.setState({ songNameResult: null });
-  };
-
-  const handleStopGame = () => {
-    socket.emit('restart-game');
-    setShowStopConfirm(false);
-  };
-
-  const revealedSong = lastReveal?.song;
-  const isRevealed = phase === 'reveal' && revealedSong;
-
+function RoundClock({ timing, frozen }: { timing: Room['gameState']['timing']; frozen: boolean }) {
+  const seconds = useSeconds(timing?.deadline, timing?.remainingMs);
+  if ((!timing?.deadline && !frozen) || seconds === null) return null;
   return (
-    <div className="flex flex-col h-screen text-white overflow-hidden">
-      {/* Stop game confirmation dialog */}
-      <StopConfirmDialog
-        open={showStopConfirm}
-        onCancel={() => setShowStopConfirm(false)}
-        onConfirm={handleStopGame}
-      />
+    <span className="tunes-pill tunes-clock" role="timer" aria-label={`${seconds} seconds ${frozen ? 'saved' : 'left'}`}>
+      <Clock3 size={16} aria-hidden="true" /> {seconds}s{frozen ? ' saved' : ''}
+    </span>
+  );
+}
 
-      {/* Buzz flash overlay — shown to the active player when someone buzzes */}
-      <BuzzAlert />
-
-      {/* Anchor card dealing animation */}
-      <AnchorCardsOverlay />
-
-      {/* Top Bar — Row 1: Turn info + controls, Row 2: Player scores */}
-      <GameTopBar
-        volume={volume}
-        VolumeIcon={VolumeIcon}
-        onToggleMute={handleToggleMute}
-        onShowHistory={() => setShowHistory(true)}
-        onStopGame={() => setShowStopConfirm(true)}
-      />
-
-      {/* Big play button — shown when music hasn't started yet */}
-      {needsPlayButton && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="bg-black/40 border-b border-neon-pink/30 px-3 py-2"
-        >
-          <button
-            onClick={handlePlayTap}
-            className="btn btn-primary btn-lg w-full"
-          >
-            <Play className="w-5 h-5" fill="currentColor" />
-            TAP TO PLAY MUSIC
-          </button>
-        </motion.div>
-      )}
-
-      {/* Turn timer bar — gradient stripe under top chrome */}
-      {phase === 'playing' && turnCountdown !== null && turnCountdown > 0 && (() => {
-        const total = 60;
-        const pct = Math.min(100, Math.max(0, (turnCountdown / total) * 100));
-        const tint = turnCountdown <= 5 ? '#f87171' : turnCountdown <= 10 ? 'var(--color-neon-amber)' : 'var(--color-neon-cyan)';
-        return (
-          <div className="relative h-[3px] bg-white/5 overflow-hidden">
-            <div
-              className="absolute inset-y-0 left-0 transition-all duration-1000 ease-linear"
-              style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${tint}, ${tint})` }}
-            />
-          </div>
-        );
-      })()}
-
-      {/* Spotify error banner */}
-      {spotifyError && (
-        <div className="bg-red-500/15 border-b border-red-500/30 px-4 py-2 text-center text-xs text-red-300 font-bold flex items-center justify-center gap-2">
-          <AlertTriangle className="w-3.5 h-3.5" />
-          {spotifyError}
+function RoundRecord({ song, privateCue = false }: { song: SongCard; privateCue?: boolean }) {
+  return (
+    <div className="tunes-record-details">
+      <span className="tunes-released">{privateCue ? 'Private DJ cue' : song.year}</span>
+      <h2>{song.title}</h2>
+      <p>{song.artist}{privateCue ? ` · ${song.year}` : ''}{song.version ? ` · ${song.version}` : ''}</p>
+      {song.recordingNote && <p className="tunes-record-note">{song.recordingNote}</p>}
+      {!privateCue && (song.sourceUrl || song.licenseUrl) && (
+        <div className="tunes-record-links">
+          {song.sourceUrl && <a href={song.sourceUrl} target="_blank" rel="noreferrer">Recording source</a>}
+          {song.licenseUrl && <a href={song.licenseUrl} target="_blank" rel="noreferrer">{song.license || 'Music license'}</a>}
         </div>
       )}
-
-      {/* Transient info banner (e.g. late-join briefing) */}
-      {notice && (
-        <div className="bg-neon-cyan/10 border-b border-neon-cyan/30 px-4 py-2 text-center text-xs text-neon-cyan font-bold">
-          {notice}
-        </div>
-      )}
-
-      {/* Disconnected player banner(s) */}
-      <DisconnectBanners countdowns={disconnectCountdowns} />
-
-      {/* Center Area */}
-      <div className="flex-1 flex flex-col items-center justify-center px-4 py-2 relative overflow-y-auto">
-        <AnimatePresence mode="wait">
-          {isRevealed ? (
-            <RevealOverlay key="reveal" reveal={lastReveal!} />
-          ) : (
-            <VinylDeck
-              key="hidden"
-              phase={phase}
-              mode={mode}
-              isCoop={isCoop}
-              isMyTurn={isMyTurn}
-              isPlayingMusic={isPlayingMusic}
-              isSpotifyHost={isSpotifyHost}
-              togglePlayback={togglePlayback}
-            />
-          )}
-        </AnimatePresence>
-
-        {/* Challenge countdown timer — shown below the card */}
-        {phase === 'challenge' && countdown !== null && countdown > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={`timer-pill mt-5 ${countdown <= 3 ? 'timer-red' : 'timer-amber'}`}
-          >
-            <Clock className="w-4 h-4" />
-            <span>{countdown}s to challenge</span>
-          </motion.div>
-        )}
-
-        {/* Song named notification — visible to all players */}
-        {songNameResult && songNameResult.playerId !== myId && songNameResult.correct && phase === 'playing' && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            className="mt-3 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30"
-          >
-            <Star className="w-4 h-4" />
-            {players[songNameResult.playerId]?.name || 'Someone'} named the song! +1 Token
-          </motion.div>
-        )}
-
-        {/* Reveal: challenge result feedback + continue button */}
-        <RevealActions onContinue={handleConfirmReveal} />
-
-        {/* Song naming inputs + guess result */}
-        <NamingForm
-          guessTitle={guessTitle}
-          guessArtist={guessArtist}
-          guessYear={guessYear}
-          onTitleChange={setGuessTitle}
-          onArtistChange={setGuessArtist}
-          onYearChange={setGuessYear}
-          onSubmit={handleNameSong}
-        />
-
-        {/* Challenge actions / status for the challenge phase */}
-        <ChallengeBar
-          challengePosition={challengePosition}
-          noChallengeClicked={noChallengeClicked}
-          onChallenge={handleChallenge}
-          onNoChallenge={() => setNoChallengeClicked(true)}
-        />
-      </div>
-
-      {/* Bottom: Timeline + Actions */}
-      <div className="bg-black/60 border-t border-white/10 px-4 pt-3 pb-4">
-        <TimelineStrip
-          viewingOwnTimeline={viewingOwnTimeline}
-          onToggleView={() => setViewingOwnTimeline((v) => !v)}
-          selectedPosition={selectedPosition}
-          onSelectPosition={setSelectedPosition}
-          challengePosition={challengePosition}
-          onSelectChallengePosition={setChallengePosition}
-          noChallengeClicked={noChallengeClicked}
-        />
-
-        {/* Action buttons */}
-        {isMyTurn && phase === 'playing' && (
-          <>
-            <AnimatePresence>
-              {buyCardToast && (
-                <motion.div
-                  key="buy-toast"
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  className="mb-2 flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-neon-amber/20 border border-neon-amber/40 text-neon-amber text-sm font-bold"
-                >
-                  <ShoppingCart className="w-4 h-4" />
-                  Card added to your timeline! (-{BUY_CARD_COST} tokens)
-                </motion.div>
-              )}
-            </AnimatePresence>
-            <div className="flex gap-3 mt-2">
-              <button
-                onClick={handleSkip}
-                disabled={me.tokens < SKIP_COST}
-                className="btn btn-ghost flex-1 text-xs"
-              >
-                <SkipForward className="w-4 h-4" />
-                Skip · {SKIP_COST}★
-              </button>
-              <button
-                onClick={handlePlaceCard}
-                disabled={selectedPosition === null}
-                className="btn btn-primary flex-[2]"
-              >
-                PLACE CARD
-              </button>
-              <button
-                onClick={handleBuyCard}
-                disabled={me.tokens < BUY_CARD_COST}
-                className="btn btn-ghost flex-1 text-xs"
-              >
-                <ShoppingCart className="w-4 h-4" />
-                Buy · {BUY_CARD_COST}★
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Compact waiting state below timeline when not your turn */}
-      {!isMyTurn && phase === 'playing' && (
-        <div className="px-4 pb-3">
-          <WaitingState />
-        </div>
-      )}
-
-      <SongHistory isOpen={showHistory} onClose={() => setShowHistory(false)} />
     </div>
   );
+}
+
+function Reveal({ room, reveal, myId, onContinue, onFlag, busy, connected }: {
+  room: Room;
+  reveal: RoundReveal;
+  myId: string;
+  onContinue: () => void;
+  onFlag: () => void;
+  busy: string | null;
+  connected: boolean;
+}) {
+  const { players, gameState, hostId } = room;
+  const isDinner = room.settings.mode === 'dinner';
+  const isCoop = room.settings.mode === 'coop';
+  const active = gameState.currentTurnPlayerId ? players[gameState.currentTurnPlayerId] : undefined;
+  const winner = reveal.winnerId ? players[reveal.winnerId] : undefined;
+  const stealer = reveal.stolenBy ? players[reveal.stolenBy] : undefined;
+  const guesses = Object.entries(reveal.dinnerGuesses ?? {});
+  const finalReveal = gameState.finalReveal ?? (isDinner
+    ? !!gameState.dinner && gameState.dinner.completedRounds >= gameState.dinner.roundCount
+    : !!gameState.result || (isCoop ? gameState.sharedTimeline.length >= room.settings.cardsToWin : !!winner && winner.timeline.length >= room.settings.cardsToWin));
+  const flagged = reveal.flaggedBy?.includes(myId);
+  const { correctPositions, timeline, position, modeResult } = reveal;
+  const actualGap = correctPositions.map((slot) => gapLabel(timeline, slot)).join(' / ');
+
+  return (
+    <div className="tunes-stack tunes-reveal-view">
+      <section className="tunes-panel tunes-reveal">
+        <RecordArt compact />
+        <RoundRecord song={reveal.song} />
+        {actualGap && <p className="tunes-correct-gap"><Check size={18} aria-hidden="true" /> {actualGap}</p>}
+      </section>
+      {isDinner ? (
+        <section className="tunes-panel">
+          <div className="tunes-row-title">
+            <h2>The table’s picks</h2>
+            <span className="tunes-pill">{guesses.filter(([, guess]) => guess.correct).length} correct</span>
+          </div>
+          <ul className="tunes-reveal-picks">
+            {guesses.map(([id, guess]) => (
+              <li key={id}>
+                <div><b>{players[id]?.name || 'Guest'}{id === myId ? ' (you)' : ''}</b><span>{guess.position === null ? 'No guess' : gapLabel(timeline, guess.position)}</span></div>
+                <strong data-correct={guess.correct}>{guess.correct ? `+${guess.points}` : '0'}</strong>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : (
+        <section className="tunes-panel tunes-stack">
+          <h2>{stealer ? `${stealer.name} steals the card` : winner ? (isCoop ? 'One for the table' : `${winner.name} gets the card`) : 'No card awarded'}</h2>
+          {position !== null && <p className="tunes-muted">{active?.name || 'The active player'} picked {gapLabel(timeline, position).toLowerCase()}.</p>}
+          {!isCoop && modeResult?.placementCorrect && !winner && (room.settings.mode === 'pro' || room.settings.mode === 'expert') && (
+            <p className="tunes-muted">The placement was right. {modeResult.songNamed ? 'The exact year was required.' : 'The title and artist were required.'}</p>
+          )}
+          {modeResult?.coopPenalty && <p className="tunes-muted">The active player loses one token.</p>}
+          {reveal.challengeResults && Object.keys(reveal.challengeResults).length > 0 && (
+            <ul className="tunes-reveal-picks">
+              {Object.entries(reveal.challengeResults).map(([id, challenge]) => (
+                <li key={id}><div><b>{players[id]?.name ?? 'Guest'}</b><span>{gapLabel(timeline, challenge.position)}</span></div><strong data-correct={challenge.correct}>{reveal.stolenBy === id ? 'Stole card' : 'No steal'}</strong></li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+      <div className="tunes-reveal-actions">
+        {myId === hostId ? (
+          <button className="tunes-button tunes-button-primary" disabled={!connected || !!busy} onClick={onContinue}>{finalReveal ? 'See results' : 'Continue'} <ArrowRight size={19} aria-hidden="true" /></button>
+        ) : (
+          <Message>Waiting for {players[hostId]?.name || 'the controller'} to continue.</Message>
+        )}
+        <button className="tunes-link" disabled={!connected || !!flagged || busy === 'flag-recording'} onClick={onFlag}><Flag size={16} aria-hidden="true" /> {flagged ? 'Recording flagged' : 'Flag recording'}</button>
+      </div>
+    </div>
+  );
+}
+
+function NameSong({ mode, spent, result, disabled, onSubmit, onDone }: {
+  mode: Room['settings']['mode'];
+  spent: boolean;
+  result?: NonNullable<Room['gameState']['classic']>['myNamingResult'];
+  disabled: boolean;
+  onSubmit: (guess: SongGuess) => void;
+  onDone: () => void;
+}) {
+  const required = mode === 'pro' || mode === 'expert';
+  const [title, setTitle] = useState('');
+  const [artist, setArtist] = useState('');
+  const [year, setYear] = useState('');
+  const [validation, setValidation] = useState<string | null>(null);
+  const yearRef = useRef<HTMLInputElement>(null);
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!title.trim() || (required && !artist.trim())) return;
+    if (mode === 'expert' && (!/^\d{4}$/.test(year.trim()) || Number(year) < 1000 || Number(year) > 3000)) {
+      setValidation('Enter a four-digit release year.');
+      yearRef.current?.focus();
+      return;
+    }
+    setValidation(null);
+    onSubmit({ title: title.trim(), artist: artist.trim(), ...(mode === 'expert' ? { year: Number(year.trim()) } : {}) });
+  }
+
+  if (spent) return <Message>{result ? (result.correct ? 'Song named correctly.' : 'Naming attempt used.') : 'Naming complete.'}</Message>;
+  return (
+    <details className="tunes-panel tunes-disclosure" open={required || undefined}>
+      <summary><Star size={18} aria-hidden="true" /> {required ? 'Name the song' : 'Name the song for a token'}</summary>
+      <form className="tunes-stack" onSubmit={submit}>
+        <div className="tunes-field-grid">
+          <label className="tunes-field">Title<input value={title} onChange={(event) => setTitle(event.target.value)} disabled={disabled} required /></label>
+          <label className="tunes-field">Artist {required ? '' : '(optional)'}<input value={artist} onChange={(event) => setArtist(event.target.value)} disabled={disabled} required={required} /></label>
+          {mode === 'expert' && (
+            <label className="tunes-field">Release year<input ref={yearRef} inputMode="numeric" maxLength={4} placeholder="1986" value={year} onChange={(event) => setYear(event.target.value)} disabled={disabled} aria-invalid={!!validation} /></label>
+          )}
+        </div>
+        {validation && <Message kind="error">{validation}</Message>}
+        <div className="tunes-inline">
+          <button className="tunes-button tunes-button-secondary" disabled={disabled} type="submit">Submit name</button>
+          {!required && <button className="tunes-link" disabled={disabled} type="button" onClick={onDone}>Done guessing</button>}
+        </div>
+      </form>
+    </details>
+  );
+}
+
+function RoundBoard({ room, myId }: { room: Room; myId: string }) {
+  const { gameState: state, settings, players, hostId, speakerId } = room;
+  const { phase, matchId, roundId, reveal, audio, timing, classic, dinner } = state;
+  const connected = useGameStore((s) => s.connected);
+  const error = useGameStore((s) => s.error);
+  const errorAction = useGameStore((s) => s.errorAction);
+  const notice = useGameStore((s) => s.notice);
+  const wakeLock = useGameStore((s) => s.wakeLockStatus);
+  const audioError = useGameStore((s) => s.spotifyError);
+  const autoplayBlocked = useGameStore((s) => s.autoplayBlocked);
+  const buzzedPlayers = useGameStore((s) => s.buzzedPlayers);
+  const volume = useGameStore((s) => s.volume);
+  const setVolume = useGameStore((s) => s.setVolume);
+  const [position, setPosition] = useState<number | null>(null);
+  const [challengePosition, setChallengePosition] = useState<number | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [viewMine, setViewMine] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [leaveConfirm, setLeaveConfirm] = useState(false);
+  const [endConfirm, setEndConfirm] = useState(false);
+  const [handoff, setHandoff] = useState('');
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const turnPlayer = state.currentTurnPlayerId ? players[state.currentTurnPlayerId] : undefined;
+  const me = players[myId];
+  const isController = myId === hostId;
+  const isDinner = settings.mode === 'dinner';
+  const isCoop = settings.mode === 'coop';
+  const shared = isDinner || isCoop;
+  const manual = audio?.kind === 'manual' || (!audio && room.playbackMode === 'manual');
+  const isDJ = manual && audio?.operatorId === myId;
+  const isSpeaker = !manual && (speakerId === myId || audio?.operatorId === myId);
+  const dj = manual && audio?.operatorId ? players[audio.operatorId] : undefined;
+  const speaker = !manual && (speakerId || audio?.operatorId) ? players[speakerId || audio?.operatorId || ''] : undefined;
+  const isActive = turnPlayer?.id === myId;
+  const isEligible = isDinner ? dinner?.eligiblePlayerIds.includes(myId) : isActive && !isDJ;
+  const canGuess = phase === 'playing' && audio?.status === 'playing' && isEligible && !dinner?.myLocked;
+  const canName = !isDinner && !isDJ && isActive && ['playing', 'challenge'].includes(phase) && audio?.status === 'playing';
+  const hasChallenged = classic?.respondedPlayerIds.includes(myId);
+  const eligibleChallenger = !!classic?.eligibleChallengerIds.includes(myId);
+  const canChallenge = phase === 'challenge' && audio?.status === 'playing' && eligibleChallenger && !hasChallenged;
+  const timingFrozen = audio?.status === 'paused';
+  const isCueing = audio?.status === 'cueing';
+  const waitingForAudio = audio?.status === 'awaiting_audio';
+  const picking = canGuess || canChallenge;
+  const timeline = shared ? state.sharedTimeline : (viewMine && !picking ? me?.timeline : turnPlayer?.timeline) ?? [];
+  const lockedPosition = phase === 'playing' ? dinner?.myPosition ?? null : null;
+  const chosen = phase === 'challenge' ? challengePosition : (position ?? lockedPosition);
+  const taken = [state.pendingPlacement, ...Object.values(classic?.challengePositions ?? {})].filter((slot): slot is number => slot !== null);
+  const challengeConflict = canChallenge && chosen !== null && taken.includes(chosen);
+  const spectator = isDinner && !state.turnOrder.includes(myId);
+  const allowControls = connected && !!matchId && roundId !== undefined;
+  const actionTimeout = useRef<number | undefined>(undefined);
+
+  function run(action: string, send: (scope: RoundAction) => void) {
+    const socket = getSocket();
+    if (!socket.connected || !matchId || roundId === undefined || busy) return;
+    if (error) {
+      useGameStore.setState({ errorAction: null });
+      useGameStore.getState().setError(null);
+    }
+    setBusy(action);
+    send({ matchId, roundId, actionId: makeActionId() });
+    actionTimeout.current = window.setTimeout(() => {
+      setBusy(null);
+      useGameStore.getState().setError('The action is still waiting for the table. Try again.');
+    }, 7_000);
+  }
+
+  function selectPlacement(value: number) {
+    setPosition(value);
+    if (!isDinner || !matchId || roundId === undefined) return;
+    const socket = getSocket();
+    if (socket.connected) socket.emit('dinner-guess', { matchId, roundId, actionId: makeActionId(), position: value });
+  }
+
+  function runCue(action: 'audio-ready' | 'replace-song' | 'resume-audio' | 'audio-interrupted') {
+    const cueId = audio?.cueId;
+    if (!cueId) return;
+    run(action, (scope) => getSocket().emit(action, { ...scope, cueId } satisfies CueAction));
+  }
+
+  useEffect(() => {
+    setBusy(null);
+    window.clearTimeout(actionTimeout.current);
+  }, [state.revision, errorAction, connected]);
+  useEffect(() => () => window.clearTimeout(actionTimeout.current), []);
+
+  useEffect(() => {
+    if (phase === 'reveal' || phase === 'anchor_preview') {
+      titleRef.current?.focus({ preventScroll: true });
+      window.scrollTo(0, 0);
+    }
+  }, [phase]);
+
+  let headline: string;
+  let prompt: string;
+  if (phase === 'reveal') {
+    headline = 'The reveal';
+    prompt = isDinner ? 'Every guess is on the table.' : 'Here’s where the recording fits.';
+  } else if (phase === 'anchor_preview') {
+    headline = 'The starting cards';
+    prompt = isCoop ? 'The table shares one timeline.' : 'Your anchor card starts your timeline.';
+  } else if (timingFrozen) {
+    headline = 'Table paused';
+    prompt = audio?.reason === 'guesser-away'
+      ? `Waiting for ${turnPlayer?.name || 'the active player'} to return.`
+      : 'The clock and submitted guesses are saved.';
+  } else if (isCueing || waitingForAudio) {
+    headline = isDJ ? 'You’re the DJ' : isSpeaker ? 'Your phone is the speaker' : isCueing ? 'Your DJ is choosing the song' : 'Waiting for the speaker';
+    prompt = isDJ ? 'Play the specific recording below. Keep this cue to yourself.' : isSpeaker ? 'Start the recording to begin the round.' : 'The clock starts when the music is playing.';
+  } else if (isDinner) {
+    headline = dinner?.myLocked ? 'Guess locked' : isDJ ? 'You’re the DJ' : spectator ? 'You’re watching' : 'Find the gap';
+    prompt = dinner?.myLocked ? 'Your guess is saved and stays private until the reveal.' : isDJ ? 'The rest of the table is guessing this song.' : spectator ? 'You can play when the table starts a new set.' : 'Pick a gap, then lock your guess before time runs out.';
+  } else if (phase === 'challenge') {
+    headline = canChallenge ? 'Challenge the placement?' : 'Placement submitted';
+    prompt = canChallenge ? 'Pick a different gap to try a steal, or pass.' : hasChallenged ? 'Your decision is in. Wait for the reveal.' : isDJ ? 'You cued this song and sit out the challenge.' : 'The table is finishing this round.';
+  } else {
+    headline = isActive ? 'Find the gap' : isDJ ? 'You’re the DJ' : `${turnPlayer?.name ?? 'Someone'}’s turn`;
+    prompt = isActive ? 'Choose where the song fits, then confirm the placement.' : isDJ ? 'You cued this song and sit this round out.' : 'Listen along while the active player places the song.';
+  }
+
+  const seats = Object.values(players);
+  const pending = busy !== null;
+  const contextError = error && (errorAction || busy);
+  const actionError = (...actions: string[]) => error && errorAction && actions.includes(errorAction) ? <Message kind="error">{error}</Message> : null;
+  const hasMusicControls = ['playing', 'challenge'].includes(phase) && audio?.cueId;
+  const canHandoff = !manual && isController && hasMusicControls;
+  const declaredRound = isDinner && dinner
+    ? `Song ${Math.min(dinner.roundCount, dinner.completedRounds + (phase === 'reveal' ? 0 : 1))} of ${dinner.roundCount}`
+    : `${state.deckSize} left in pack`;
+  const audioRole = manual ? (dj ? `DJ · ${dj.name}` : 'Rotating DJ') : speaker ? `Speaker · ${speaker.name}` : 'Speaker unavailable';
+  const musicFallback = <RecordArt compact spinning={audio?.status === 'playing'} />;
+
+  return (
+    <main className="tunes-shell tunes-game" data-mode={isDinner ? 'dinner' : 'classic'}>
+      <Brand>
+        <span className="tunes-pill tunes-pill-room">Room {room.code}</span>
+        <button className="tunes-link" onClick={() => setShowHistory(true)}><History size={17} aria-hidden="true" /> Songs</button>
+        <button className="tunes-link" onClick={() => setLeaveConfirm(true)}>Leave</button>
+      </Brand>
+      <div className="tunes-page-heading tunes-game-heading">
+        <div className="tunes-chip-row">
+          <span className="tunes-pill tunes-pill-accent">{MODE_NAMES[settings.mode]}</span>
+          <span className="tunes-pill">{declaredRound}</span>
+          <RoundClock timing={timing} frozen={timingFrozen} />
+        </div>
+        <h1 ref={titleRef} tabIndex={-1}>{headline}</h1>
+        <p>{prompt}</p>
+      </div>
+      {!connected && <Message>Reconnecting… Your place at the table is saved.</Message>}
+      {connected && canGuess && !isDinner && buzzedPlayers.length > 0 && <Message>{buzzedPlayers.map((id) => players[id]?.name || 'A guest').join(', ')} buzzed.</Message>}
+      {notice && <Message>{notice}</Message>}
+      {error && !contextError && <Message kind="error">{error}</Message>}
+      <div className="tunes-game-grid">
+        <div className="tunes-stack tunes-main-board">
+          {phase === 'reveal' && reveal ? (
+            <Reveal room={room} reveal={reveal} myId={myId} busy={busy} connected={allowControls}
+              onContinue={() => run('confirm-reveal', (scope) => getSocket().emit('confirm-reveal', scope))}
+              onFlag={() => run('flag-recording', (scope) => getSocket().emit('flag-recording', scope))} />
+          ) : (
+            <>
+              <section className="tunes-panel tunes-listen" aria-label="Music and round controls">
+                {musicFallback}
+                <div className="tunes-listen-body">
+                  {isDJ && audio?.recording && (isCueing || timingFrozen) ? <RoundRecord song={audio.recording} privateCue /> : (
+                    <>
+                      <h2>{phase === 'anchor_preview' ? 'On the record' : audio?.status === 'playing' ? 'Now playing' : timingFrozen ? 'On hold' : 'Mystery track'}</h2>
+                      <p>{phase === 'anchor_preview' ? 'Check the years on your timeline.' : timingFrozen ? audio?.reason === 'audio-unavailable' ? 'Waiting for the music to come back.' : 'The room will continue when it’s ready.' : isCueing || waitingForAudio ? audioRole : isDinner ? `${dinner?.submittedCount ?? 0} of ${dinner?.eligiblePlayerIds.length ?? 0} guesses locked` : audioRole}</p>
+                    </>
+                  )}
+                  {phase === 'anchor_preview' && isController && <button className="tunes-button tunes-button-secondary" disabled={!allowControls || pending} onClick={() => run('skip-anchors', (scope) => getSocket().emit('skip-anchors', scope))}>Continue <ArrowRight size={17} aria-hidden="true" /></button>}
+                  {isDJ && (isCueing || (timingFrozen && audio?.reason !== 'guesser-away')) && (
+                    <button className="tunes-button tunes-button-primary" disabled={!allowControls || pending} onClick={() => runCue('audio-ready')}><Play size={18} aria-hidden="true" /> Music is playing</button>
+                  )}
+                  {isSpeaker && (waitingForAudio || (timingFrozen && audio?.reason !== 'guesser-away')) && (
+                    <button className="tunes-button tunes-button-primary" disabled={!connected || pending} onClick={() => void startSpeakerAudio()}><Play size={18} aria-hidden="true" /> {timingFrozen ? 'Resume music' : 'Play music'}</button>
+                  )}
+                  {isSpeaker && (audioError || autoplayBlocked) && <Message kind="error">{audioError || 'Tap Play music to allow audio on this phone.'}</Message>}
+                  {hasMusicControls && (isDJ || isSpeaker) && audio?.status === 'playing' && (
+                    <button className="tunes-link" disabled={!allowControls || pending} onClick={() => runCue('audio-interrupted')}>Pause the table</button>
+                  )}
+                </div>
+              </section>
+              {canHandoff && (timingFrozen || waitingForAudio) && (
+                <section className="tunes-panel tunes-handoff">
+                  <label className="tunes-field">Use another speaker
+                    <select value={handoff} onChange={(event) => setHandoff(event.target.value)}>
+                      <option value="">Choose a connected player</option>
+                      {seats.filter((seat) => seat.connected && seat.id !== speakerId).map((seat) => <option key={seat.id} value={seat.id}>{seat.name}</option>)}
+                    </select>
+                  </label>
+                  <button className="tunes-button tunes-button-secondary" disabled={!allowControls || pending || !handoff} onClick={() => run('assign-speaker', (scope) => getSocket().emit('assign-speaker', { ...scope, playerId: handoff }))}>Hand off</button>
+                </section>
+              )}
+              {!shared && turnPlayer?.id !== myId && !picking && !!me && (
+                <button className="tunes-link tunes-board-switch" aria-pressed={viewMine} onClick={() => setViewMine((value) => !value)}>{viewMine ? 'View the active timeline' : 'View my timeline'}</button>
+              )}
+              <GapTimeline cards={timeline} heading={shared ? 'Shared timeline' : viewMine || isActive ? 'Your timeline' : `${turnPlayer?.name ?? 'Active player'}’s timeline`}
+                selected={picking ? chosen : null} marked={isDinner ? dinner?.myLocked ? lockedPosition : null : viewMine && !picking ? null : state.pendingPlacement}
+                unavailable={phase === 'challenge' ? taken : []}
+                onSelect={picking && connected ? phase === 'challenge' ? setChallengePosition : selectPlacement : undefined} />
+              {canGuess && (
+                <div className="tunes-round-actions">
+                  <button className="tunes-button tunes-button-primary" disabled={!allowControls || pending || chosen === null}
+                    onClick={() => {
+                      if (chosen === null) return;
+                      if (isDinner) run('lock-guess', (scope) => getSocket().emit('lock-guess', { ...scope, position: chosen }));
+                      else run('place-card', (scope) => getSocket().emit('place-card', { ...scope, position: chosen }));
+                    }}>{isDinner ? <Lock size={17} aria-hidden="true" /> : <Check size={19} aria-hidden="true" />} {isDinner ? 'Lock guess' : 'Confirm placement'}</button>
+                </div>
+              )}
+              {canChallenge && (
+                <div className="tunes-inline">
+                  <button className="tunes-button tunes-button-primary" disabled={!allowControls || pending || chosen === null || challengeConflict}
+                    onClick={() => { if (chosen !== null) run('challenge', (scope) => getSocket().emit('challenge', { ...scope, position: chosen })); }}>Challenge · 1 token</button>
+                  <button className="tunes-button tunes-button-secondary" disabled={!allowControls || pending} onClick={() => run('pass-challenge', (scope) => getSocket().emit('pass-challenge', scope))}>Pass</button>
+                </div>
+              )}
+              {challengeConflict && <Message>That gap has been claimed. Choose another gap or pass.</Message>}
+              {actionError('dinner-guess', 'lock-guess', 'place-card', 'challenge', 'pass-challenge')}
+              {canName && (
+                <NameSong mode={settings.mode} spent={!!(classic?.myNamed || classic?.myNamingDone)} result={classic?.myNamingResult} disabled={!allowControls || pending}
+                  onSubmit={(guess) => run('name-song', (scope) => getSocket().emit('name-song', { ...scope, ...guess }))}
+                  onDone={() => run('done-guessing', (scope) => getSocket().emit('done-guessing', scope))} />
+              )}
+              {actionError('name-song', 'done-guessing')}
+              {canName && phase === 'challenge' && (settings.mode === 'original' || settings.mode === 'coop') && !classic?.myNamed && !classic?.myNamingDone && (
+                <button className="tunes-button tunes-button-secondary" disabled={!allowControls || pending} onClick={() => run('done-guessing', (scope) => getSocket().emit('done-guessing', scope))}>Done guessing</button>
+              )}
+              {!isDinner && canGuess && (
+                <div className="tunes-inline tunes-token-actions">
+                  <button className="tunes-link" disabled={!allowControls || pending || (me?.tokens ?? 0) < SKIP_COST} onClick={() => run('skip-song', (scope) => getSocket().emit('skip-song', scope))}><SkipForward size={16} aria-hidden="true" /> Skip · {SKIP_COST} token</button>
+                  <button className="tunes-link" disabled={!allowControls || pending || (me?.tokens ?? 0) < BUY_CARD_COST || state.deckSize === 0} onClick={() => run('buy-card', (scope) => getSocket().emit('buy-card', scope))}><ShoppingBag size={16} aria-hidden="true" /> Buy card · {BUY_CARD_COST} tokens</button>
+                </div>
+              )}
+            </>
+          )}
+          {contextError && !['dinner-guess', 'lock-guess', 'place-card', 'challenge', 'pass-challenge', 'name-song', 'done-guessing'].includes(errorAction ?? '') && <Message kind="error">{error}</Message>}
+        </div>
+        <aside className="tunes-stack tunes-game-sidebar" aria-label="Table information">
+          <section className="tunes-panel">
+            <div className="tunes-row-title"><h2>At the table</h2><Users size={21} aria-hidden="true" /></div>
+            <ul className="tunes-player-list tunes-score-list">
+              {seats.map((seat) => {
+                const roles = [seat.id === hostId && 'Controller', seat.id === dj?.id && 'DJ', seat.id === speaker?.id && 'Speaker', !isDinner && seat.id === turnPlayer?.id && 'Guessing', isDinner && !state.turnOrder.includes(seat.id) && 'Watching', !seat.connected && 'Away'].filter(Boolean);
+                const score = isDinner ? dinner?.scores[seat.id] ?? 0 : seat.timeline.length;
+                return (
+                  <li key={seat.id}>
+                    <div className="tunes-avatar" aria-hidden="true">{seat.name[0]?.toUpperCase() || '?'}</div>
+                    <div className="tunes-player-label"><b>{seat.name}{seat.id === myId ? ' (you)' : ''}</b>{roles.length > 0 && <span>{roles.join(' · ')}</span>}</div>
+                    {!isCoop && <strong className="tunes-score">{score}<span className="sr-only">{isDinner ? ' points' : ' cards'}</span></strong>}
+                    {!isDinner && seat.id === myId && <span className="tunes-tokens">{seat.tokens} <Star size={14} aria-hidden="true" /><span className="sr-only">tokens</span></span>}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+          <section className="tunes-panel tunes-side-controls">
+            <p><Headphones size={18} aria-hidden="true" /> {audioRole}</p>
+            {hasMusicControls && isSpeaker && <label className="tunes-volume">Speaker volume <input aria-valuetext={`${Math.round(volume * 100)} percent`} type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => setVolume(Number(event.target.value))} /></label>}
+            {isSpeaker && wakeLock !== 'off' && <p className="tunes-muted">{wakeLock === 'active' ? 'Speaker screen stays awake.' : 'Screen wake lock is unavailable.'}</p>}
+            {timingFrozen && room.expiresAt && <p className="tunes-muted">Seat held until {new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(room.expiresAt)}.</p>}
+            {hasMusicControls && (isController || isDJ || isSpeaker) && <button className="tunes-link" disabled={!allowControls || pending} onClick={() => runCue('replace-song')}><Repeat2 size={17} aria-hidden="true" /> Replace recording</button>}
+            {isController && phase !== 'game_over' && !state.finalReveal && <button className="tunes-link" onClick={() => setEndConfirm(true)}>End match</button>}
+          </section>
+          {!isDinner && !isActive && !isDJ && phase === 'playing' && audio?.status === 'playing' && <WaitingState />}
+        </aside>
+      </div>
+      {showHistory && (
+        <TableDialog title="Songs this match" onClose={() => setShowHistory(false)}>
+          {state.history?.length ? <ol className="tunes-reveal-picks">
+            {[...state.history].reverse().map(({ song, roundNumber }) => <li key={roundNumber}><div><b>{song.title}</b><span>{song.artist}</span></div><strong>{song.year}</strong></li>)}
+          </ol> : <p className="tunes-muted">Revealed recordings will appear here.</p>}
+        </TableDialog>
+      )}
+      {leaveConfirm && (
+        <TableDialog title="Leave this table?" onClose={() => setLeaveConfirm(false)}>
+          <p className="tunes-muted">Your active seat will close.</p>
+          <div className="tunes-inline"><button className="tunes-button tunes-button-secondary" onClick={() => setLeaveConfirm(false)}>Stay</button><button className="tunes-button tunes-button-primary" onClick={leaveTable}>Leave table</button></div>
+        </TableDialog>
+      )}
+      {endConfirm && (
+        <TableDialog title="End the match?" onClose={() => setEndConfirm(false)}>
+          <p className="tunes-muted">The table will see the scores so far.</p>
+          <div className="tunes-inline">
+            <button className="tunes-button tunes-button-secondary" onClick={() => setEndConfirm(false)}>Keep playing</button>
+            <button className="tunes-button tunes-button-primary" disabled={!allowControls || pending} onClick={() => {
+              run('end-match', (scope) => getSocket().emit('end-match', scope));
+              setEndConfirm(false);
+            }}>End match</button>
+          </div>
+        </TableDialog>
+      )}
+    </main>
+  );
+}
+
+export function Game() {
+  const room = useGameStore((s) => s.room);
+  const myId = useGameStore((s) => s.myId);
+  if (!room) return null;
+  return <RoundBoard key={`${room.gameState.matchId}:${room.gameState.roundId}`} room={room} myId={myId} />;
 }

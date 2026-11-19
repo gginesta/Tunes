@@ -1,187 +1,145 @@
 # Tunes
 
-A real-time multiplayer music party game where players compete to build a chronological timeline of hit songs. Inspired by the popular Tunes card game, powered by Spotify.
+Tunes is a browser-based music game for 2–12 people. Pick the first release year of the recording you hear by placing it on a timeline.
 
-## How It Works
+## Start a table
 
-1. **Host a room** -- One player connects to Spotify, creates a game room, and shares the 4-letter code
-2. **Others join** -- Friends enter the code to join the lobby (no Spotify account needed)
-3. **A song plays** -- Each turn, a mystery song plays via Spotify on the host's device
-4. **Place it on your timeline** -- The active player guesses where the song falls chronologically among their existing cards
-5. **Challenge!** -- Other players have 15 seconds to spend a token and challenge if they think the placement is wrong
-6. **First to collect enough cards wins!**
+1. On Home, enter a stage name and choose **Host a room**. Share the QR code, invite link or four-letter room code. Guests can join without an account.
+2. The default is **Manual DJ**. The DJ sees the private artist, title and recording version, plays that recording using a source the group may use, and taps **Music is playing**. Cueing is untimed.
+3. Choose **Customize** to change the game mode, pack or DJ. The table checks the connected roster and playable recordings before Start. A dedicated DJ requires at least two scoring players in addition to the DJ.
+4. Use **Leave** to free your seat and host or join again. After an interruption, reconnect or choose **Resume your table** on the same browser. The server keeps an all-away room for 30 minutes. Keep the site's browser data to retain your seat, private stats and saved tables.
 
-## Features
+The controller starts the match and advances reveals. In automatic mode, the speaker's device plays audio. In manual mode, the DJ sits out the song they cue. A healthy speaker can continue when only the controller loses their connection. Losing required audio freezes the listening or challenge clock until playback resumes. A completed reveal stays readable in silence.
 
-- **Real-time multiplayer** -- 2-12 players per room via Socket.io (late joiners welcome)
-- **Spotify integration** -- Web Playback SDK with PKCE OAuth for the host; HTML5 Audio fallback using preview URLs
-- **Device polling** -- Matches playback device by name (not SDK device ID) for reliable device targeting
-- **614 songs** spanning 1930s-2020s with decade-balanced deck selection
-- **4 fully implemented game modes** -- Original, Pro, Expert, and Co-op
-- **Token economy** -- Skip songs (1 token), challenge placements (1 token), buy cards (3 tokens), or earn tokens by naming songs
-- **Challenge system** -- 15-second countdown window with circular timer (turns red at 5s, synced from server); "No Challenge" button alongside Challenge button
-- **Song naming** -- Optional in Original mode, required in Pro/Expert
-- **Exact year guessing** -- Required in Expert mode
-- **Co-op mode** -- Shared timeline for all players with wrong-placement penalties
-- **Sound effects** -- Web Audio API sounds (correct, wrong, challenge, stolen, tick, start) with mute toggle
-- **Post-game rankings** -- Results screen with 1st/2nd/3rd medal colors and staggered animations
-- **Play Again** -- Host-only button to restart the game in the same room
-- **Turn timer** -- 45-second countdown for the active player to place their card; circular timer visible on the song card with color transitions (blue -> orange at 10s -> red at 5s); auto-skips on timeout
-- **Persistent storage** -- SQLite database (via better-sqlite3 with WAL mode) preserves rooms across server restarts; Spotify tokens are encrypted at rest (AES-256-GCM)
-- **Structured logging** -- JSON structured logger with debug/info/warn/error levels; LOG_LEVEL env var; pretty-print in dev, JSON in production; request and game event logging
-- **Health check** -- GET /health returns status, uptime, room/player counts, and version
-- **Guest identity** -- No accounts or passwords: leaderboards, stats and history are keyed by your stage name (keep using the same name to build your record)
-- **Connection handling** -- Tracks player online/offline status with automatic host reassignment and 30-second disconnect grace period
-- **Anchor card animation** -- Starting cards dealt with a flip animation before the first turn
-- **Fuzzy song matching** -- Levenshtein distance with typo tolerance for song naming in Pro/Expert modes
-- **Genre & decade packs** -- Filter songs by genre, decade, or both for themed game nights
-- **Regional packs** -- UK, Latin, K-Pop, and Bollywood song collections (140 songs)
-- **Custom playlists** -- Import any Spotify playlist as a game deck
-- **Shareable invite links** -- /join/CODE URLs with copy-to-clipboard and native share
-- **"I know this!" buzz** -- Non-active players can signal they know the song
-- **Waiting state** -- Music trivia, animated visualizer, and buzz badges between turns
-- **Leaderboards & stats** -- Global ranked table, personal stats, and game history
-- **Duplicate song dedup** -- Ensures no duplicate songs appear in the same game deck
-- **Preview Mode** -- Host without Spotify using 30-second preview clips (no account needed)
-- **End-of-game awards** -- Fastest Fingers, Sharpshooter, Hot Streak, Challenge King, Name That Tune
-- **Responsive UI** -- Tailwind CSS 4 with Motion animations
+### Game modes
 
-## Tech Stack
+| Mode | Play |
+| --- | --- |
+| Classic Original | Place a card on your own timeline. Optional naming earns a token. An eligible opponent can spend a token to claim a different gap and steal the card if your placement misses and theirs fits. |
+| Classic Pro | Place the card and name the title and artist. |
+| Classic Expert | Place the card, name the title and artist, and enter the four-digit recording release year. |
+| Classic Co-op | Build one shared timeline. An incorrect placement costs the active player a token. Reaching the target earns the co-op win. |
+| Dinner Set | Everyone eligible privately picks a gap on a shared timeline. Revise until you lock the pick. The reveal shows all guesses together. A correct guess earns one point. The highest score wins and ties share the title. |
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | React 19, Vite, Tailwind CSS 4, Zustand, Motion |
-| Backend | Node.js, Express, Socket.io, TypeScript |
-| Database | SQLite via better-sqlite3 (WAL mode) |
-| Music | Spotify Web Playback SDK, PKCE OAuth, Web API, HTML5 Audio fallback |
-| Logging | Structured JSON logger (server/src/logger.ts) |
-| Shared | TypeScript types, constants, and typed Socket.io events |
-| Monorepo | npm workspaces (shared, server, app) |
+The listening clock runs for up to 60 seconds after the cue is confirmed. Classic opponents have up to 15 seconds to respond, and play can resolve earlier once eligible opponents and the active player finish their inputs. The controller advances the final reveal before the podium appears.
 
-## Project Structure
+Dinner Set defaults to eight rounds with automatic audio. With a rotating manual DJ, it uses whole rotations so everyone cues the same number of songs. From Results, players can opt into a same-room rematch. The controller can save the table so its members can reopen it on another evening with private standings and head-to-head history. Decks prefer recordings that the table has yet to hear. Stage-name changes preserve guest identity, while older name-based records remain in the legacy leaderboard.
 
-```
-tunes/
-├── app/                    # React frontend
-│   └── src/
-│       ├── components/     # Home, Lobby, Game, Results, Rules screens
-│       ├── hooks/          # useSocket, useSpotifyPlayer
-│       ├── services/       # Socket.io client, Spotify OAuth, Playback SDK, Audio fallback, Sound effects
-│       └── store.ts        # Zustand state management
-├── server/                 # Express + Socket.io backend
-│   └── src/
-│       ├── index.ts        # Server entry point
-│       ├── rooms.ts        # Room creation, joining, leaving
-│       ├── game.ts         # GameEngine — turns, placement, challenges, scoring
-│       ├── songs.ts        # Song loading, deck selection, Spotify track resolution
-│       ├── gameActionHandlers.ts # In-game socket actions
-│       ├── statsHandlers.ts # Leaderboard & stats lookups
-│       ├── validate.ts     # Socket payload guards
-│       ├── tokenCrypto.ts  # Spotify token encryption at rest
-│       ├── database.ts     # SQLite database setup and room persistence
-│       └── logger.ts       # Structured JSON logger
-├── shared/                 # Shared TypeScript package
-│   └── src/
-│       ├── types.ts        # Player, Room, GameState, SongCard, etc.
-│       ├── constants.ts    # Game constants (tokens, costs, limits)
-│       └── events.ts       # Typed client/server Socket.io events
-└── data/
-    ├── songs.json          # Song database
-    └── tunes.db          # SQLite database (created at runtime)
-```
+### Music choices
 
-## Getting Started
+- **Manual DJ** uses a 144-card catalogue of familiar recordings and their sourced release facts. The audio comes from the group's own permitted listening source. Check the exact version in the cue, especially for covers, remasters and alternate takes.
+- **Automatic music** includes a 24-track independent instrumental pack bundled under CC BY 4.0. These are different recordings from the familiar-song catalogue. The game plays clips on the designated speaker device. [Recording credits and sources](app/public/music-credits.html)
+- **Additional automatic packs** require a written decision covering recording list, territories, interactive-game use, excerpt and delivery terms, attribution, expiry and fees. Confirm rights for the intended territory before exposing a pack. Legacy Spotify, Apple preview and playlist references describe earlier versions of Tunes.
 
-### Prerequisites
+## Run locally
 
-- Node.js 18+
-- Spotify Premium account (for the host)
-- Spotify Developer App (for the Client ID)
+Use Node.js 24 LTS and npm. The server uses SQLite through the native `better-sqlite3` module. On platforms without a prebuilt binary, npm needs a native compiler toolchain.
 
-### Spotify Setup
-
-1. Go to https://developer.spotify.com/dashboard
-2. Create a new app with Web API and Web Playback SDK enabled
-3. Add redirect URI: `http://localhost:5173/callback.html`
-4. Copy the Client ID
-
-### Install and Run
-
-```bash
-# Install dependencies
-npm install
-
-# Create environment file
-cp app/.env.example app/.env
-# Edit app/.env and add your Spotify Client ID
-
-# Optional: set log level (default: "info")
-# export LOG_LEVEL=debug
-
-# Start development (server on :3000, frontend on :5173)
+```sh
+npm ci
 npm run dev
 ```
 
-Open **http://localhost:5173** in your browser.
+Open [http://localhost:5173](http://localhost:5173). Vite proxies the socket connection to the development server on port 3000. For a production-style rehearsal, build all workspaces and start the compiled server on port 3000.
 
-### Tests & Lint
+```sh
+npm run build
+npm start
+```
 
-```bash
-# Run the server test suite (vitest — game engine, fuzzy matching, shuffle)
+The server serves the built client on the same origin. A successful `GET /health` reports status, uptime, connected players, room count and server build revision. Home also displays the server build. Docker uses the lockfile and Node 24 in both stages. `docker compose up --build` starts the service and mounts `./data` for SQLite.
+
+### Configuration and licensed packs
+
+Set runtime variables in the shell or hosting service. To load a local copy of the example with the compiled server, use `node --env-file=.env scripts/start.mjs`. [Configuration example](.env.example)
+
+| Setting | Purpose |
+| --- | --- |
+| `PORT`, `DATA_DIR` | Default port 3000 and repository `data/`. Set `DATA_DIR` to a writable persistent directory on the host. |
+| `ALLOWED_ORIGINS` | Comma-separated list for a separately hosted client. Same-origin production hosting works with it unset. |
+| `BUILD_REVISION` | Server build stamp in logs, health and Home. Pass it as a build argument in Docker. |
+| `TUNES_DINNER_ENABLED=false`, `TUNES_LICENSED_ENABLED=false` | Disable new starts for the respective pilot feature. Existing snapshots can still recover and finish, subject to recording eligibility. |
+| `TUNES_LICENSED_MANIFEST`, `TUNES_LICENSED_AUDIO_DIR` | Absolute paths to an optional JSON manifest and the clip directory. Restart the process to load a changed manifest. |
+| `TUNES_GEO_FENCED_TERRITORY` | Optional country code, for example `HK`, for an instance whose upstream access is already restricted to that territory. An unrestricted service should leave this unset and use tracks with `territories: ["*"]`. |
+| `LOG_LEVEL` | Defaults to `info`. Use `debug` during a rehearsal to capture checkpoint timing and event-loop delay. |
+
+The licensed manifest accepts one pack object or an array of packs. Each pack has an `id`, `name` and `tracks` array. Each track needs a stable `recordingId`, `title`, `artist`, release `year`, `sourceUrl`, `license`, `territories` and an `audioFile` relative to the clip directory. Include `licenseUrl`, version, relevant pack filters, and ISO `rightsUntil` or `audioExpiresAt` values where applicable. Serve only files and recordings covered by the pack decision. Titles and credits should match the exact clip.
+
+### Tests and diagnostics
+
+```sh
 npm test
-
-# Lint all workspaces (ESLint flat config)
 npm run lint
+npm run build
+npm run test:multiplayer
 ```
 
-Both run in CI on every push; the auto-merge workflow only merges to `main` when they pass.
+The test and multiplayer commands use loopback sockets and disposable SQLite files. The production rehearsal starts the compiled server, exercises concurrent 2-, 6- and 12-seat rooms, and reports snapshot payload sizes, SQLite checkpoint latency, and time to simulated first-audio acknowledgement by source. It checks the automatic audio route with byte ranges. CI also starts the production container, checks the matching health revision and SQLite integrity, and fetches the client route.
 
-### Build for Production
+At `LOG_LEVEL=debug`, capture checkpoint duration and the one-minute event-loop delay report. For a live pilot, use the matching build revision and pseudonymous room/match/seat IDs to correlate starts, first audio acknowledgements, disconnects, resumed phase, completions, abandonments and rematches. Record actual first sound and silent turns separately during the physical test.
 
-```bash
-npm run build:shared
-npm run build:server
-npm run build:app
+### Browser regression checks
+
+Run against a disposable production server and a headless Chrome session with an isolated profile. Start the server in one PowerShell window from the repository root.
+
+```powershell
+npm run build
+$env:PORT = '5199'
+$env:DATA_DIR = Join-Path ([System.IO.Path]::GetTempPath()) ('tunes-browser-db-' + [guid]::NewGuid())
+npm start
 ```
 
-Production configuration (see `.env.example`): `ALLOWED_ORIGINS` for cross-origin
-clients (unset = same-origin only) and `TOKEN_ENCRYPTION_KEY` for Spotify token
-encryption at rest (auto-generated at `data/.token-key` when unset).
+Launch Chrome in another window. Set `$tunesChrome` to the installed Chrome executable on your system.
 
-## Game Rules
+```powershell
+$tunesChrome = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+$tunesProfile = Join-Path ([System.IO.Path]::GetTempPath()) ('tunes-browser-profile-' + [guid]::NewGuid())
+& $tunesChrome --headless=new --remote-debugging-address=127.0.0.1 --remote-debugging-port=9227 "--user-data-dir=$tunesProfile" --no-first-run --no-default-browser-check about:blank
+```
 
-### Objective
+Run the regression from the repository root in a third window. It accepts loopback endpoints only. Use `TUNES_BROWSER_TEST_ORIGIN` and `TUNES_BROWSER_TEST_CDP` if you chose other ports. The optional argument sets the screenshot directory.
 
-Be the first player to collect the target number of song cards (default: 10) by placing them in the correct chronological order on your timeline.
+```powershell
+$tunesScreenshots = Join-Path ([System.IO.Path]::GetTempPath()) ('tunes-browser-checks-' + [guid]::NewGuid())
+node scripts/verify-browser-flow.mjs $tunesScreenshots
+```
 
-### Tokens
+Stop the disposable server and Chrome session when the check finishes. Emulated mobile widths and playback instrumentation complement the physical checks below.
 
-Each player starts with 2 tokens (max 5). Use them for:
+### Back up and rehearse a migration
 
-| Action | Cost |
-|--------|------|
-| Skip a song | 1 token |
-| Challenge a placement | 1 token |
-| Buy a card (auto-placed correctly) | 3 tokens |
-| Name the song correctly | +1 token |
+Take a SQLite online backup before upgrading a persistent volume. Run from the repository root, supplying the real source path and a fresh destination. Keep the backup private because it contains room and guest records.
 
-### Turn Flow
+```sh
+node -e "const db = new (require('better-sqlite3'))(process.argv[1], {readonly:true,fileMustExist:true}); db.backup(process.argv[2]).then(() => db.close(), error => { db.close(); console.error(error); process.exitCode = 1 })" ./data/tunes.db ./tunes-backup.db
+```
 
-1. A mystery song card is drawn from the deck and plays via Spotify
-2. The active player has 45 seconds to place the card on their timeline (circular countdown visible on the song card)
-3. Other players have 15 seconds to challenge the placement (costs 1 token) or click "No Challenge"
-4. The song is revealed:
-   - **Correct placement** -- the active player keeps the card
-   - **Wrong placement + challenger** -- the first challenger steals the card
-   - **Wrong placement + no challenger** -- the card is discarded
+Put a copy of that backup at `tunes.db` inside a disposable directory. Start the new build with `DATA_DIR` pointing to that directory and a free `PORT`. Startup runs the migrations. Check the migrated file with the following command. Replace the last argument with the path to the disposable database.
 
-### Game Modes
+```sh
+node -e "const db = new (require('better-sqlite3'))(process.argv[1], {readonly:true,fileMustExist:true}); const check = db.pragma('quick_check', {simple:true}); db.close(); console.log(check); if (check !== 'ok') process.exitCode = 1" ./rehearsal/tunes.db
+```
 
-- **Original** -- Place the card. Optionally name the song for a bonus token.
-- **Pro** -- Must place correctly AND name the song to keep the card.
-- **Expert** -- Must place, name, AND guess the exact year.
-- **Co-op** -- Shared timeline for all players. Wrong placements cost the team a token.
+Verify a new room, an already-finished match, a compatible active room and an old browser seat. A pre-upgrade room without a recoverable deck offers a fresh-start choice. Restart the rehearsal server and verify one result and one set of stats increments per match. Preserve the source backup for a restore rehearsal or rollback.
+
+Active game state checkpoints after changes and every five seconds while a clock is running. An unclean restart restores the last checkpoint and pauses active audio. The clock can regain up to the time since the last periodic checkpoint. Reveals and results should restore with the same recording, guesses and scores.
+
+## Pilot acceptance checklist
+
+### Two real phones
+
+- [ ] Serve the candidate over HTTPS. Use Guillermo's iPhone 17 Pro Max and a second real phone. Record the build revision, model, OS, browser, source and assigned roles. Test leave and immediate rehost or rejoin from both Lobby and Results. Refresh while seated and verify that the same seat returns.
+- [ ] In Classic, test natural screen sleep, 10- and 45-second deliberate locks, a two-minute call, app switching, Low Power Mode, reload or tab eviction, Wi-Fi loss and Bluetooth handoff. Cover listening, challenge, reveal and results across the matrix. Include a controller-only disconnect with the speaker still online and a required-audio interruption.
+- [ ] Disconnect all devices for six minutes, resume before expiry and check the 30-minute boundary in a separate room. Restart the candidate server during anchors, listening, challenge, reveal and results. Record the recording actually heard, phase, clock, submitted guesses and score before and after each interruption. Confirm a preserved score and phase, no progress while paused, and at most one resume gesture if the source remains available.
+- [ ] Verify manual cue privacy and automatic speaker controls. Play one available track on the physical speaker, recover or replace one unavailable track, and confirm a single audio stream. Check that the final reveal stays visible until the controller advances.
+- [ ] Have a new host start a Manual DJ room while two guests join via QR without coaching. Target first audible music within 90 seconds. Check timeline placement at 320- and 390-pixel widths, large text, keyboard open, VoiceOver and TalkBack, plus reduced motion.
+
+### Dinner trial and wider hosting
+
+- [ ] Recruit six to eight tables of four to six people. Alternate which mode each table tries first. Use comparable recordings and the same source, with a newcomer hosting. Record elapsed time to audio, help requests, failed cues, eligible guesses submitted, waiting time, rounds played and whether people remember the deciding song.
+- [ ] Record whether each table voluntarily plays the same mode again, switches mode or stops before asking for comparisons. Count voluntary same-mode rematches against completed first matches that had an opportunity to continue. Review observed failures and replay choices before changing the default.
+- [ ] Before expanding hosting, rehearse migration and restore on a disposable database, complete the phone matrix, and record first-audio median and p95 by source. Confirm catalogue, territorial eligibility, attribution and audio delivery on actual speakers for every automatic pack offered.
 
 ## License
 
-Private project.
+Tunes is a private project. The bundled automatic recordings carry the individual licenses listed in the music credits. [Music credits](app/public/music-credits.html)

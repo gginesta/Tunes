@@ -1,7 +1,7 @@
 import { useEffect, lazy, Suspense } from 'react';
 import { useSocket } from './hooks/useSocket';
 import { useGameStore } from './store';
-import { ensureSpotifySession } from './services/spotifySession';
+import { useTableAudio } from './hooks/useTableAudio';
 import { Home } from './components/Home';
 import { Lobby } from './components/Lobby';
 import { Game } from './components/Game';
@@ -16,28 +16,18 @@ export default function App() {
   useSocket();
   const screen = useGameStore((s) => s.screen);
   const setPendingJoinCode = useGameStore((s) => s.setPendingJoinCode);
-  const spotifyToken = useGameStore((s) => s.spotifyToken);
-  const hostId = useGameStore((s) => s.hostId);
-  const myId = useGameStore((s) => s.myId);
-  const isHost = myId !== '' && myId === hostId;
-
-  // Initialize Spotify SDK early (in lobby) so it's ready when the game starts
-  useEffect(() => {
-    if (!isHost || !spotifyToken) return;
-    ensureSpotifySession();
-  }, [isHost, spotifyToken]);
+  useTableAudio();
 
   useEffect(() => {
-    const match = window.location.pathname.match(/^\/join\/([a-zA-Z]{4})$/);
+    const match = window.location.pathname.match(/^\/join\/([a-zA-Z]{4})\/?$/);
     if (match) {
       setPendingJoinCode(match[1].toUpperCase());
-      window.history.replaceState({}, '', '/');
+      // Preserve the invite until the server confirms the new seat.
     }
   }, [setPendingJoinCode]);
 
   return (
-    <div className="font-sans antialiased min-h-screen text-white selection:bg-neon-pink selection:text-[#0a0318] relative">
-      <div className="ambient" aria-hidden="true" />
+    <div className="tunes-app">
       {screen === 'home' && <Home />}
       {screen === 'lobby' && <Lobby />}
       {screen === 'game' && <Game />}

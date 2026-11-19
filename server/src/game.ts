@@ -1,1157 +1,1208 @@
-import { Server } from 'socket.io';
+import { randomUUID } from 'node:crypto';
+import type { Server } from 'socket.io';
 import type {
   ClientToServerEvents,
-  ServerToClientEvents,
+  GameSettings,
+  GameState,
+  GameStats,
+  MatchResult,
+  PlayerStats,
+  PlayedSong,
   Room,
+  RoundAction,
+  RoundAudio,
+  RoundReveal,
+  ServerToClientEvents,
   SongCard,
   SongGuess,
-  PlayedSong,
-  PlayerStats,
-  GameStats,
 } from '@tunes/shared';
 import {
-  STARTING_TOKENS,
+  ANCHOR_PREVIEW_MS,
+  BUY_CARD_COST,
+  CHALLENGE_COST,
+  CHALLENGE_WINDOW_MS,
+  COOP_WRONG_PENALTY,
+  DINNER_ANCHOR_COUNT,
+  getDinnerRoundCount,
   MAX_TOKENS,
   SKIP_COST,
-  CHALLENGE_COST,
-  BUY_CARD_COST,
-  CHALLENGE_WINDOW_MS,
+  STARTING_TOKENS,
   TURN_TIME_MS,
-  COOP_WRONG_PENALTY,
-  DISCONNECT_GRACE_MS,
 } from '@tunes/shared';
-import { logger } from './logger';
 import { fuzzyMatch } from './fuzzy';
+import { logger } from './logger';
 import { fisherYatesShuffle } from './shuffle';
 
 type TunesServer = Server<ClientToServerEvents, ServerToClientEvents>;
+type Timer = ReturnType<typeof setTimeout>;
+type Placement = { position: number; locked: boolean };
+type Naming = { guess: SongGuess; correct: boolean; titleMatch: boolean; artistMatch: boolean };
+type MatchEnd = MatchResult['reason'];
+type ActionResult = { error?: string; code?: string };
+type GameHooks = {
+  onChange?: () => void;
+  send?: (playerId: string, room: Room) => void;
+  canPlay?: (song: SongCard, settings: GameSettings) => boolean;
+};
+
+type RoundState = {
+  attempts: Record<string, Naming>;
+  namingDone: string[];
+  decisions: Record<string, number | null>;
+  guesses: Record<string, Placement>;
+  eligible: string[];
+  cueSeenBy: string[];
+  /** Names/tokens given for this particular cue, for a penalty-free void. */
+  namingTokens: string[];
+  placementElapsed: number | null;
+};
+
+export type PersistedGame = {
+  version: 1;
+  deck: SongCard[];
+  round: RoundState;
+  participants: string[];
+  departed: string[];
+  djRotation: string[];
+  djSchedule: string[];
+  actionReceipts: string[];
+  dinnerCount: number;
+  scores: Record<string, number>;
+  heard: string[];
+  history: PlayedSong[];
+  stats: GameStats;
+  finishPending: MatchEnd | null;
+  leadChange: { playerId: string; song: SongCard } | null;
+  clockRemaining: number | null;
+  state: GameState;
+};
+
+function freshRound(): RoundState {
+  return {
+    attempts: {}, namingDone: [], decisions: {}, guesses: {},
+    eligible: [], cueSeenBy: [], namingTokens: [], placementElapsed: null,
+  };
+}
+
+function newStats(): PlayerStats {
+  return {
+    correctPlacements: 0, totalPlacements: 0, challengesWon: 0, challengesLost: 0,
+    longestStreak: 0, currentStreak: 0, fastestPlacementMs: null, decadeAccuracy: {}, songsNamed: 0,
+  };
+}
+
+/** Recording facts contain no clip URL, provider identifier or source credentials. */
+function recordingFacts(card: SongCard): SongCard {
+  const { id, title, artist, year, genre, region, recordingId, version, source, sourceUrl, recordingNote, license, licenseUrl } = card;
+  return { id, title, artist, year, genre, region, recordingId, version, source, sourceUrl, recordingNote, license, licenseUrl };
+}
+
+function validPosition(position: number, timeline: SongCard[]): boolean {
+  return Number.isInteger(position) && position >= 0 && position <= timeline.length;
+}
+
+function correctPositions(song: SongCard, timeline: SongCard[]): number[] {
+  const positions: number[] = [];
+  for (let position = 0; position <= timeline.length; position++) {
+    const before = timeline[position - 1];
+    const after = timeline[position];
+    if ((!before || before.year <= song.year) && (!after || song.year <= after.year)) positions.push(position);
+  }
+  return positions;
+}
+
+function insertCard(timeline: SongCard[], card: SongCard) {
+  const next = timeline.findIndex((other) => other.year > card.year);
+  timeline.splice(next === -1 ? timeline.length : next, 0, recordingFacts(card));
+}
+
+const reject = (error: string, code = 'ACTION_REJECTED'): ActionResult => ({ error, code });
 
 export class GameEngine {
-  private room: Room;
-  private io: TunesServer;
   private deck: SongCard[] = [];
-  private spotifyAccessToken: string | null = null;
-  private challengeTimer: ReturnType<typeof setTimeout> | null = null;
-  private turnTimer: ReturnType<typeof setTimeout> | null = null;
-  private anchorTimer: ReturnType<typeof setTimeout> | null = null;
-  private songNamed = new Set<string>();
-  /** Tracks whether each player's song name guess was correct this round */
-  private songNameCorrect = new Map<string, boolean>();
-  /** Tracks the active player's year guess for Expert mode */
-  private yearGuess: number | null = null;
-  /** Grace period timers for disconnected players */
-  private disconnectTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
-  /** Per-player stats tracked throughout the game */
-  private playerStats: Map<string, PlayerStats> = new Map();
-  /** Timestamp when the current turn started (for fastest placement tracking) */
-  private turnStartTime: number = 0;
-  /** Total rounds played */
-  private totalRounds: number = 0;
-  /** History of all played songs */
-  private songHistory: PlayedSong[] = [];
-  /** Current round number */
-  private roundNumber: number = 0;
-  /** Callback invoked after game ends */
-  private onGameEndCallback: (() => void) | null = null;
-  /** Challenger's proposed positions for the current round */
-  private challengerPositions = new Map<string, number>();
+  private round = freshRound();
+  private participants: string[] = [];
+  private departed = new Set<string>();
+  private djRotation: string[] = [];
+  private djSchedule: string[] = [];
+  private actionReceipts: string[] = [];
+  private dinnerCount = 0;
+  private scores: Record<string, number> = {};
+  private heard = new Set<string>();
+  private history: PlayedSong[] = [];
+  private stats: GameStats = { playerStats: {}, totalRounds: 0 };
+  private finishPending: MatchEnd | null = null;
+  private leadChange: PersistedGame['leadChange'] = null;
+  private clock: Timer | null = null;
+  private checkpoint: Timer | null = null;
+  private saveRetry: Timer | null = null;
+  private gameEnded: (() => void) | null = null;
+  private deferred = false;
+  private dirty = false;
+  private strictPersistence = false;
 
-  constructor(room: Room, io: TunesServer) {
-    this.room = room;
-    this.io = io;
+  constructor(private room: Room, _io: TunesServer, private hooks: GameHooks = {}) {}
+
+  private get gs() { return this.room.gameState; }
+  private get mode() { return this.room.settings.mode; }
+  private get manual() { return this.room.playbackMode === 'manual'; }
+  private get coop() { return this.mode === 'coop'; }
+  private get dinner() { return this.mode === 'dinner'; }
+  private get operator() { return this.gs.audio?.operatorId; }
+  private get onTable() {
+    return Object.values(this.room.players).some((player) => player.connected);
   }
 
-  onGameEnd(callback: () => void) {
-    this.onGameEndCallback = callback;
+  onGameEnd(callback: () => void) { this.gameEnded = callback; }
+  getRoom() { return this.room; }
+  getSongHistory() { return this.history; }
+  getGameStats() { return { playerStats: new Map(Object.entries(this.stats.playerStats)), totalRounds: this.stats.totalRounds }; }
+  getResult() { return this.gs.result ?? null; }
+  getHeardRecordingIds() { return [...this.heard]; }
+  inheritHeardRecordingIds(ids: readonly string[]) {
+    for (const id of ids) this.heard.add(id);
   }
 
-  private get mode() {
-    return this.room.settings.mode;
+  serialize(): PersistedGame {
+    return structuredClone({
+      version: 1, deck: this.deck, round: this.round, participants: this.participants,
+      departed: [...this.departed],
+      djRotation: this.djRotation, dinnerCount: this.dinnerCount, scores: this.scores,
+      djSchedule: this.djSchedule, actionReceipts: this.actionReceipts,
+      heard: [...this.heard], history: this.history, stats: this.stats,
+      finishPending: this.finishPending, leadChange: this.leadChange,
+      clockRemaining: this.remainingTime(), state: this.gs,
+    });
   }
 
-  private get isCoop() {
-    return this.mode === 'coop';
-  }
-
-  setSpotifyToken(token: string | null) {
-    this.spotifyAccessToken = token;
-  }
-
-  getSongHistory(): PlayedSong[] {
-    return this.songHistory;
-  }
-
-  getGameStats(): { playerStats: Map<string, PlayerStats>; totalRounds: number } {
-    return { playerStats: this.playerStats, totalRounds: this.totalRounds };
-  }
-
-  getWinnerId(): string {
-    if (this.isCoop) {
-      return this.room.gameState.turnOrder[0] || '';
+  restore(saved: PersistedGame): void {
+    const state = structuredClone(saved);
+    this.loadState(state);
+    this.gs.timing = { deadline: null, remainingMs: state.clockRemaining };
+    if (this.gs.phase === 'playing' || this.gs.phase === 'challenge') {
+      const { audio, currentSong } = this.gs;
+      const unavailable = !this.manual && currentSong && !this.automaticSource(currentSong);
+      if (audio) this.gs.audio = { ...audio, status: 'paused', reason: unavailable ? 'audio-unavailable' : 'server-restart' };
     }
-    let winnerId = '';
-    let maxCards = 0;
-    for (const [id, player] of Object.entries(this.room.players)) {
-      if (player.timeline.length > maxCards) {
-        maxCards = player.timeline.length;
-        winnerId = id;
+  }
+
+  private loadState(state: PersistedGame): void {
+    this.dispose();
+    this.room.gameState = state.state;
+    this.deck = state.deck;
+    this.round = state.round;
+    this.participants = state.participants;
+    this.departed = new Set(state.departed);
+    this.djRotation = state.djRotation;
+    this.djSchedule = state.djSchedule ?? [];
+    this.actionReceipts = state.actionReceipts ?? [];
+    this.dinnerCount = state.dinnerCount;
+    this.scores = state.scores;
+    this.heard = new Set(state.heard);
+    this.history = state.history;
+    this.stats = state.stats;
+    this.finishPending = state.finishPending;
+    this.leadChange = state.leadChange;
+  }
+
+  dispose() {
+    this.stopClock();
+    if (this.saveRetry) clearTimeout(this.saveRetry);
+    this.saveRetry = null;
+  }
+
+  private stopClock() {
+    if (this.clock) clearTimeout(this.clock);
+    if (this.checkpoint) clearInterval(this.checkpoint);
+    this.clock = null;
+    this.checkpoint = null;
+  }
+
+  publicRoom(playerId: string): Room {
+    const gs = this.gs;
+    const view = structuredClone(this.room);
+    for (const player of Object.values(view.players)) player.timeline = player.timeline.map(recordingFacts);
+    view.gameState.currentSong = gs.phase === 'reveal' && gs.currentSong ? recordingFacts(gs.currentSong) : null;
+    view.gameState.sharedTimeline = gs.sharedTimeline.map(recordingFacts);
+    view.gameState.history = structuredClone(this.history);
+    if (gs.phase === 'game_over') view.gameState.stats = structuredClone(this.stats);
+    view.gameState.audio = this.publicAudio(playerId);
+    if (this.dinner && gs.matchId) {
+      const guess = this.round.guesses[playerId];
+      view.gameState.dinner = {
+        roundCount: this.dinnerCount, completedRounds: this.stats.totalRounds,
+        scores: { ...this.scores }, eligiblePlayerIds: [...this.round.eligible],
+        submittedCount: Object.values(this.round.guesses).filter(({ locked }) => locked).length,
+        myPosition: guess?.position ?? null, myLocked: guess?.locked ?? false,
+      };
+    } else if (gs.matchId) {
+      const named = this.round.attempts[playerId];
+      view.gameState.classic = {
+        eligibleChallengerIds: [...this.round.eligible],
+        respondedPlayerIds: Object.keys(this.round.decisions),
+        myNamed: !!named,
+        myNamingDone: this.round.namingDone.includes(playerId),
+        myNamingResult: named && { correct: named.correct, titleMatch: named.titleMatch, artistMatch: named.artistMatch },
+        challengePositions: Object.fromEntries(
+          Object.entries(this.round.decisions).filter((entry): entry is [string, number] => entry[1] !== null),
+        ),
+      };
+    }
+    return view;
+  }
+
+  private publicAudio(playerId: string): RoundAudio | undefined {
+    const { audio, currentSong } = this.gs;
+    if (!audio) return;
+    const base: RoundAudio = {
+      status: audio.status, kind: audio.kind, cueId: audio.cueId,
+      operatorId: audio.operatorId, reason: audio.reason,
+    };
+    if (playerId !== audio.operatorId || !currentSong || audio.status === 'idle') return base;
+    if (audio.kind === 'manual') return { ...base, recording: recordingFacts(currentSong) };
+    const source = this.automaticSource(currentSong);
+    return source ? { ...base, source } : base;
+  }
+
+  private automaticSource(song: SongCard) {
+    if (this.room.playbackMode !== 'licensed' || !song.audioUrl) return;
+    if (!(this.audioExpiry(song) > Date.now())) return;
+    if (this.hooks.canPlay && !this.hooks.canPlay(song, this.room.settings)) return;
+    return { url: song.audioUrl };
+  }
+
+  private audioExpiry(song: SongCard): number {
+    return Math.min(
+      song.rightsUntil ? Date.parse(song.rightsUntil) : Infinity,
+      song.audioExpiresAt ? Date.parse(song.audioExpiresAt) : Infinity,
+    );
+  }
+
+  sync(): void {
+    if (!this.hooks.send) return;
+    for (const [playerId, player] of Object.entries(this.room.players)) {
+      if (!player.connected) continue;
+      try {
+        this.hooks.send(playerId, this.publicRoom(playerId));
+      } catch (error) {
+        logger.error('Table view could not be sent', { matchId: this.gs.matchId, playerId, error: String(error) });
       }
     }
-    return winnerId;
   }
 
-  getRoom(): Room {
-    return this.room;
+  private changed() {
+    if (this.deferred) {
+      this.dirty = true;
+      return;
+    }
+    this.gs.revision = (this.gs.revision ?? 0) + 1;
+    this.persistAndSync();
+  }
+
+  private persistAndSync(): void {
+    try {
+      this.hooks.onChange?.();
+    } catch (error) {
+      if (this.strictPersistence) throw error;
+      logger.error('Table state could not be saved', { matchId: this.gs.matchId, error: String(error) });
+      if (!this.saveRetry) {
+        this.saveRetry = setTimeout(() => {
+          this.saveRetry = null;
+          this.persistAndSync();
+        }, 1000);
+        this.saveRetry.unref?.();
+      }
+      return;
+    }
+    if (this.saveRetry) clearTimeout(this.saveRetry);
+    this.saveRetry = null;
+    this.sync();
+  }
+
+  private withRollback<T>(run: () => T, retryDeadline = false): T {
+    if (!this.hooks.onChange || this.strictPersistence) return run();
+    const saved = this.serialize();
+    const players = structuredClone(this.room.players);
+    const speakerId = this.room.speakerId;
+    this.strictPersistence = true;
+    try {
+      return run();
+    } catch (error) {
+      this.loadState(saved);
+      this.room.players = players;
+      this.room.speakerId = speakerId;
+      const deadline = this.gs.timing?.deadline;
+      if (deadline != null) {
+        if (retryDeadline && deadline <= Date.now()) {
+          this.clock = setTimeout(() => this.onDeadline(), 1000);
+          this.clock.unref?.();
+        } else {
+          this.armClock(Math.max(0, deadline - Date.now()));
+        }
+      }
+      throw error;
+    } finally {
+      this.strictPersistence = false;
+    }
+  }
+
+  /** Validate the round before any mutation and remember completed actions through reconnects. */
+  dispatch(playerId: string, action: string, scope: RoundAction, run: () => ActionResult): ActionResult {
+    const { matchId, roundId } = this.gs;
+    if (!this.room.players[playerId]?.connected) return reject('Your seat is disconnected.');
+    const receipt = scope.actionId && [scope.roundId, playerId, action, scope.actionId].join(':');
+    if (scope.matchId === matchId && receipt && this.actionReceipts.includes(receipt)) return {};
+    if (scope.matchId !== matchId || scope.roundId !== roundId) {
+      return reject('That round has moved on. Try again on the current screen.', 'ROUND_MOVED_ON');
+    }
+    const { audio, currentSong } = this.gs;
+    if (!this.manual && currentSong && audio?.status === 'playing' && !this.automaticSource(currentSong)) {
+      this.pause('audio-unavailable');
+      this.changed();
+    }
+    if (this.gs.timing?.deadline != null && this.gs.timing.deadline <= Date.now()) {
+      this.onDeadline();
+      return reject('The round clock has expired.', 'ROUND_MOVED_ON');
+    }
+    return this.withRollback(() => {
+      this.deferred = true;
+      if (receipt) this.actionReceipts.push(receipt);
+      try {
+        const result = run();
+        if (receipt && result.error) this.actionReceipts = this.actionReceipts.filter((stored) => stored !== receipt);
+        else if (this.actionReceipts.length > 1024) this.actionReceipts.shift();
+        this.deferred = false;
+        if (this.dirty) this.changed();
+        return result;
+      } finally {
+        this.deferred = false;
+        this.dirty = false;
+      }
+    });
   }
 
   resetGame() {
-    // Clear timers
-    if (this.challengeTimer) {
-      clearTimeout(this.challengeTimer);
-      this.challengeTimer = null;
-    }
-    if (this.turnTimer) {
-      clearTimeout(this.turnTimer);
-      this.turnTimer = null;
-    }
-    if (this.anchorTimer) {
-      clearTimeout(this.anchorTimer);
-      this.anchorTimer = null;
-    }
-
-    // Clear disconnect timers
-    for (const timer of this.disconnectTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.disconnectTimers.clear();
-
-    // Clear engine state
+    this.dispose();
     this.deck = [];
-    this.songNamed.clear();
-    this.songNameCorrect.clear();
-    this.challengerPositions.clear();
-    this.yearGuess = null;
-    this.songHistory = [];
-    this.roundNumber = 0;
-    this.playerStats.clear();
-    this.totalRounds = 0;
-    this.turnStartTime = 0;
-
-    // Reset all players: clear timelines, restore starting tokens
+    this.round = freshRound();
+    this.participants = [];
+    this.departed.clear();
+    this.djRotation = [];
+    this.djSchedule = [];
+    this.actionReceipts = [];
+    this.dinnerCount = 0;
+    this.scores = {};
+    this.history = [];
+    this.stats = { playerStats: {}, totalRounds: 0 };
+    this.finishPending = null;
+    this.leadChange = null;
     for (const player of Object.values(this.room.players)) {
       player.timeline = [];
       player.tokens = STARTING_TOKENS;
     }
-
-    // Reset game state to lobby defaults
     this.room.gameState = {
-      phase: 'lobby',
-      currentTurnPlayerId: null,
-      currentSong: null,
-      pendingPlacement: null,
-      challengers: [],
-      turnOrder: [],
-      turnIndex: 0,
-      deckSize: 0,
-      sharedTimeline: [],
+      phase: 'lobby', currentTurnPlayerId: null, currentSong: null, pendingPlacement: null,
+      challengers: [], turnOrder: [], turnIndex: 0, deckSize: 0, sharedTimeline: [],
+      revision: this.gs.revision,
     };
   }
 
-  /**
-   * Add a late-joining player to an active game.
-   * Deals them a starting card and inserts them into the turn order.
-   */
-  addLatecomer(playerId: string) {
-    const gs = this.room.gameState;
-    const player = this.room.players[playerId];
-    if (!player) return;
-
-    // Deal a starting anchor card if deck has enough cards
-    if (this.deck.length >= 2) {
-      const card = this.deck.pop()!;
-      player.timeline = [card];
-      player.tokens = STARTING_TOKENS;
-      gs.deckSize = this.deck.length;
-
-      this.io.to(this.room.code).emit('timeline-updated', {
-        playerId,
-        timeline: player.timeline,
-      });
-    }
-
-    // Insert into turn order after the current turn index
-    const insertAt = gs.turnIndex + 1;
-    gs.turnOrder.splice(insertAt, 0, playerId);
-
-    // Initialize stats
-    this.playerStats.set(playerId, {
-      correctPlacements: 0,
-      totalPlacements: 0,
-      challengesWon: 0,
-      challengesLost: 0,
-      longestStreak: 0,
-      currentStreak: 0,
-      fastestPlacementMs: null,
-      decadeAccuracy: {},
-      songsNamed: 0,
-    });
-
-    logger.info('Late joiner added to game', {
-      roomCode: this.room.code,
-      playerId,
-      playerName: player.name,
-      turnOrderPosition: insertAt,
-      deckRemaining: this.deck.length,
-    });
+  startGame(deck: SongCard[], playerIds = Object.keys(this.room.players).filter((id) => this.room.players[id].connected)) {
+    this.withRollback(() => this.beginMatch(deck, playerIds));
   }
 
-  /**
-   * Skip the anchor card preview phase and start the first turn immediately.
-   * Called by the host via the 'skip-anchors' socket event.
-   */
-  skipAnchors() {
-    if (!this.anchorTimer) return;
-    clearTimeout(this.anchorTimer);
-    this.anchorTimer = null;
-    this.startTurn();
-  }
-
-  /**
-   * Play a specific anchor card's song during the preview phase.
-   * Currently a no-op — the client handles anchor preview visually.
-   * Reserved for future audio preview of anchor cards.
-   */
-  playAnchor(_index: number) {
-    // Intentionally empty — anchor preview is visual only for now
-  }
-
-  startGame(deck: SongCard[]) {
+  private beginMatch(deck: SongCard[], playerIds: string[]) {
+    this.resetGame();
     this.deck = [...deck];
-    this.totalRounds = 0;
-    const playerIds = Object.keys(this.room.players);
-
-    // Initialize player stats
-    this.playerStats.clear();
-    for (const id of playerIds) {
-      this.playerStats.set(id, {
-        correctPlacements: 0,
-        totalPlacements: 0,
-        challengesWon: 0,
-        challengesLost: 0,
-        longestStreak: 0,
-        currentStreak: 0,
-        fastestPlacementMs: null,
-        decadeAccuracy: {},
-        songsNamed: 0,
-      });
-    }
-
-    // Give each player a starting card (or shared timeline for co-op)
-    if (this.isCoop) {
-      const card = this.deck.pop();
-      for (const id of playerIds) {
-        this.room.players[id].timeline = [];
-        this.room.players[id].tokens = STARTING_TOKENS;
-      }
-      // Shared timeline starts with one card
-      const sharedTimeline = card ? [card] : [];
-      this.room.gameState.sharedTimeline = sharedTimeline;
-    } else {
-      for (const id of playerIds) {
+    const dedicated = this.room.settings.dedicatedDjId;
+    this.participants = playerIds.filter((id) => this.room.players[id] && (!this.manual || id !== dedicated));
+    this.djRotation = fisherYatesShuffle([...this.participants]);
+    const gs = this.gs;
+    Object.assign(gs, {
+      phase: 'anchor_preview', matchId: randomUUID(), roundId: 0,
+      turnOrder: [...this.djRotation], rematchPlayerIds: [],
+      audio: this.idleAudio(), reveal: null, result: null,
+    });
+    for (const id of this.participants) {
+      this.stats.playerStats[id] = newStats();
+      if (this.dinner) this.scores[id] = 0;
+      if (!this.coop && !this.dinner) {
         const card = this.deck.pop();
-        if (card) {
-          this.room.players[id].timeline = [card];
-          this.room.players[id].tokens = STARTING_TOKENS;
-        }
+        if (card) this.room.players[id].timeline = [recordingFacts(card)];
       }
     }
-
-    // Shuffle turn order
-    const turnOrder = fisherYatesShuffle([...playerIds]);
-    this.room.gameState = {
-      ...this.room.gameState,
-      phase: 'playing',
-      currentTurnPlayerId: turnOrder[0],
-      currentSong: null,
-      pendingPlacement: null,
-      challengers: [],
-      turnOrder,
-      turnIndex: 0,
-      deckSize: this.deck.length,
-      sharedTimeline: this.room.gameState.sharedTimeline || [],
-    };
-
-    logger.info('Game started', {
-      roomCode: this.room.code,
-      playerCount: playerIds.length,
-      mode: this.mode,
-      deckSize: this.deck.length,
-    });
-
-    // Collect anchor cards for the dealing animation
-    const anchorCards: Record<string, SongCard> = {};
-    if (this.isCoop) {
-      const sharedCard = this.room.gameState.sharedTimeline[0];
-      if (sharedCard) {
-        // Use a special key so the client knows it's the shared timeline card
-        anchorCards['__shared__'] = sharedCard;
+    if (this.dinner) {
+      this.dinnerCount = getDinnerRoundCount(this.room.settings, this.room.playbackMode, this.participants.length);
+      if (this.manual && !dedicated && this.djRotation.length) {
+        this.djSchedule = Array.from({ length: this.dinnerCount }, (_, index) => this.djRotation[index % this.djRotation.length]);
       }
-    } else {
-      for (const id of playerIds) {
-        const card = this.room.players[id].timeline[0];
-        if (card) {
-          anchorCards[id] = card;
-        }
-      }
+      this.dealDinnerAnchors();
+    } else if (this.coop) {
+      const card = this.deck.pop();
+      if (card) gs.sharedTimeline = [recordingFacts(card)];
     }
-
-    this.io.to(this.room.code).emit('game-started', { gameState: this.room.gameState, anchorCards });
-
-    // Sync each player's starting timeline
-    if (this.isCoop) {
-      this.io.to(this.room.code).emit('shared-timeline-updated', {
-        timeline: this.room.gameState.sharedTimeline,
-      });
-    } else {
-      for (const id of playerIds) {
-        this.io.to(this.room.code).emit('timeline-updated', {
-          playerId: id,
-          timeline: this.room.players[id].timeline,
-        });
-      }
-    }
-
-    // Delay first turn to let clients show the anchor card animation
-    this.anchorTimer = setTimeout(() => {
-      this.anchorTimer = null;
-      this.startTurn();
-    }, 3500);
+    gs.deckSize = this.deck.length;
+    gs.currentTurnPlayerId = this.dinner ? null : gs.turnOrder[0] ?? null;
+    this.armClock(ANCHOR_PREVIEW_MS);
+    this.changed();
   }
 
-  private startTurn() {
-    const song = this.deck.pop();
-    if (!song) {
-      this.endGame();
-      return;
+  private dealDinnerAnchors() {
+    const candidates = [...this.deck].sort((a, b) => a.year - b.year);
+    const anchors: SongCard[] = [];
+    for (let i = 0; i < DINNER_ANCHOR_COUNT && i < candidates.length; i++) {
+      const card = candidates[Math.round(i * (candidates.length - 1) / (DINNER_ANCHOR_COUNT - 1))];
+      if (!anchors.includes(card)) anchors.push(card);
     }
-
-    this.room.gameState.currentSong = song;
-    this.room.gameState.phase = 'playing';
-    this.room.gameState.pendingPlacement = null;
-    this.room.gameState.challengers = [];
-    this.room.gameState.deckSize = this.deck.length;
-    this.songNamed.clear();
-    this.songNameCorrect.clear();
-    this.challengerPositions.clear();
-    this.yearGuess = null;
-    this.turnStartTime = Date.now();
-    this.roundNumber++;
-
-    const turnPlayerId = this.room.gameState.currentTurnPlayerId!;
-    const turnPlayer = this.room.players[turnPlayerId];
-
-    logger.info('Turn started', {
-      roomCode: this.room.code,
-      playerName: turnPlayer?.name,
-      songTitle: song.title,
-      songArtist: song.artist,
-      cardsRemaining: this.deck.length,
-    });
-
-    // Send song info to all players (year hidden for active player)
-    this.io.to(this.room.code).emit('new-turn', {
-      turnPlayerId,
-      songCard: { id: song.id },
-    });
-
-    // Emit turn-started with deadline for countdown
-    const turnDeadline = Date.now() + TURN_TIME_MS;
-    this.io.to(this.room.code).emit('turn-started', {
-      turnPlayerId,
-      turnDeadline,
-    });
-
-    // Start turn timer — auto-skip on timeout (no token cost)
-    this.turnTimer = setTimeout(() => {
-      this.turnTimer = null;
-      if (this.room.gameState.phase === 'playing' && this.room.gameState.currentTurnPlayerId === turnPlayerId) {
-        this.advanceTurn();
-      }
-    }, TURN_TIME_MS);
-
-    // Tell host to play the song
-    if (song.spotifyTrackId || song.previewUrl) {
-      this.io.to(this.room.code).emit('play-song', {
-        spotifyTrackId: song.spotifyTrackId || '',
-        previewUrl: song.previewUrl,
-      });
-    }
+    const selected = new Set(anchors);
+    this.gs.sharedTimeline = anchors.map(recordingFacts);
+    this.deck = this.deck.filter((card) => !selected.has(card));
   }
 
-  placeCard(playerId: string, position: number) {
-    const gs = this.room.gameState;
-    if (gs.phase !== 'playing' || gs.currentTurnPlayerId !== playerId) return;
-
-    // Bounds-check position
-    const timeline = this.isCoop ? gs.sharedTimeline : this.room.players[playerId]?.timeline;
-    if (!timeline || position < 0 || position > timeline.length) return;
-
-    // Clear turn timer since player acted
-    if (this.turnTimer) {
-      clearTimeout(this.turnTimer);
-      this.turnTimer = null;
-    }
-
-    // Track placement speed for stats
-    const placementMs = Date.now() - this.turnStartTime;
-    const stats = this.playerStats.get(playerId);
-    if (stats && (stats.fastestPlacementMs === null || placementMs < stats.fastestPlacementMs)) {
-      stats.fastestPlacementMs = placementMs;
-    }
-
-    gs.pendingPlacement = position;
-    gs.phase = 'challenge';
-
-    const challengeDeadline = this.isCoop ? undefined : Date.now() + CHALLENGE_WINDOW_MS;
-    this.io.to(this.room.code).emit('card-placed', { playerId, position, challengeDeadline });
-
-    if (this.isCoop) {
-      // Co-op: no challenge window, resolve immediately after a short delay
-      this.challengeTimer = setTimeout(() => {
-        this.resolveRound();
-      }, 2000);
-    } else {
-      // Start challenge window
-      this.challengeTimer = setTimeout(() => {
-        this.resolveRound();
-      }, CHALLENGE_WINDOW_MS);
-    }
+  addLatecomer(playerId: string) {
+    const player = this.room.players[playerId];
+    const gs = this.gs;
+    if (!player || !gs.matchId || this.dinner || gs.phase === 'game_over' || this.finishPending ||
+      this.participants.includes(playerId) || (!this.coop && this.deck.length < 2)) return;
+    this.participants.push(playerId);
+    this.stats.playerStats[playerId] = newStats();
+    if (!this.coop) player.timeline = [recordingFacts(this.deck.pop()!)];
+    gs.turnOrder.splice(gs.turnIndex + 1, 0, playerId);
+    gs.deckSize = this.deck.length;
+    this.changed();
   }
 
-  challenge(challengerId: string, position: number): { error?: string } {
-    const gs = this.room.gameState;
-    if (gs.phase !== 'challenge') return {};
-    if (challengerId === gs.currentTurnPlayerId) return {};
-    // No challenges in co-op mode
-    if (this.isCoop) return {};
-
-    const player = this.room.players[challengerId];
-    if (!player || player.tokens < CHALLENGE_COST) return {};
-
-    // Validate position against the active player's timeline
-    const activePlayerId = gs.currentTurnPlayerId!;
-    const timeline = this.room.players[activePlayerId]?.timeline;
-    if (!timeline || position < 0 || position > timeline.length) return {};
-
-    // Reject if another challenger already picked this position
-    for (const [, existingPos] of this.challengerPositions) {
-      if (existingPos === position) {
-        return { error: 'That position is already taken by another challenger' };
-      }
+  skipAnchors(playerId = this.room.hostId): ActionResult {
+    if (playerId !== this.room.hostId || this.gs.phase !== 'anchor_preview') {
+      return reject('Only the controller can continue from the starting cards.');
     }
-
-    if (gs.challengers.includes(challengerId)) return {};
-
-    gs.challengers.push(challengerId);
-    player.tokens -= CHALLENGE_COST;
-    this.challengerPositions.set(challengerId, position);
-
-    logger.info('Challenge made', {
-      roomCode: this.room.code,
-      challengerName: player.name,
-      activePlayerId: gs.currentTurnPlayerId,
-      challengePosition: position,
-    });
-
-    this.io.to(this.room.code).emit('challenge-made', { challengerId, position });
-    this.io.to(this.room.code).emit('tokens-updated', {
-      playerId: challengerId,
-      tokens: player.tokens,
-    });
+    this.startTurn();
     return {};
   }
 
-  nameSong(playerId: string, guess: SongGuess) {
-    const gs = this.room.gameState;
-    if (!gs.currentSong) return;
-    if (this.songNamed.has(playerId)) return;
+  private idleAudio(): RoundAudio {
+    return { kind: this.manual ? 'manual' : 'automatic', status: 'idle', cueId: null, operatorId: null };
+  }
 
-    this.songNamed.add(playerId);
-
-    const titleMatch = fuzzyMatch(guess.title, gs.currentSong.title);
-    const artistMatch = guess.artist?.trim()
-      ? fuzzyMatch(guess.artist, gs.currentSong.artist)
-      : false;
-
-    // Original/coop: title alone is enough for the token
-    // Pro/expert: both title and artist required
-    const correct = (this.mode === 'original' || this.mode === 'coop')
-      ? titleMatch
-      : titleMatch && artistMatch;
-
-    logger.info('Song name attempt', {
-      roomCode: this.room.code,
-      playerName: this.room.players[playerId]?.name,
-      guessTitle: guess.title,
-      guessArtist: guess.artist || '(empty)',
-      actualTitle: gs.currentSong.title,
-      actualArtist: gs.currentSong.artist,
-      titleMatch,
-      artistMatch,
-      correct,
-      mode: this.mode,
-    });
-
-    this.songNameCorrect.set(playerId, correct);
-
-    // Track year guess for Expert mode (only for active player)
-    if (this.mode === 'expert' && playerId === gs.currentTurnPlayerId && guess.year != null) {
-      this.yearGuess = guess.year;
+  private startTurn(overrideDj?: string, dinnerEligible?: string[]) {
+    this.clearClock();
+    const gs = this.gs;
+    if (!this.deck.length) {
+      this.finish('deck-exhausted');
+      return;
     }
+    if (!this.dinner && !this.room.players[gs.currentTurnPlayerId ?? '']?.connected) {
+      this.selectNextPlayer(false);
+    }
+    const song = this.deck.pop()!;
+    const operatorId = this.manual ? overrideDj ?? this.nextDj() : this.room.speakerId ?? null;
+    this.round = freshRound();
+    gs.roundId = (gs.roundId ?? 0) + 1;
+    gs.currentSong = song;
+    gs.phase = 'playing';
+    gs.reveal = null;
+    gs.finalReveal = false;
+    gs.pendingPlacement = null;
+    gs.challengers = [];
+    gs.deckSize = this.deck.length;
+    if (this.dinner) {
+      this.round.eligible = dinnerEligible ?? this.participants.filter((id) => !this.departed.has(id) && (!this.manual || id !== operatorId));
+    }
+    this.issueCue(operatorId);
+    this.changed();
+  }
 
+  private nextDj(): string | null {
+    const dedicated = this.room.settings.dedicatedDjId;
+    if (dedicated && this.room.players[dedicated]) return dedicated;
+    if (this.dinner) return this.djSchedule[this.stats.totalRounds] ?? this.djRotation[this.stats.totalRounds % this.djRotation.length] ?? null;
+    const { turnOrder, turnIndex, currentTurnPlayerId } = this.gs;
+    const alternatives = turnOrder.slice(turnIndex + 1).concat(turnOrder.slice(0, turnIndex + 1))
+      .filter((id) => id !== currentTurnPlayerId && this.room.players[id]?.connected);
+    return alternatives[0] ?? null;
+  }
+
+  private issueCue(operatorId: string | null) {
+    const gs = this.gs;
+    const song = gs.currentSong!;
+    const isAvailable = !!operatorId && this.room.players[operatorId]?.connected &&
+      (this.manual || !!this.automaticSource(song));
+    gs.audio = {
+      kind: this.manual ? 'manual' : 'automatic',
+      status: isAvailable ? (this.manual ? 'cueing' : 'awaiting_audio') : 'paused',
+      cueId: randomUUID(), operatorId,
+      reason: isAvailable ? undefined : (this.onTable ? 'audio-unavailable' : 'all-away'),
+    };
+    if (this.manual && operatorId && !this.round.cueSeenBy.includes(operatorId)) this.round.cueSeenBy.push(operatorId);
+  }
+
+  resumeAudio(playerId: string, cueId: string): ActionResult {
+    const audio = this.gs.audio;
+    if (!audio || audio.cueId !== cueId || this.operator !== playerId || audio.status !== 'paused') {
+      return reject('Only the current music device can resume this song.');
+    }
+    if (this.manual) return this.audioReady(playerId, cueId);
+    if (!this.gs.currentSong || !this.automaticSource(this.gs.currentSong)) {
+      return reject('This clip is unavailable. Replace the recording to continue.');
+    }
+    this.issueCue(playerId);
+    this.changed();
+    return {};
+  }
+
+  audioReady(playerId: string, cueId: string): ActionResult {
+    const audio = this.gs.audio;
+    if (!audio || audio.cueId !== cueId || this.operator !== playerId || audio.status === 'idle') {
+      return reject('This cue belongs to another song or music device.', 'CUE_MOVED_ON');
+    }
+    if (audio.status === 'playing') return {};
+    const song = this.gs.currentSong;
+    if (!song || (!this.manual && (audio.status !== 'awaiting_audio' || !this.automaticSource(song)))) {
+      return reject('The clip did not start. Resume music or replace the recording.');
+    }
+    this.heard.add(song.recordingId || song.id);
+    this.gs.audio = { ...audio, status: 'playing', reason: undefined };
+    this.armClock(this.remainingTime() ?? TURN_TIME_MS);
+    if (this.gs.phase === 'challenge') this.finishClassicIfReady();
+    else if (this.dinner && this.everyoneHasLocked()) this.resolveDinner();
+    else this.changed();
+    return {};
+  }
+
+  audioInterrupted(playerId: string, cueId: string): ActionResult {
+    const audio = this.gs.audio;
+    if (!audio || audio.cueId !== cueId || this.operator !== playerId || audio.status === 'idle') {
+      return reject('This cue belongs to another song or music device.', 'CUE_MOVED_ON');
+    }
+    if (audio.status === 'paused') return {};
+    this.pause('audio-unavailable');
+    this.changed();
+    return {};
+  }
+
+  assignSpeaker(playerId: string, speakerId: string): ActionResult {
+    if (playerId !== this.room.hostId || !this.room.players[speakerId]?.connected) {
+      return reject('The controller can assign music to a connected seat.');
+    }
+    const gs = this.gs;
+    if (this.manual) {
+      if (gs.phase !== 'playing' && gs.phase !== 'challenge') return reject('There is no active cue to hand off.');
+      if (speakerId === this.operator) return {};
+      if (speakerId === gs.currentTurnPlayerId) return reject('The active guesser cannot cue this recording.');
+      if (!this.deck.length) return reject('There are no replacement recordings left.');
+      let eligible = this.round.eligible;
+      if (this.dinner && eligible.includes(speakerId)) {
+        const currentSlot = this.stats.totalRounds;
+        const futureSlot = this.djSchedule.indexOf(speakerId, currentSlot + 1);
+        if (futureSlot === -1) return reject('Choose a spectator or a player who still has a DJ turn in this set.');
+        const originalDj = this.djSchedule[currentSlot];
+        this.djSchedule[currentSlot] = speakerId;
+        this.djSchedule[futureSlot] = originalDj;
+        eligible = this.participants.filter((id) => !this.departed.has(id) && id !== speakerId);
+      }
+      return this.voidRound(speakerId, eligible);
+    }
+    if (this.room.speakerId === speakerId) return {};
+    this.room.speakerId = speakerId;
+    if (gs.phase === 'playing' || gs.phase === 'challenge') {
+      this.pause('audio-unavailable');
+      this.issueCue(speakerId);
+    }
+    this.changed();
+    return {};
+  }
+
+  replaceSong(playerId: string, cueId: string): ActionResult {
+    const { audio, phase } = this.gs;
+    if ((phase !== 'playing' && phase !== 'challenge') || audio?.cueId !== cueId ||
+      (playerId !== this.room.hostId && playerId !== this.operator)) {
+      return reject('Only the controller or the current music device can replace this recording.');
+    }
+    return this.voidRound(this.manual ? this.operator ?? undefined : undefined, this.dinner ? this.round.eligible : undefined);
+  }
+
+  private voidRound(operatorId?: string, dinnerEligible?: string[]): ActionResult {
+    for (const id of this.gs.challengers) {
+      const player = this.room.players[id];
+      if (player) player.tokens += CHALLENGE_COST;
+    }
+    for (const id of this.round.namingTokens) {
+      const player = this.room.players[id];
+      if (player) player.tokens = Math.max(0, player.tokens - 1);
+    }
+    for (const [id, attempt] of Object.entries(this.round.attempts)) {
+      if (attempt.correct && this.stats.playerStats[id]) this.stats.playerStats[id].songsNamed--;
+    }
+    if (!this.deck.length) {
+      this.round = freshRound();
+      this.gs.challengers = [];
+      this.gs.pendingPlacement = null;
+      this.pause('audio-unavailable');
+      return this.finish('deck-exhausted');
+    }
+    this.startTurn(operatorId, dinnerEligible);
+    return {};
+  }
+
+  private liveClassic(playerId: string) {
+    return !this.dinner && this.gs.audio?.status === 'playing' && this.room.players[playerId]?.connected &&
+      this.participants.includes(playerId) && !this.round.cueSeenBy.includes(playerId);
+  }
+
+  placeCard(playerId: string, position: number): ActionResult {
+    const gs = this.gs;
+    if (gs.phase === 'challenge' && gs.currentTurnPlayerId === playerId && gs.pendingPlacement === position) return {};
+    const player = this.room.players[playerId];
+    if (!player || !this.liveClassic(playerId) || gs.phase !== 'playing' || playerId !== gs.currentTurnPlayerId) {
+      return reject('You cannot place this card now.');
+    }
+    if (!validPosition(position, this.coop ? gs.sharedTimeline : player.timeline)) {
+      return reject('Select a gap in the timeline.');
+    }
+    this.round.placementElapsed = TURN_TIME_MS - (this.remainingTime() ?? TURN_TIME_MS);
+    gs.pendingPlacement = position;
+    gs.phase = 'challenge';
+    this.round.eligible = this.coop ? [] : this.participants.filter((id) => {
+      const opponent = this.room.players[id];
+      return id !== playerId && opponent && opponent.tokens >= CHALLENGE_COST &&
+        !this.departed.has(id) && !this.round.cueSeenBy.includes(id);
+    });
+    this.armClock(CHALLENGE_WINDOW_MS);
+    this.finishClassicIfReady();
+    return {};
+  }
+
+  challenge(playerId: string, position: number): ActionResult {
+    if (this.round.decisions[playerId] === position) return {};
+    if (!this.liveClassic(playerId) || this.gs.phase !== 'challenge' || !this.round.eligible.includes(playerId)) {
+      return reject('You cannot challenge this placement.');
+    }
+    const player = this.room.players[playerId];
+    if (player.tokens < CHALLENGE_COST || playerId in this.round.decisions) return reject('Your response has already been recorded.');
+    const timeline = this.room.players[this.gs.currentTurnPlayerId!].timeline;
+    if (!validPosition(position, timeline) || position === this.gs.pendingPlacement) {
+      return reject('Choose a different gap from the current placement.', 'CHALLENGE_COLLISION');
+    }
+    if (Object.values(this.round.decisions).includes(position)) {
+      return reject('That gap is already taken by another challenger.', 'CHALLENGE_COLLISION');
+    }
+    this.round.decisions[playerId] = position;
+    this.gs.challengers.push(playerId);
+    player.tokens -= CHALLENGE_COST;
+    this.finishClassicIfReady();
+    return {};
+  }
+
+  passChallenge(playerId: string): ActionResult {
+    if (this.round.decisions[playerId] === null) return {};
+    if (!this.liveClassic(playerId) || this.gs.phase !== 'challenge' || !this.round.eligible.includes(playerId) || playerId in this.round.decisions) {
+      return reject('You cannot pass this challenge.');
+    }
+    this.round.decisions[playerId] = null;
+    this.finishClassicIfReady();
+    return {};
+  }
+
+  nameSong(playerId: string, guess: SongGuess): ActionResult {
+    const current = this.gs.currentSong;
+    if (this.round.attempts[playerId]) return {};
+    if (!current || !this.liveClassic(playerId) || !['playing', 'challenge'].includes(this.gs.phase) ||
+      this.round.namingDone.includes(playerId)) return reject('You cannot name this recording now.');
+    if (this.mode === 'expert' && this.gs.currentTurnPlayerId === playerId &&
+      (!Number.isInteger(guess.year) || guess.year! < 1000 || guess.year! > 3000)) {
+      return reject('Enter a complete four-digit release year.', 'EXPERT_YEAR_REQUIRED');
+    }
+    if (!guess.title.trim()) return reject('Enter a song title.');
+    const titleMatch = fuzzyMatch(guess.title, current.title);
+    const artistMatch = !!guess.artist.trim() && fuzzyMatch(guess.artist, current.artist);
+    const correct = titleMatch && (this.mode === 'original' || this.coop || artistMatch);
+    this.round.attempts[playerId] = { guess, correct, titleMatch, artistMatch };
+    this.round.namingDone.push(playerId);
     if (correct) {
-      // Track songsNamed stat
-      const stats = this.playerStats.get(playerId);
-      if (stats) {
-        stats.songsNamed++;
-      }
-
+      this.stats.playerStats[playerId].songsNamed++;
       const player = this.room.players[playerId];
-      if (player && player.tokens < MAX_TOKENS) {
-        player.tokens += 1;
-        this.io.to(this.room.code).emit('tokens-updated', {
-          playerId,
-          tokens: player.tokens,
-        });
+      if (player.tokens < MAX_TOKENS) {
+        player.tokens++;
+        this.round.namingTokens.push(playerId);
       }
     }
-
-    this.io.to(this.room.code).emit('song-named', { playerId, correct, titleMatch, artistMatch });
+    this.finishClassicIfReady();
+    return {};
   }
 
-  skipSong(playerId: string) {
-    const gs = this.room.gameState;
-    if (gs.phase !== 'playing' || gs.currentTurnPlayerId !== playerId) return;
+  doneGuessing(playerId: string): ActionResult {
+    if (this.round.namingDone.includes(playerId)) return {};
+    if (!this.liveClassic(playerId) || this.gs.currentTurnPlayerId !== playerId ||
+      !['playing', 'challenge'].includes(this.gs.phase)) return reject('Only the active guesser can finish naming.');
+    this.round.namingDone.push(playerId);
+    this.finishClassicIfReady();
+    return {};
+  }
 
-    // Check affordability before clearing the turn timer — otherwise a
-    // broke player's skip would leave the turn with no auto-advance.
-    const player = this.room.players[playerId];
-    if (!player || player.tokens < SKIP_COST) return;
-
-    // Clear turn timer since player acted
-    if (this.turnTimer) {
-      clearTimeout(this.turnTimer);
-      this.turnTimer = null;
+  private finishClassicIfReady() {
+    const active = this.gs.currentTurnPlayerId!;
+    if (this.gs.phase === 'challenge' && this.gs.audio?.status === 'playing' && this.round.namingDone.includes(active) &&
+      this.round.eligible.every((id) => id in this.round.decisions)) {
+      this.resolveClassic();
+    } else {
+      this.changed();
     }
-
-    player.tokens -= SKIP_COST;
-    this.io.to(this.room.code).emit('tokens-updated', {
-      playerId,
-      tokens: player.tokens,
-    });
-
-    this.advanceTurn();
   }
 
-  buyCard(playerId: string) {
-    const gs = this.room.gameState;
-    if (gs.phase === 'lobby' || gs.phase === 'game_over') return;
+  dinnerGuess(playerId: string, position: number): ActionResult {
+    const available = this.validateDinnerGuess(playerId);
+    if (available.error) return available;
+    if (!validPosition(position, this.gs.sharedTimeline)) return reject('Select a gap in the timeline.');
+    if (this.round.guesses[playerId]?.position === position) return {};
+    this.round.guesses[playerId] = { position, locked: false };
+    this.changed();
+    return {};
+  }
 
+  lockGuess(playerId: string, position?: number): ActionResult {
+    if (this.round.guesses[playerId]?.locked) return {};
+    const available = this.validateDinnerGuess(playerId);
+    if (available.error) return available;
+    const selected = position ?? this.round.guesses[playerId]?.position;
+    if (selected == null || !validPosition(selected, this.gs.sharedTimeline)) return reject('Select a gap in the timeline first.');
+    this.round.guesses[playerId] = { position: selected, locked: true };
+    if (this.everyoneHasLocked()) this.resolveDinner();
+    else this.changed();
+    return {};
+  }
+
+  private validateDinnerGuess(playerId: string): ActionResult {
+    if (!this.dinner || this.gs.phase !== 'playing' || this.gs.audio?.status !== 'playing' ||
+      !this.round.eligible.includes(playerId) || this.round.cueSeenBy.includes(playerId) || !this.room.players[playerId]?.connected) {
+      return reject('You cannot guess on this recording.');
+    }
+    if (this.round.guesses[playerId]?.locked) return reject('Your guess is locked.');
+    return {};
+  }
+
+  private everyoneHasLocked(): boolean {
+    return this.round.eligible.every((id) => this.round.guesses[id]?.locked || this.departed.has(id));
+  }
+
+  skipSong(playerId: string): ActionResult {
     const player = this.room.players[playerId];
-    if (!player || player.tokens < BUY_CARD_COST) return;
+    if (!this.liveClassic(playerId) || this.gs.phase !== 'playing' || this.gs.currentTurnPlayerId !== playerId ||
+      player.tokens < SKIP_COST) return reject('Skipping costs a token and is available on your turn.');
+    player.tokens -= SKIP_COST;
+    this.advanceTurn(true);
+    return {};
+  }
 
-    const card = this.deck.pop();
-    if (!card) return;
-
+  buyCard(playerId: string): ActionResult {
+    const gs = this.gs;
+    const player = this.room.players[playerId];
+    if (!this.liveClassic(playerId) || gs.phase !== 'playing' || player.tokens < BUY_CARD_COST || !this.deck.length) {
+      return reject('Buying is available while listening and costs three tokens.');
+    }
+    const card = this.deck.pop()!;
+    const timeline = this.coop ? gs.sharedTimeline : player.timeline;
+    const before = [...timeline];
+    const leaders = this.leaders();
     player.tokens -= BUY_CARD_COST;
     gs.deckSize = this.deck.length;
-
-    if (this.isCoop) {
-      // In co-op, bought cards go to shared timeline
-      this.insertCardInTimeline(this.room.gameState.sharedTimeline, card);
-      this.io.to(this.room.code).emit('tokens-updated', { playerId, tokens: player.tokens });
-      this.io.to(this.room.code).emit('shared-timeline-updated', {
-        timeline: this.room.gameState.sharedTimeline,
+    insertCard(timeline, card);
+    this.trackLead(leaders, card);
+    if (timeline.length >= this.room.settings.cardsToWin) {
+      gs.currentSong = card;
+      this.finishPending = 'target-reached';
+      this.showReveal({
+        song: recordingFacts(card), correct: true, winnerId: playerId, stolenBy: null,
+        timeline: before, position: null, correctPositions: correctPositions(card, before),
       });
-
-      if (this.room.gameState.sharedTimeline.length >= this.room.settings.cardsToWin) {
-        this.endGame();
-      }
     } else {
-      // Insert card in correct chronological position
-      this.insertCardInTimeline(player.timeline, card);
-
-      this.io.to(this.room.code).emit('tokens-updated', { playerId, tokens: player.tokens });
-      this.io.to(this.room.code).emit('timeline-updated', { playerId, timeline: player.timeline });
-
-      if (player.timeline.length >= this.room.settings.cardsToWin) {
-        this.endGame();
-      }
+      this.changed();
     }
+    return {};
   }
 
-  confirmReveal(playerId: string) {
-    if (this.room.gameState.phase === 'reveal' && playerId === this.room.hostId) {
-      // Set phase immediately to prevent double-tap from calling advanceTurn twice
-      this.room.gameState.phase = 'playing';
-      this.advanceTurn();
-    }
+  flagRecording(playerId: string): ActionResult {
+    const reveal = this.gs.reveal;
+    if (this.gs.phase !== 'reveal' || !reveal || !this.room.players[playerId]) return reject('Flag a recording from its reveal.');
+    const flagged = reveal.flaggedBy ?? [];
+    if (flagged.includes(playerId)) return {};
+    reveal.flaggedBy = [...flagged, playerId];
+    const played = this.history.find((round) => round.roundNumber === this.gs.roundId);
+    if (played) played.flaggedBy = reveal.flaggedBy;
+    logger.info('Recording disputed', { matchId: this.gs.matchId, roundId: this.gs.roundId, recordingId: reveal.song.recordingId ?? reveal.song.id });
+    this.changed();
+    return {};
   }
 
-  private resolveRound() {
-    if (this.challengeTimer) {
-      clearTimeout(this.challengeTimer);
-      this.challengeTimer = null;
-    }
+  confirmReveal(playerId: string): ActionResult {
+    if (this.gs.phase !== 'reveal' || playerId !== this.room.hostId) return reject('Only the controller can advance a reveal.');
+    if (this.finishPending) return this.finish(this.finishPending);
+    this.advanceTurn();
+    return {};
+  }
 
-    const gs = this.room.gameState;
+  setRematchConsent(playerId: string, accept: boolean): ActionResult {
+    if (this.gs.phase !== 'game_over' || !this.room.players[playerId]?.connected) return reject('Rematch voting opens at Results.');
+    const votes = new Set(this.gs.rematchPlayerIds);
+    if (votes.has(playerId) === accept) return {};
+    if (accept) votes.add(playerId);
+    else votes.delete(playerId);
+    this.gs.rematchPlayerIds = [...votes];
+    this.changed();
+    return {};
+  }
+
+  private resolveClassic() {
+    const gs = this.gs;
+    const playerId = gs.currentTurnPlayerId!;
+    const player = this.room.players[playerId];
     const song = gs.currentSong!;
-    const activePlayerId = gs.currentTurnPlayerId!;
-    const activePlayer = this.room.players[activePlayerId];
     const position = gs.pendingPlacement!;
+    const timeline = this.coop ? gs.sharedTimeline : player.timeline;
+    const before = [...timeline];
+    const positions = correctPositions(song, before);
+    const placementCorrect = positions.includes(position);
+    const attempt = this.round.attempts[playerId];
+    const songNamed = attempt?.correct === true;
+    const yearCorrect = this.mode === 'expert' ? attempt?.guess.year === song.year : undefined;
+    const correct = placementCorrect &&
+      (this.mode !== 'pro' && this.mode !== 'expert' || songNamed) &&
+      (this.mode !== 'expert' || yearCorrect === true);
 
-    if (this.isCoop) {
-      this.resolveCoopRound(song, activePlayerId, activePlayer, position);
-      return;
-    }
-
-    const timeline = activePlayer.timeline;
-    const placementCorrect = this.isPlacementCorrect(timeline, song, position);
-    const { correct, activePlayerNamedSong, yearCorrect } = this.evaluateModeResult(
-      activePlayerId,
-      song,
-      placementCorrect,
-    );
-
-    this.updateRoundStats(activePlayerId, song, correct, placementCorrect);
-
-    const { winnerId, stolenBy } = this.applyPlacementOutcome(
-      activePlayerId,
-      song,
-      position,
-      correct,
-    );
-
-    logger.info('Card placed', {
-      roomCode: this.room.code,
-      playerName: activePlayer.name,
-      correct,
-      placementCorrect,
-      stolenBy: stolenBy ? this.room.players[stolenBy]?.name : null,
-      songTitle: song.title,
-      songYear: song.year,
-    });
-
-    gs.phase = 'reveal';
-
-    this.emitReveal(song, {
-      correct,
-      winnerId,
-      stolenBy,
-      placementCorrect,
-      songNamed: activePlayerNamedSong,
-      yearCorrect,
-      timeline,
-    });
-
-    // Record song history entry
-    this.songHistory.push({
-      song,
-      turnPlayerId: activePlayerId,
-      correct,
-      stolenBy,
-      roundNumber: this.roundNumber,
-    });
-    this.io.to(this.room.code).emit('song-history', { history: this.songHistory });
-
-    // Only emit timeline-updated for winnerId if the card wasn't stolen
-    // (stolen cards already had their timeline-updated emitted above)
-    if (winnerId && !stolenBy) {
-      this.io.to(this.room.code).emit('timeline-updated', {
-        playerId: winnerId,
-        timeline: this.room.players[winnerId].timeline,
-      });
-    }
-
-    // Check win condition
-    if (winnerId && this.room.players[winnerId].timeline.length >= this.room.settings.cardsToWin) {
-      this.endGame();
-      return;
-    }
-  }
-
-  /**
-   * Combine placement correctness with the extra requirements of the
-   * current mode (pro: name the song; expert: name it and nail the year).
-   */
-  private evaluateModeResult(
-    activePlayerId: string,
-    song: SongCard,
-    placementCorrect: boolean,
-  ): { correct: boolean; activePlayerNamedSong: boolean; yearCorrect: boolean | undefined } {
-    const activePlayerNamedSong = this.songNameCorrect.get(activePlayerId) === true;
-    const yearCorrect = this.mode === 'expert' ? this.yearGuess === song.year : undefined;
-
-    let correct = placementCorrect;
-    if (this.mode === 'pro') {
-      correct = placementCorrect && activePlayerNamedSong;
-    } else if (this.mode === 'expert') {
-      correct = placementCorrect && activePlayerNamedSong && yearCorrect === true;
-    }
-    return { correct, activePlayerNamedSong, yearCorrect };
-  }
-
-  /** Update active-player and challenger stats for a resolved round. */
-  private updateRoundStats(
-    activePlayerId: string,
-    song: SongCard,
-    correct: boolean,
-    placementCorrect: boolean,
-  ): void {
-    this.totalRounds++;
-    const activeStats = this.playerStats.get(activePlayerId);
-    if (activeStats) {
-      activeStats.totalPlacements++;
-      if (correct) {
-        activeStats.correctPlacements++;
-        activeStats.currentStreak++;
-        if (activeStats.currentStreak > activeStats.longestStreak) {
-          activeStats.longestStreak = activeStats.currentStreak;
-        }
-      } else {
-        activeStats.currentStreak = 0;
-      }
-      // Update decade accuracy
-      const decade = Math.floor(song.year / 10) * 10;
-      if (!activeStats.decadeAccuracy[decade]) {
-        activeStats.decadeAccuracy[decade] = { correct: 0, total: 0 };
-      }
-      activeStats.decadeAccuracy[decade].total++;
-      if (placementCorrect) {
-        activeStats.decadeAccuracy[decade].correct++;
-      }
-    }
-
-    for (const challengerId of this.room.gameState.challengers) {
-      const challengerStats = this.playerStats.get(challengerId);
-      if (challengerStats) {
-        if (!correct) {
-          // Challenger was right (placement was wrong)
-          challengerStats.challengesWon++;
-        } else {
-          // Challenger was wrong (placement was correct)
-          challengerStats.challengesLost++;
-        }
-      }
-    }
-  }
-
-  /**
-   * Give the card to the active player when correct; otherwise let the
-   * first challenger with a correct position steal it. Returns who won
-   * the card (or null when it is discarded).
-   */
-  private applyPlacementOutcome(
-    activePlayerId: string,
-    song: SongCard,
-    position: number,
-    correct: boolean,
-  ): { winnerId: string | null; stolenBy: string | null } {
-    const gs = this.room.gameState;
-    const activePlayer = this.room.players[activePlayerId];
+    const challengeResults: NonNullable<RoundReveal['challengeResults']> = {};
     let stolenBy: string | null = null;
-    let winnerId: string | null = null;
-
-    if (correct) {
-      // Active player keeps the card
-      activePlayer.timeline.splice(position, 0, song);
-      winnerId = activePlayerId;
-    } else if (gs.challengers.length > 0) {
-      // Find the first challenger who picked the correct position
-      let stealerId: string | null = null;
-      for (const cid of gs.challengers) {
-        const challengePos = this.challengerPositions.get(cid);
-        if (challengePos != null && this.isPlacementCorrect(activePlayer.timeline, song, challengePos)) {
-          stealerId = cid;
-          break;
-        }
-      }
-      if (stealerId) {
-        const stealer = this.room.players[stealerId];
-        this.insertCardInTimeline(stealer.timeline, song);
-        stolenBy = stealerId;
-        winnerId = stealerId;
-
-        this.io.to(this.room.code).emit('timeline-updated', {
-          playerId: stealerId,
-          timeline: stealer.timeline,
-        });
-      }
-      // If no challenger picked the correct position, card is discarded
-    }
-    // If incorrect and no challengers, card is discarded
-
-    return { winnerId, stolenBy };
-  }
-
-  /** Emit the reveal event with per-challenger feedback. */
-  private emitReveal(
-    song: SongCard,
-    result: {
-      correct: boolean;
-      winnerId: string | null;
-      stolenBy: string | null;
-      placementCorrect: boolean;
-      songNamed: boolean;
-      yearCorrect: boolean | undefined;
-      timeline: SongCard[];
-    },
-  ): void {
-    const challengeResults: Record<string, { position: number; correct: boolean }> = {};
-    for (const cid of this.room.gameState.challengers) {
-      const pos = this.challengerPositions.get(cid);
-      if (pos != null) {
-        challengeResults[cid] = {
-          position: pos,
-          correct: this.isPlacementCorrect(result.timeline, song, pos),
-        };
-      }
-    }
-
-    this.io.to(this.room.code).emit('reveal', {
-      song,
-      correct: result.correct,
-      winnerId: result.winnerId,
-      stolenBy: result.stolenBy,
-      modeResult: {
-        placementCorrect: result.placementCorrect,
-        songNamed: result.songNamed,
-        yearCorrect: result.yearCorrect,
-      },
-      challengeResults: Object.keys(challengeResults).length > 0 ? challengeResults : undefined,
-    });
-  }
-
-  private resolveCoopRound(
-    song: SongCard,
-    activePlayerId: string,
-    activePlayer: { tokens: number; timeline: SongCard[] },
-    position: number,
-  ) {
-    const gs = this.room.gameState;
-    const sharedTimeline = gs.sharedTimeline;
-    const placementCorrect = this.isPlacementCorrect(sharedTimeline, song, position);
-
-    // Update active player stats for co-op
-    this.totalRounds++;
-    const activeStats = this.playerStats.get(activePlayerId);
-    if (activeStats) {
-      activeStats.totalPlacements++;
-      if (placementCorrect) {
-        activeStats.correctPlacements++;
-        activeStats.currentStreak++;
-        if (activeStats.currentStreak > activeStats.longestStreak) {
-          activeStats.longestStreak = activeStats.currentStreak;
-        }
+    for (const id of gs.challengers) {
+      const alternative = this.round.decisions[id];
+      if (alternative == null) continue;
+      const won = !correct && !stolenBy && alternative !== position && positions.includes(alternative);
+      challengeResults[id] = { position: alternative, correct: won };
+      if (won) {
+        this.stats.playerStats[id].challengesWon++;
+        stolenBy = id;
       } else {
-        activeStats.currentStreak = 0;
-      }
-      const decade = Math.floor(song.year / 10) * 10;
-      if (!activeStats.decadeAccuracy[decade]) {
-        activeStats.decadeAccuracy[decade] = { correct: 0, total: 0 };
-      }
-      activeStats.decadeAccuracy[decade].total++;
-      if (placementCorrect) {
-        activeStats.decadeAccuracy[decade].correct++;
+        this.stats.playerStats[id].challengesLost++;
       }
     }
+    const winnerId = correct ? playerId : stolenBy;
+    const priorLeaders = this.leaders();
+    let coopPenalty = false;
+    if (correct) timeline.splice(position, 0, recordingFacts(song));
+    else if (stolenBy) insertCard(this.room.players[stolenBy].timeline, song);
+    else if (this.coop && player.tokens > 0) {
+      player.tokens = Math.max(0, player.tokens - COOP_WRONG_PENALTY);
+      coopPenalty = true;
+    }
+    this.trackLead(priorLeaders, song);
+    this.recordPlacement(playerId, song, correct, placementCorrect, this.round.placementElapsed);
+    this.recordRound(song, playerId, correct, stolenBy);
+    if (winnerId && (this.coop ? gs.sharedTimeline : this.room.players[winnerId].timeline).length >= this.room.settings.cardsToWin) {
+      this.finishPending = 'target-reached';
+    }
+    this.showReveal({
+      song: recordingFacts(song), correct, winnerId, stolenBy, position, timeline: before,
+      correctPositions: positions, modeResult: { placementCorrect, songNamed, yearCorrect, coopPenalty },
+      challengeResults,
+    });
+  }
 
-    if (placementCorrect) {
-      // Card goes into shared timeline
-      sharedTimeline.splice(position, 0, song);
+  private resolveDinner() {
+    const gs = this.gs;
+    const song = gs.currentSong!;
+    const before = [...gs.sharedTimeline];
+    const positions = correctPositions(song, before);
+    const guesses: NonNullable<RoundReveal['dinnerGuesses']> = {};
+    const priorLeaders = this.leaders();
+    for (const id of this.round.eligible) {
+      const guess = this.round.guesses[id];
+      const position = guess?.locked ? guess.position : null;
+      const correct = position !== null && positions.includes(position);
+      const points = correct ? 1 : 0;
+      guesses[id] = { position, correct, points };
+      this.scores[id] += points;
+      this.recordPlacement(id, song, correct, correct);
+    }
+    this.trackLead(priorLeaders, song);
+    insertCard(gs.sharedTimeline, song);
+    const correct = Object.values(guesses).some((guess) => guess.correct);
+    this.recordRound(song, this.operator ?? '', correct, null);
+    if (this.stats.totalRounds >= this.dinnerCount) this.finishPending = 'set-complete';
+    this.showReveal({
+      song: recordingFacts(song), correct, winnerId: null, stolenBy: null, position: null,
+      correctPositions: positions, timeline: before, dinnerGuesses: guesses,
+    });
+  }
+
+  private recordPlacement(playerId: string, song: SongCard, correct: boolean, placementCorrect: boolean, elapsed: number | null = null) {
+    const stats = this.stats.playerStats[playerId];
+    if (!stats) return;
+    stats.totalPlacements++;
+    const decade = Math.floor(song.year / 10) * 10;
+    const decadeStats = stats.decadeAccuracy[decade] ??= { correct: 0, total: 0 };
+    decadeStats.total++;
+    if (placementCorrect) decadeStats.correct++;
+    if (correct) {
+      stats.correctPlacements++;
+      stats.currentStreak++;
+      stats.longestStreak = Math.max(stats.longestStreak, stats.currentStreak);
     } else {
-      // Penalty: active player loses a token
-      if (activePlayer.tokens > 0) {
-        activePlayer.tokens -= COOP_WRONG_PENALTY;
-        this.io.to(this.room.code).emit('tokens-updated', {
-          playerId: activePlayerId,
-          tokens: activePlayer.tokens,
-        });
-      }
+      stats.currentStreak = 0;
     }
-
-    gs.phase = 'reveal';
-
-    this.io.to(this.room.code).emit('reveal', {
-      song,
-      correct: placementCorrect,
-      winnerId: placementCorrect ? activePlayerId : null,
-      stolenBy: null,
-      modeResult: {
-        placementCorrect,
-        songNamed: false,
-        coopPenalty: !placementCorrect,
-      },
-    });
-
-    this.io.to(this.room.code).emit('shared-timeline-updated', {
-      timeline: sharedTimeline,
-    });
-
-    // Record song history entry
-    this.songHistory.push({
-      song,
-      turnPlayerId: activePlayerId,
-      correct: placementCorrect,
-      stolenBy: null,
-      roundNumber: this.roundNumber,
-    });
-    this.io.to(this.room.code).emit('song-history', { history: this.songHistory });
-
-    // Check co-op win condition
-    if (sharedTimeline.length >= this.room.settings.cardsToWin) {
-      this.endGame();
-      return;
+    if (elapsed !== null && (stats.fastestPlacementMs === null || elapsed < stats.fastestPlacementMs)) {
+      stats.fastestPlacementMs = elapsed;
     }
   }
 
-  private isPlacementCorrect(timeline: SongCard[], song: SongCard, position: number): boolean {
-    const before = position > 0 ? timeline[position - 1] : null;
-    const after = position < timeline.length ? timeline[position] : null;
-
-    if (before && song.year < before.year) return false;
-    if (after && song.year > after.year) return false;
-
-    return true;
-  }
-
-  private insertCardInTimeline(timeline: SongCard[], card: SongCard) {
-    let insertAt = 0;
-    for (let i = 0; i < timeline.length; i++) {
-      if (timeline[i].year <= card.year) {
-        insertAt = i + 1;
-      }
-    }
-    timeline.splice(insertAt, 0, card);
-  }
-
-  /**
-   * Called when a player disconnects. Starts a grace period before skipping their turn.
-   */
-  handlePlayerDisconnect(playerId: string): void {
-    const gs = this.room.gameState;
-    if (gs.phase === 'lobby' || gs.phase === 'game_over') return;
-
-    // Check if all remaining connected players are gone
-    const connected = Object.values(this.room.players).filter((p) => p.connected);
-    if (connected.length === 0) return; // room cleanup handles this
-
-    const reconnectDeadline = Date.now() + DISCONNECT_GRACE_MS;
-
-    // A rapid disconnect/reconnect/disconnect can re-enter here while an old
-    // grace timer is still pending; clear it so Map.set never orphans a timer.
-    const existingGrace = this.disconnectTimers.get(playerId);
-    if (existingGrace) {
-      clearTimeout(existingGrace);
-      this.disconnectTimers.delete(playerId);
-    }
-
-    // Emit disconnected event so clients can show a countdown
-    this.io.to(this.room.code).emit('player-disconnected', { playerId, reconnectDeadline });
-
-    logger.info('Player disconnect grace period started', {
-      roomCode: this.room.code,
-      playerId,
-      playerName: this.room.players[playerId]?.name,
-      graceMs: DISCONNECT_GRACE_MS,
+  private recordRound(song: SongCard, playerId: string, correct: boolean, stolenBy: string | null) {
+    this.stats.totalRounds++;
+    this.history.push({
+      song: recordingFacts(song), turnPlayerId: playerId, correct, stolenBy, roundNumber: this.gs.roundId!,
     });
+  }
 
-    // If it's their turn, pause turn timer and start grace period
-    if (gs.currentTurnPlayerId === playerId && (gs.phase === 'playing' || gs.phase === 'challenge')) {
-      // Clear any running timers for this turn
-      if (this.turnTimer) {
-        clearTimeout(this.turnTimer);
-        this.turnTimer = null;
-      }
-      if (this.challengeTimer) {
-        clearTimeout(this.challengeTimer);
-        this.challengeTimer = null;
-      }
+  private showReveal(reveal: RoundReveal) {
+    this.clearClock();
+    this.gs.audio = this.idleAudio();
+    this.gs.phase = 'reveal';
+    this.gs.reveal = reveal;
+    if (!this.finishPending && !this.deck.length) this.finishPending = 'deck-exhausted';
+    this.gs.finalReveal = !!this.finishPending;
+    this.changed();
+  }
 
-      const timer = setTimeout(() => {
-        this.disconnectTimers.delete(playerId);
-        logger.info('Player disconnect grace period expired, skipping turn', {
-          roomCode: this.room.code,
-          playerId,
-          playerName: this.room.players[playerId]?.name,
-        });
-        this.io.to(this.room.code).emit('player-timed-out', { playerId });
-        this.advanceTurn();
-      }, DISCONNECT_GRACE_MS);
-
-      this.disconnectTimers.set(playerId, timer);
-    } else {
-      // Not their turn — just track a grace timer so we can cancel it on reconnect
-      const timer = setTimeout(() => {
-        this.disconnectTimers.delete(playerId);
-        this.io.to(this.room.code).emit('player-timed-out', { playerId });
-      }, DISCONNECT_GRACE_MS);
-
-      this.disconnectTimers.set(playerId, timer);
+  private selectNextPlayer(increment = true) {
+    const gs = this.gs;
+    const length = gs.turnOrder.length;
+    const start = gs.turnIndex + (increment ? 1 : 0);
+    const order = gs.turnOrder.slice(start % length).concat(gs.turnOrder.slice(0, start % length));
+    const next = order.find((id) => this.room.players[id]?.connected);
+    if (next) {
+      gs.turnIndex = gs.turnOrder.indexOf(next);
+      gs.currentTurnPlayerId = next;
     }
   }
 
-  /**
-   * Called when a player reconnects. Clears any pending disconnect timer
-   * and restarts phase-appropriate timers if it was their turn.
-   */
-  handlePlayerReconnect(playerId: string): void {
-    const timer = this.disconnectTimers.get(playerId);
-    if (timer) {
-      clearTimeout(timer);
-      this.disconnectTimers.delete(playerId);
-
-      logger.info('Player reconnected within grace period', {
-        roomCode: this.room.code,
-        playerId,
-        playerName: this.room.players[playerId]?.name,
+  private advanceTurn(revealIfLast = false) {
+    const { currentSong, currentTurnPlayerId, sharedTimeline } = this.gs;
+    if (revealIfLast && !this.deck.length && currentSong && currentTurnPlayerId) {
+      const timeline = [...(this.coop ? sharedTimeline : this.room.players[currentTurnPlayerId].timeline)];
+      this.finishPending = 'deck-exhausted';
+      this.showReveal({
+        song: recordingFacts(currentSong), correct: false, winnerId: null, stolenBy: null,
+        position: null, correctPositions: correctPositions(currentSong, timeline), timeline,
       });
-
-      this.io.to(this.room.code).emit('player-reconnected', { playerId });
-
-      // Restart phase-appropriate timers if it was the reconnecting player's turn
-      const gs = this.room.gameState;
-      if (gs.currentTurnPlayerId === playerId) {
-        if (gs.phase === 'challenge') {
-          this.challengeTimer = setTimeout(() => {
-            this.resolveRound();
-          }, CHALLENGE_WINDOW_MS);
-        } else if (gs.phase === 'playing') {
-          const turnPlayerId = playerId;
-          this.turnTimer = setTimeout(() => {
-            this.turnTimer = null;
-            if (this.room.gameState.phase === 'playing' && this.room.gameState.currentTurnPlayerId === turnPlayerId) {
-              this.advanceTurn();
-            }
-          }, TURN_TIME_MS);
-        }
-      }
-    }
-  }
-
-  /**
-   * Called when a player voluntarily leaves. Skips grace period and
-   * immediately advances the turn if it was their turn.
-   */
-  handlePlayerVoluntaryLeave(playerId: string): void {
-    const gs = this.room.gameState;
-    if (gs.phase === 'lobby' || gs.phase === 'game_over') return;
-
-    // Clear any existing disconnect timer for this player
-    const existingTimer = this.disconnectTimers.get(playerId);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-      this.disconnectTimers.delete(playerId);
-    }
-
-    // Emit disconnected event (no reconnect expected)
-    this.io.to(this.room.code).emit('player-disconnected', { playerId, reconnectDeadline: Date.now() });
-    this.io.to(this.room.code).emit('player-timed-out', { playerId });
-
-    // If it's their turn, immediately advance
-    if (gs.currentTurnPlayerId === playerId && (gs.phase === 'playing' || gs.phase === 'challenge')) {
-      if (this.turnTimer) {
-        clearTimeout(this.turnTimer);
-        this.turnTimer = null;
-      }
-      if (this.challengeTimer) {
-        clearTimeout(this.challengeTimer);
-        this.challengeTimer = null;
-      }
-      this.advanceTurn();
-    }
-  }
-
-  private advanceTurn() {
-    const gs = this.room.gameState;
-    gs.turnIndex = (gs.turnIndex + 1) % gs.turnOrder.length;
-
-    // Skip disconnected players
-    let attempts = 0;
-    while (attempts < gs.turnOrder.length) {
-      const pid = gs.turnOrder[gs.turnIndex];
-      if (this.room.players[pid]?.connected) break;
-      gs.turnIndex = (gs.turnIndex + 1) % gs.turnOrder.length;
-      attempts++;
-    }
-
-    // If no connected player was found, end the game
-    const nextPid = gs.turnOrder[gs.turnIndex];
-    if (!this.room.players[nextPid]?.connected) {
-      logger.warn('No connected players remaining, ending game', { roomCode: this.room.code });
-      this.endGame();
       return;
     }
-
-    gs.currentTurnPlayerId = gs.turnOrder[gs.turnIndex];
+    if (!this.dinner) this.selectNextPlayer();
     this.startTurn();
   }
 
-  private endGame() {
-    this.room.gameState.phase = 'game_over';
+  private scoreBoard(): Record<string, number> {
+    return Object.fromEntries(this.participants.map((id) => [
+      id,
+      this.dinner ? this.scores[id] : this.coop ? this.gs.sharedTimeline.length : this.room.players[id]?.timeline.length ?? 0,
+    ]));
+  }
 
-    let winnerId = '';
+  private leaders(scores = this.scoreBoard()): string[] {
+    const high = Math.max(...Object.values(scores));
+    return Object.keys(scores).filter((id) => scores[id] === high);
+  }
 
-    if (this.isCoop) {
-      // Co-op: everyone wins (or first player as representative)
-      winnerId = this.room.gameState.turnOrder[0];
-    } else {
-      // Find winner (most cards, or first to reach target)
-      let maxCards = 0;
-      for (const [id, player] of Object.entries(this.room.players)) {
-        if (player.timeline.length > maxCards) {
-          maxCards = player.timeline.length;
-          winnerId = id;
+  private trackLead(previous: string[], song: SongCard) {
+    const current = this.leaders();
+    if (current.length !== 1) this.leadChange = null;
+    else if (previous.length !== 1 || previous[0] !== current[0]) {
+      this.leadChange = { playerId: current[0], song: recordingFacts(song) };
+    }
+  }
+
+  abandon(): ActionResult {
+    if (!this.gs.matchId || this.gs.phase === 'game_over') return {};
+    return this.finish('abandoned');
+  }
+
+  endMatch(playerId: string): ActionResult {
+    if (playerId !== this.room.hostId || !this.gs.matchId || this.gs.phase === 'game_over') {
+      return reject('Only the controller can end an active match.');
+    }
+    if (this.gs.finalReveal) return reject('Choose See results to finish this match.');
+    return this.abandon();
+  }
+
+  private finish(reason: MatchEnd): ActionResult {
+    const gs = this.gs;
+    if (gs.phase === 'game_over' || !gs.matchId) return {};
+    const scores = this.scoreBoard();
+    const abandoned = reason === 'abandoned';
+    const coopWon = this.coop && this.gs.sharedTimeline.length >= this.room.settings.cardsToWin;
+    const winnerIds = abandoned ? [] : this.coop ? (coopWon ? this.participants : []) : this.leaders(scores);
+    const sorted = Object.values(scores).sort((a, b) => b - a);
+    const margin = this.coop || abandoned || sorted.length < 2 ? null : sorted[0] - sorted[1];
+    const decidingSong = reason === 'target-reached' && gs.reveal ? gs.reveal.song :
+      winnerIds.length === 1 && this.leadChange?.playerId === winnerIds[0] ? this.leadChange.song : null;
+    const before = { phase: gs.phase, audio: gs.audio, timing: gs.timing, result: gs.result, revision: gs.revision };
+    this.clearClock();
+    Object.assign(gs, {
+      phase: 'game_over', audio: this.idleAudio(), revision: (gs.revision ?? 0) + 1,
+      result: {
+        matchId: gs.matchId, status: abandoned ? 'abandoned' : !winnerIds.length ? 'lost' :
+          (!this.coop && winnerIds.length > 1) ? 'tied' : 'won',
+        reason, winnerIds, scores, margin, decidingSong,
+      } satisfies MatchResult,
+    });
+    try {
+      this.gameEnded?.();
+    } catch (error) {
+      Object.assign(gs, before);
+      if (before.timing?.deadline != null) this.armClock(Math.max(0, before.timing.deadline - Date.now()));
+      logger.error('Match result write failed', { matchId: gs.matchId, error: String(error) });
+      return reject(reason === 'abandoned' ? 'The match could not be ended yet. Try again.' :
+        'The result could not be saved yet. Try again.', 'RESULT_SAVE_FAILED');
+    }
+    if (this.gameEnded) this.sync();
+    else this.persistAndSync();
+    return {};
+  }
+
+  private remainingTime(): number | null {
+    const timing = this.gs.timing;
+    if (!timing) return null;
+    return timing.deadline === null ? timing.remainingMs : Math.max(0, timing.deadline - Date.now());
+  }
+
+  private armClock(ms: number) {
+    this.stopClock();
+    this.gs.timing = { deadline: Date.now() + ms, remainingMs: ms };
+    const song = this.gs.currentSong;
+    const rightsDelay = !this.manual && song ? Math.max(0, this.audioExpiry(song) - Date.now()) : Infinity;
+    this.clock = rightsDelay <= ms
+      ? setTimeout(() => {
+        this.pause('audio-unavailable');
+        this.changed();
+      }, rightsDelay)
+      : setTimeout(() => this.onDeadline(), ms);
+    if (this.hooks.onChange) {
+      this.checkpoint = setInterval(() => {
+        const { currentSong, audio } = this.gs;
+        if (!this.manual && currentSong && audio?.status === 'playing' && !this.automaticSource(currentSong)) {
+          this.pause('audio-unavailable');
+          this.changed();
+        } else {
+          try {
+            this.hooks.onChange?.();
+          } catch (error) {
+            logger.error('Match clock checkpoint failed', { matchId: this.gs.matchId, error: String(error) });
+          }
         }
+      }, 5000);
+      this.checkpoint.unref?.();
+    }
+    this.clock.unref?.();
+  }
+
+  private clearClock() {
+    this.stopClock();
+    this.gs.timing = { deadline: null, remainingMs: null };
+  }
+
+  private onDeadline() {
+    try {
+      this.withRollback(() => {
+        this.clearClock();
+        if (this.gs.phase === 'anchor_preview') this.startTurn();
+        else if (this.gs.audio?.status !== 'playing') return;
+        else if (this.gs.phase === 'challenge') this.resolveClassic();
+        else if (this.gs.phase === 'playing' && this.dinner) this.resolveDinner();
+        else if (this.gs.phase === 'playing') this.advanceTurn(true);
+      }, true);
+    } catch (error) {
+      logger.error('Timed game transition could not be saved', { matchId: this.gs.matchId, error: String(error) });
+    }
+  }
+
+  private pause(reason: NonNullable<RoundAudio['reason']>) {
+    const remainingMs = this.remainingTime();
+    this.stopClock();
+    this.gs.timing = { deadline: null, remainingMs };
+    if (this.gs.audio && this.gs.audio.status !== 'idle') {
+      this.gs.audio = { ...this.gs.audio, status: 'paused', reason };
+    }
+  }
+
+  handlePlayerDisconnect(playerId: string) {
+    const phase = this.gs.phase;
+    if (!this.onTable || (this.operator === playerId && (phase === 'playing' || phase === 'challenge'))) {
+      this.pause(this.onTable ? 'audio-unavailable' : 'all-away');
+    }
+    this.changed();
+  }
+
+  handlePlayerReconnect(_playerId: string) {
+    if (this.gs.phase === 'anchor_preview' && this.gs.timing?.deadline == null) {
+      this.armClock(this.remainingTime() ?? ANCHOR_PREVIEW_MS);
+    } else if (!this.dinner && this.gs.phase === 'playing' && this.departed.has(this.gs.currentTurnPlayerId!)) {
+      this.advanceTurn(true);
+      return;
+    }
+    this.changed();
+  }
+
+  handlePlayerVoluntaryLeave(playerId: string) {
+    const gs = this.gs;
+    if (gs.rematchPlayerIds?.includes(playerId)) {
+      gs.rematchPlayerIds = gs.rematchPlayerIds.filter((id) => id !== playerId);
+    }
+    if (gs.phase === 'lobby' || gs.phase === 'game_over') {
+      this.handlePlayerDisconnect(playerId);
+      return;
+    }
+    this.departed.add(playerId);
+    if (this.participants.every((id) => this.departed.has(id))) {
+      this.abandon();
+      return;
+    }
+    if (this.dinner) {
+      this.handleDinnerDeparture(playerId);
+      return;
+    }
+    const isTurnOwner = gs.currentTurnPlayerId === playerId;
+    if (gs.phase === 'playing' && isTurnOwner && this.onTable) {
+      this.advanceTurn(true);
+      return;
+    }
+    if (gs.phase === 'challenge') {
+      if (isTurnOwner && !this.round.namingDone.includes(playerId)) this.round.namingDone.push(playerId);
+      if (this.round.eligible.includes(playerId) && !(playerId in this.round.decisions)) this.round.decisions[playerId] = null;
+      if (this.operator !== playerId && this.onTable && gs.audio?.status === 'playing') {
+        this.finishClassicIfReady();
+        return;
       }
     }
+    this.handlePlayerDisconnect(playerId);
+  }
 
-    const finalScores: Record<string, number> = {};
-    for (const player of Object.values(this.room.players)) {
-      finalScores[player.name] = this.isCoop
-        ? this.room.gameState.sharedTimeline.length
-        : player.timeline.length;
+  private handleDinnerDeparture(playerId: string) {
+    const gs = this.gs;
+    const currentSlot = this.stats.totalRounds;
+    const playing = gs.phase === 'playing';
+    const departedDj = playing && this.operator === playerId && this.djSchedule[currentSlot] === playerId;
+    if (this.djSchedule.length) {
+      const futureStart = currentSlot + (playing && !departedDj ? 1 : 0);
+      const pending = this.djSchedule.slice(futureStart);
+      const kept = pending.filter((id) => id !== playerId);
+      this.djSchedule = this.djSchedule.slice(0, futureStart).concat(kept);
+      this.dinnerCount -= pending.length - kept.length;
     }
-    const winnerName = winnerId ? this.room.players[winnerId]?.name : 'unknown';
-
-    logger.info('Game over', {
-      roomCode: this.room.code,
-      winner: winnerName,
-      mode: this.mode,
-      finalScores,
-    });
-
-    // Build and emit game stats
-    const playerStatsObj: Record<string, PlayerStats> = {};
-    for (const [id, stats] of this.playerStats.entries()) {
-      playerStatsObj[id] = { ...stats };
-    }
-    const gameStats: GameStats = {
-      playerStats: playerStatsObj,
-      totalRounds: this.totalRounds,
-    };
-    this.io.to(this.room.code).emit('game-stats', gameStats);
-
-    // Emit final song history
-    this.io.to(this.room.code).emit('song-history', { history: this.songHistory });
-
-    this.io.to(this.room.code).emit('game-over', {
-      winnerId,
-      players: this.room.players,
-    });
-
-    if (this.onGameEndCallback) {
-      this.onGameEndCallback();
+    if (departedDj) {
+      if (this.stats.totalRounds < this.dinnerCount) this.voidRound();
+      else this.finish('set-complete');
+    } else if (playing && this.operator !== playerId && gs.audio?.status === 'playing' && this.everyoneHasLocked()) {
+      this.resolveDinner();
+    } else {
+      if (gs.phase === 'reveal' && this.stats.totalRounds >= this.dinnerCount) {
+        this.finishPending = 'set-complete';
+        gs.finalReveal = true;
+      }
+      this.handlePlayerDisconnect(playerId);
     }
   }
 }

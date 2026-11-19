@@ -1,387 +1,193 @@
-import { useState, useEffect } from 'react';
-import { Music, Loader2, Wifi, WifiOff } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { getSocket, setSessionPlaybackIntent } from '../services/socket';
-import { openSpotifyLogin, refreshAccessToken } from '../services/spotify';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowDownRight, ArrowRight, Bookmark, BookOpen, Disc3, Radio, RotateCcw, Trophy, Users } from 'lucide-react';
+import type { SavedTable } from '@tunes/shared';
+import { createTable, getGuestToken, getSession, getSocket, joinTable, resumeSavedRoom } from '../services/socket';
 import { useGameStore } from '../store';
+import { Brand, Message, RecordArt } from './TableUi';
+
+function readStageName() {
+  try { return localStorage.getItem('tunes_display_name') || ''; } catch { return ''; }
+}
+
+function readRoomCode(input: string) {
+  const value = input.trim();
+  const invite = value.match(/\/join\/([a-z]{4})(?:[/?#]|$)/i);
+  return (invite?.[1] ?? value.replace(/\s/g, '')).toUpperCase();
+}
 
 export function Home() {
-  const [name, setName] = useState(() => localStorage.getItem('tunes_display_name') || '');
-  const [mode, setMode] = useState<'idle' | 'host' | 'join'>('idle');
-  const [code, setCode] = useState(['', '', '', '']);
-  const [connecting, setConnecting] = useState(false);
-  const [inviteMessage, setInviteMessage] = useState<string | null>(null);
-  const error = useGameStore((s) => s.error);
+  const [name, setName] = useState(readStageName);
+  const [mode, setMode] = useState<'host' | 'join'>(() => useGameStore.getState().pendingJoinCode ? 'join' : 'host');
+  const [code, setCode] = useState('');
+  const [pending, setPending] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [savedSeat, setSavedSeat] = useState(getSession);
+  const nameInput = useRef<HTMLInputElement>(null);
+  const codeInput = useRef<HTMLInputElement>(null);
   const connected = useGameStore((s) => s.connected);
-  const setScreen = useGameStore((s) => s.setScreen);
+  const error = useGameStore((s) => s.error);
+  const notice = useGameStore((s) => s.notice);
+  const buildId = useGameStore((s) => s.buildId);
+  const licensedPacks = useGameStore((s) => s.licensedPacks);
+  const recoveryStatus = useGameStore((s) => s.recoveryStatus);
+  const savedTables = useGameStore((s) => s.savedTables);
   const setError = useGameStore((s) => s.setError);
+  const setScreen = useGameStore((s) => s.setScreen);
   const pendingJoinCode = useGameStore((s) => s.pendingJoinCode);
   const setPendingJoinCode = useGameStore((s) => s.setPendingJoinCode);
-  const previewSongsAvailable = useGameStore((s) => s.previewSongsAvailable);
 
   useEffect(() => {
-    if (pendingJoinCode) {
-      setMode('join');
-      setCode(pendingJoinCode.split('') as [string, string, string, string]);
-      setInviteMessage(`You've been invited to room ${pendingJoinCode}!`);
-      setPendingJoinCode(null);
-      // Invitees still need a stage name before they can join — put the
-      // cursor where their first required input is.
-      if (!localStorage.getItem('tunes_display_name')) {
-        document.getElementById('stage-name')?.focus();
-      }
-    }
+    if (!pendingJoinCode) return;
+    setCode(pendingJoinCode);
+    setMode('join');
+    setPendingJoinCode(null);
   }, [pendingJoinCode, setPendingJoinCode]);
 
-  // Stats and leaderboard entries are keyed by this name, so remember it
-  const persistName = () => {
-    localStorage.setItem('tunes_display_name', name.trim());
-  };
+  useEffect(() => {
+    if (!error && connected) return;
+    setPending(false);
+    setSavedSeat(getSession());
+  }, [error, connected, recoveryStatus]);
 
-  const createRoomWithToken = (accessToken: string, refreshToken: string) => {
-    setSessionPlaybackIntent('spotify');
-    useGameStore.setState({
-      spotifyToken: accessToken,
-      spotifyRefreshToken: refreshToken,
-    });
-    localStorage.setItem('spotify_refresh_token', refreshToken);
+  useEffect(() => {
+    if (!pending) return;
+    const timeout = window.setTimeout(() => {
+      setPending(false);
+      setFormError('The table is taking a while to respond. Try again.');
+    }, 12_000);
+    return () => window.clearTimeout(timeout);
+  }, [pending]);
 
-    persistName();
-    const socket = getSocket();
-    socket.emit('create-room', {
-      playerName: name.trim(),
-      spotifyAccessToken: accessToken,
-    });
-  };
+  function persistName(playerName: string) {
+    try { localStorage.setItem('tunes_display_name', playerName); } catch { /* device storage unavailable */ }
+  }
 
-  const handleSpotifyLogin = async () => {
-    if (!name.trim()) return;
-    setConnecting(true);
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const playerName = name.trim();
+    const roomCode = readRoomCode(code);
     setError(null);
-
-    try {
-      const savedRefresh = localStorage.getItem('spotify_refresh_token');
-      if (savedRefresh) {
-        try {
-          const refreshed = await refreshAccessToken(savedRefresh);
-          createRoomWithToken(refreshed.accessToken, refreshed.refreshToken);
-          return;
-        } catch {
-          localStorage.removeItem('spotify_refresh_token');
-        }
-      }
-
-      const { accessToken, refreshToken } = await openSpotifyLogin();
-      createRoomWithToken(accessToken, refreshToken);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Spotify login failed');
-    } finally {
-      setConnecting(false);
+    if (!playerName) {
+      setFormError('Enter a stage name.');
+      nameInput.current?.focus();
+      return;
     }
-  };
-
-  const handleJoin = () => {
-    const fullCode = code.join('');
-    if (fullCode.length !== 4 || !name.trim()) return;
-    setError(null);
-    persistName();
-    setSessionPlaybackIntent('preview');
+    if (mode === 'join' && !/^[A-Z]{4}$/.test(roomCode)) {
+      setFormError('Enter the four-letter room code or paste the full invitation link.');
+      codeInput.current?.focus();
+      return;
+    }
     const socket = getSocket();
-    socket.emit('join-room', { code: fullCode, playerName: name.trim() });
-  };
+    if (pending || !socket.connected) return;
+    setPending(true);
+    setFormError(null);
+    persistName(playerName);
+    if (mode === 'host') createTable(playerName);
+    else joinTable(roomCode, playerName);
+  }
 
-  const handleCodeChange = (index: number, value: string) => {
-    if (value.length > 1) return;
-    const newCode = [...code];
-    newCode[index] = value.toUpperCase();
-    setCode(newCode);
-    if (value && index < 3) {
-      document.getElementById(`code-${index + 1}`)?.focus();
+  function openTable(table: SavedTable) {
+    const playerName = name.trim();
+    const guestToken = getGuestToken();
+    if (!playerName) {
+      setFormError('Enter a stage name to open this table.');
+      nameInput.current?.focus();
+      return;
     }
-  };
-
-  const handleCodeKeyDown = (index: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && !code[index] && index > 0) {
-      document.getElementById(`code-${index - 1}`)?.focus();
-    }
-  };
+    const socket = getSocket();
+    if (pending || !socket.connected || !guestToken) return;
+    setError(null);
+    setFormError(null);
+    setPending(true);
+    persistName(playerName);
+    const seat = getSession();
+    if (seat && table.currentRoomCode === seat.roomCode) resumeSavedRoom();
+    else socket.emit('open-table', { tableId: table.id, playerName, guestToken });
+  }
 
   return (
-    <div className="relative flex flex-col items-center min-h-screen px-6 py-8 text-white scanlines">
-      {/* Connection indicator */}
-      <div className="absolute top-4 right-4 z-20 flex items-center gap-1.5 text-[10px] font-bold tracking-[0.2em]">
-        {connected ? (
-          <>
-            <span className="conn-dot" />
-            <span className="text-neon-cyan/90">CONNECTED</span>
-          </>
-        ) : (
-          <>
-            <span className="conn-dot conn-red" />
-            <span className="text-red-400">OFFLINE</span>
-          </>
-        )}
-      </div>
-
-      {/* Vinyl hero */}
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ type: 'spring', stiffness: 200, damping: 22 }}
-        className="relative mt-8 mb-6"
-        style={{ width: 220, height: 220 }}
-      >
-        <div className="vinyl">
-          <div className="vinyl-label">
-            <div>
-              <div className="font-chunky text-xl leading-none">TUNES</div>
-              <div className="text-[8px] tracking-[0.3em] mt-1 opacity-80 font-sans">A MUSIC PARTY</div>
-            </div>
+    <main className="tunes-shell tunes-home">
+      <Brand>
+        <button className="tunes-link" onClick={() => setScreen('rules')}><BookOpen size={17} aria-hidden="true" /> How to play</button>
+      </Brand>
+      <div className="tunes-home-layout">
+        <section className="tunes-home-hero" aria-labelledby="home-title">
+          <div className="tunes-home-copy">
+            <h1 id="home-title">Drop the<br />needle<span>.</span></h1>
+            <p>Hear the song. Find its place in time. Play around one table.</p>
+            <ArrowDownRight className="tunes-home-arrow" size={38} strokeWidth={1.25} aria-hidden="true" />
           </div>
-          <div className="vinyl-hole" />
-        </div>
-        <div className="tonearm" />
-      </motion.div>
-
-      {/* Headline */}
-      <motion.div
-        initial={{ y: 12, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.08, type: 'spring', stiffness: 200, damping: 22 }}
-        className="text-center"
-      >
-        <h1 className="font-heading text-[2.25rem] leading-[1.05] font-black tracking-tight">
-          <span className="needle text-neon-pink text-glow-pink">Drop</span> the needle.
-        </h1>
-        <p className="text-white/55 text-sm mt-2">
-          Host a room. Share the code. Guess the year.
-        </p>
-      </motion.div>
-
-      <motion.div
-        initial={{ y: 14, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.15, type: 'spring', stiffness: 200, damping: 22 }}
-        className="w-full max-w-sm space-y-5 mt-8"
-      >
-        {/* Stage name */}
-        <div className="space-y-2">
-          <label className="text-[10px] tracking-[0.3em] text-neon-cyan font-bold block">
-            YOUR STAGE NAME
-          </label>
-          <div className="relative">
-            <input
-              id="stage-name"
-              type="search"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Enter your nickname..."
-              maxLength={20}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="words"
-              className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-lg font-medium text-white placeholder-white/30 focus:outline-none focus:border-neon-pink focus:bg-neon-pink/5 transition-all"
-            />
-            <span className="eq absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-              <i /><i /><i /><i /><i />
-            </span>
-          </div>
-        </div>
-
-        {/* Invite banner */}
-        {inviteMessage && mode === 'join' && (
-          <motion.p
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-neon-cyan text-sm text-center bg-neon-cyan/10 border border-neon-cyan/30 rounded-xl px-4 py-2.5 font-medium"
-          >
-            {inviteMessage}
-          </motion.p>
-        )}
-
-        {/* Error */}
-        <AnimatePresence>
-          {error && (
-            <motion.p
-              initial={{ opacity: 0, y: -5 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -5 }}
-              className="text-red-400 text-sm text-center bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-2.5"
-            >
-              {error}
-            </motion.p>
+          <RecordArt />
+        </section>
+        <section className="tunes-panel tunes-entry" aria-labelledby="entry-title">
+          {savedSeat && savedSeat.resumeToken && recoveryStatus !== 'expired' && (
+            <button className="tunes-button tunes-button-resume" onClick={() => resumeSavedRoom()} disabled={!connected || recoveryStatus === 'joining'}>
+              <RotateCcw size={19} aria-hidden="true" />
+              <span><b>{recoveryStatus === 'joining' ? 'Reconnecting…' : 'Resume your table'}</b><span>Saved seat · {savedSeat.roomCode}</span></span>
+              <ArrowRight size={19} aria-hidden="true" />
+            </button>
           )}
-        </AnimatePresence>
-
-        {/* Main actions */}
-        <AnimatePresence mode="wait">
-          {mode === 'idle' ? (
-            <motion.div
-              key="idle"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-3 pt-1"
-            >
-              <button
-                onClick={() => {
-                  if (!name.trim()) return;
-                  setMode('host');
-                }}
-                disabled={!name.trim() || !connected}
-                className="btn btn-primary btn-lg w-full"
-              >
-                HOST A ROOM
-              </button>
-              <button
-                onClick={() => {
-                  if (!name.trim()) return;
-                  setMode('join');
-                }}
-                disabled={!name.trim() || !connected}
-                className="btn btn-secondary btn-lg w-full"
-              >
-                JOIN WITH CODE
-              </button>
-            </motion.div>
-          ) : mode === 'host' ? (
-            <motion.div
-              key="host"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-3 pt-1"
-            >
-              <p className="text-white/55 text-sm text-center leading-relaxed">
-                Choose how you want to host your game.
-              </p>
-              <button
-                onClick={handleSpotifyLogin}
-                disabled={connecting}
-                className="btn btn-primary w-full py-5 flex-col gap-1"
-              >
-                {connecting ? (
-                  <span className="flex items-center gap-3">
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    Connecting...
-                  </span>
-                ) : (
-                  <>
-                    <span className="flex items-center gap-3 font-chunky text-lg">
-                      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
-                      </svg>
-                      HOST WITH SPOTIFY
-                    </span>
-                    <span className="text-[11px] font-medium text-[#0a0318]/70">Full tracks, all features</span>
-                  </>
+          <h2 id="entry-title">{mode === 'host' ? 'Set the table' : 'Find your table'}</h2>
+          <div className="tunes-segments" role="group" aria-label="How to enter">
+            <button aria-pressed={mode === 'host'} onClick={() => { setMode('host'); setFormError(null); setError(null); }}><Disc3 size={18} aria-hidden="true" /> Host</button>
+            <button aria-pressed={mode === 'join'} onClick={() => { setMode('join'); setFormError(null); setError(null); }}><Users size={18} aria-hidden="true" /> Join</button>
+          </div>
+          <form className="tunes-stack" onSubmit={submit}>
+            <label className="tunes-field">Stage name
+              <input ref={nameInput} id="stage-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Ella" autoComplete="nickname" autoCapitalize="words" maxLength={20} />
+            </label>
+            {mode === 'join' && (
+              <label className="tunes-field">Room code or invite link
+                <input ref={codeInput} value={code} onChange={(event) => setCode(event.target.value)} placeholder="e.g. BLUE" spellCheck={false} autoComplete="off" autoCapitalize="characters" enterKeyHint="go" />
+              </label>
+            )}
+            {mode === 'host' && <p className="tunes-muted">Cue songs with your own music{licensedPacks.length ? ', or choose an automatic pack in the lobby' : ''}.</p>}
+            {(formError || error) && <Message kind="error">{formError || error}</Message>}
+            {!error && (recoveryStatus === 'expired' || recoveryStatus === 'legacy' || recoveryStatus === 'replaced') && <Message>{recoveryStatus === 'expired' ? 'Your previous room has expired. Host or join a new table.' : recoveryStatus === 'legacy' ? 'This older room needs a fresh match. Join again to get a new seat.' : 'This seat is active in another tab or on another device.'}</Message>}
+            {notice && !error && recoveryStatus === 'idle' && <Message>{notice}</Message>}
+            {!connected && <p className="tunes-live" role="status"><Radio size={16} aria-hidden="true" /> Connecting to Tunes…</p>}
+            <button className="tunes-button tunes-button-primary" type="submit" disabled={!connected || pending}>
+              {pending ? (mode === 'host' ? 'Setting your table…' : 'Joining…') : (mode === 'host' ? 'Host a room' : 'Join room')} <ArrowRight size={19} aria-hidden="true" />
+            </button>
+          </form>
+        </section>
+      </div>
+      {savedTables.length > 0 && (
+        <section className="tunes-saved-tables" aria-labelledby="saved-tables-title">
+          <div className="tunes-row-title"><h2 id="saved-tables-title">Saved tables</h2><Bookmark size={22} aria-hidden="true" /></div>
+          {savedTables.map((table) => (
+            <details className="tunes-panel tunes-disclosure" key={table.id}>
+              <summary>{table.name} <span className="tunes-pill">{table.playedMatches} {table.playedMatches === 1 ? 'match' : 'matches'}</span></summary>
+              <div className="tunes-stack">
+                <button className="tunes-button tunes-button-secondary" onClick={() => openTable(table)} disabled={!connected || pending}>Open table <ArrowRight size={18} aria-hidden="true" /></button>
+                {table.standings.length > 0 && (
+                  <div>
+                    <h3><Trophy size={17} aria-hidden="true" /> Championship</h3>
+                    <ol className="tunes-reveal-picks">
+                      {table.standings.map((player, index) => <li key={index}><b>{player.displayName}</b><strong>{player.wins} {player.wins === 1 ? 'win' : 'wins'} in {player.matches}</strong></li>)}
+                    </ol>
+                  </div>
                 )}
-              </button>
-              <button
-                onClick={() => {
-                  if (!name.trim()) return;
-                  setError(null);
-                  persistName();
-                  setSessionPlaybackIntent('preview');
-                  const socket = getSocket();
-                  socket.emit('create-room', { playerName: name.trim() });
-                }}
-                disabled={!connected || !previewSongsAvailable}
-                className="btn btn-ghost w-full py-5 flex-col gap-1"
-              >
-                <span className="flex items-center gap-3 font-bold">
-                  <Music className="w-5 h-5" />
-                  Host without Spotify
-                </span>
-                <span className="text-[11px] font-medium text-white/50">
-                  {previewSongsAvailable
-                    ? '30s preview clips, no account needed'
-                    : 'Unavailable — no preview clips on this server'}
-                </span>
-              </button>
-              <button
-                onClick={() => { setMode('idle'); setError(null); }}
-                className="w-full text-white/50 hover:text-white font-medium py-3 transition-colors rounded-xl hover:bg-white/5"
-              >
-                Back
-              </button>
-            </motion.div>
-          ) : (
-            <motion.div
-              key="join"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-4 pt-1"
-            >
-              <div className="space-y-3">
-                <label className="text-[10px] tracking-[0.3em] text-neon-cyan font-bold text-center block">
-                  ENTER ROOM CODE
-                </label>
-                <div className="flex justify-center gap-3">
-                  {[0, 1, 2, 3].map((i) => (
-                    <input
-                      key={i}
-                      id={`code-${i}`}
-                      type="search"
-                      maxLength={1}
-                      value={code[i]}
-                      onChange={(e) => handleCodeChange(i, e.target.value)}
-                      onKeyDown={(e) => handleCodeKeyDown(i, e)}
-                      autoComplete="off"
-                      autoCorrect="off"
-                      autoCapitalize="characters"
-                      className={`code-box ${code[i] ? 'is-filled' : ''}`}
-                    />
-                  ))}
-                </div>
+                {!!table.headToHead?.length && (
+                  <div>
+                    <h3>Head to head</h3>
+                    <ul className="tunes-reveal-picks">
+                      {table.headToHead.map((pair, index) => <li key={index}><div><b>{pair.firstName} vs. {pair.secondName}</b><span>{pair.matches} {pair.matches === 1 ? 'match' : 'matches'}</span></div><strong>{pair.firstWins}–{pair.secondWins}</strong></li>)}
+                    </ul>
+                  </div>
+                )}
               </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setMode('idle')}
-                  className="btn btn-ghost flex-1"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={handleJoin}
-                  disabled={code.join('').length !== 4 || !name.trim()}
-                  className="btn btn-primary flex-[2]"
-                >
-                  Join Room
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.div>
-
-      {/* Footer chips */}
-      <div className="mt-auto pt-8 flex items-center justify-center gap-2 text-xs">
-        <button
-          onClick={() => setScreen('rules')}
-          className="btn btn-ghost px-3 py-2 text-xs"
-        >
-          📖 Rules
-        </button>
-        <button
-          onClick={() => setScreen('leaderboard')}
-          className="btn btn-ghost px-3 py-2 text-xs"
-        >
-          🏆 Leaderboard
-        </button>
-        {name.trim() && (
-          <button
-            onClick={() => { persistName(); setScreen('profile'); }}
-            className="btn btn-ghost px-3 py-2 text-xs"
-          >
-            📊 My Stats
-          </button>
-        )}
-      </div>
-      <p className="text-center text-[10px] text-white/25 mt-3 tabular-nums">
-        TUNES v2.3.0 · 33⅓ rpm {connected ? <Wifi className="inline w-3 h-3" /> : <WifiOff className="inline w-3 h-3" />}
-      </p>
-    </div>
+            </details>
+          ))}
+        </section>
+      )}
+      <footer className="tunes-home-foot">
+        <span>Build {buildId}</span>
+        <nav aria-label="Play history">
+          <button className="tunes-link" onClick={() => setScreen('leaderboard')}>Leaderboard</button>
+          <button className="tunes-link" onClick={() => { if (name.trim()) persistName(name.trim()); setScreen('profile'); }}>My stats</button>
+        </nav>
+      </footer>
+    </main>
   );
 }

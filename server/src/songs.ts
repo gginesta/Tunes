@@ -467,7 +467,6 @@ export async function resolveTrackIds(
     cached,
     playable: playable.length,
     failed,
-    tokenPrefix: accessToken ? accessToken.slice(0, 10) + '...' : 'none',
   });
 
   if (playable.length === 0 && deck.length > 0) {

@@ -1,154 +1,22 @@
-# Development Roadmap
+# Tunes rollout
 
-## Current Status
+The current candidate has Classic, Dinner Set, Manual DJ and an included licensed automatic pack. Treat automated rehearsal, physical-device acceptance and a live pilot as separate release milestones.
 
-The game is fully playable as a real-time multiplayer experience with Spotify integration. Players can host/join rooms, listen to songs via Spotify, place cards on their timeline, challenge each other, name songs for bonus tokens, and see final results with rankings.
+| Stage | What the candidate provides | Gate before expanding |
+| --- | --- | --- |
+| Dependable Classic | Immediate leave and rejoin, secure seats, controller handoff, audio pauses, restart checkpoints, final reveal and transactional results. | Pass the two-phone matrix, including an iPhone lock or call, audio recovery and a server restart in each phase. Confirm the table preserves the phase, recording, correct scores and clock. |
+| A friend can host | Account-free Manual DJ, QR and invite links, rotating or dedicated DJ, a sourced recording catalogue, and gap placement on mobile. | A newcomer gets two guests into the room and starts audible music unassisted within the 90-second pilot target. Verify touch and screen-reader placement. |
+| Dinner Set | Private picks, shared reveal and points, complete DJ rotations, opt-in rematches, and private saved tables. | Run six to eight tables of four to six. Count voluntary same-mode rematches, switches and stops before choosing a default. |
+| Wider hosting | Automatic playback with the bundled independent instrumental pack and support for operator-supplied licensed packs. | Confirm each pack's recording list, terms, territory, attribution and speaker delivery. Compare cost per completed game, review concurrency diagnostics and choose rollout scope. |
 
-### What's Built
+See the test instructions, acceptance checklist and measurement fields in the [project README](README.md#pilot-acceptance-checklist).
 
-- [x] Real-time multiplayer via Socket.io (2-12 players, late join supported)
-- [x] Room creation and joining with 4-letter codes
-- [x] Full game loop: turns, placement, challenges, reveals, scoring
-- [x] Token economy (skip, challenge, buy, name-song bonus)
-- [x] 4 game modes fully implemented (Original, Pro, Expert, Co-op)
-- [x] 614 song database spanning 1930s-2020s with genre/region metadata
-- [x] Decade-balanced deck selection
-- [x] Zustand state management with typed Socket.io events
-- [x] Connection tracking and host reassignment
-- [x] Animated UI with Motion library
-- [x] How to Play / Rules screen
-- [x] Responsive mobile-first design with Tailwind CSS 4
-- [x] Spotify OAuth (PKCE flow, client-side)
-- [x] Spotify Web Playback SDK integration
-- [x] Device polling (matches by name, not SDK device ID)
-- [x] HTML5 Audio fallback for preview URLs
-- [x] Track resolution on game start
-- [x] Song naming (optional in Original, required in Pro/Expert)
-- [x] Exact year guessing (Expert mode)
-- [x] Co-op mode with shared timeline and wrong-placement penalties
-- [x] Challenge countdown timer (circular, turns red at 5s, synced from server)
-- [x] "No Challenge" button alongside Challenge button
-- [x] Sound effects via Web Audio API (correct, wrong, challenge, stolen, tick, start) with mute toggle
-- [x] Post-game rankings screen with 1st/2nd/3rd medal colors and staggered animations
-- [x] Play Again button (host-only, restarts game in same room)
-- [x] Optional account creation (username/password, JSON file storage) with guest fallback
-- [x] Turn timer (45s countdown with circular visual, color transitions, auto-skip on timeout)
-- [x] Persistent storage (SQLite via better-sqlite3, WAL mode, rooms survive restarts)
-- [x] Account migration from JSON files to SQLite (automatic on first startup)
-- [x] Structured JSON logging with configurable LOG_LEVEL
-- [x] Health check endpoint (GET /health)
-- [x] Auto-reconnect with session resumption (rejoin room after disconnect)
-- [x] Host crash recovery (game continues, turn skips immediately)
-- [x] Challenge placement visibility (challengers see where card was placed)
-- [x] Spotify autoplay fix (pre-activate on user gesture, tap-to-play indicator)
-- [x] iOS keyboard fix (no sensitive text field behavior on inputs)
-- [x] Fuzzy song name matching (Levenshtein distance, article stripping, typo tolerance for Pro/Expert)
-- [x] Round recap / song history browser (scrollable modal on Game and Results screens)
-- [x] End-of-game stats and awards (Fastest Fingers, Sharpshooter, Hot Streak, Challenge King, Name That Tune)
-- [x] Volume control slider (music + SFX, persisted to localStorage)
-- [x] Disconnect grace period (30s to rejoin before turn skip, with countdown banner)
-- [x] Genre packs (Rock, Pop, Hip-Hop, R&B, Country, Electronic, Jazz, Latin) with multi-select
-- [x] Genre + decade combo filtering for themed game nights
-- [x] Regional packs (UK, Latin, K-Pop, Bollywood — 140 new songs)
-- [x] Shareable invite links (/join/ABCD URLs with copy-to-clipboard)
-- [x] "I know this!" buzz button (non-active players signal they know the song)
-- [x] Better waiting state (music trivia, animated visualizer, buzz badges)
-- [x] Custom Spotify playlist import (URL validation, preset cards, genre pack presets)
-- [x] Leaderboards (global ranked table, medals, win rate, best streak)
-- [x] Game history tracking (per-player, saved to SQLite on game end)
-- [x] Player statistics profile (accuracy, streaks, challenges, songs named)
-- [x] Preview Mode — host without Spotify using 30-second preview clips (no account needed, unlimited players)
-- [x] Preview URL pre-baking script (`scripts/prebake-previews.ts`)
-- [x] Auto-caching of preview URLs from Spotify games (background-resolves 100 uncached songs per game)
-- [x] Autoplay fix for iOS Safari (capture phase + touchend, keydown unlock, fallback audio init for preview mode)
-- [x] Turn timer moved to top bar (compact ring next to score chips)
-- [x] Anchor card dealing animation (starting cards shown with flip animation before first turn, host can skip)
-- [x] Duplicate song dedup in deck selection (normalized matching prevents same song appearing twice)
-- [x] Late joiner support (new players can join mid-game, get dealt a starting card)
-- [x] Player order display follows actual turn order (not arbitrary object order)
-- [x] Improved fuzzy matching (strips parentheticals/feat., substring containment, 0.3 threshold)
-- [x] Place-then-guess flow (song naming inputs persist during challenge phase)
-- [x] Title-only guessing in Original/Co-op mode (artist not required for bonus token)
-- [x] Challenge result popup shows actual outcome (won/lost/discarded), not position validity
-- [x] Timeline prioritized over trivia when waiting (trivia moved below timeline)
+## Release sequence
 
----
+1. Run the locked Node 24 build, unit and real socket tests, production rehearsal and container smoke test. Back up the existing volume and verify migration and restore on a disposable copy.
+2. Start with a small Classic trial. Use the Dinner Set and licensed-playback flags to control new starts by deployment while allowing compatible active games to recover.
+3. Complete the physical matrix and newcomer trial before expanding. Hold a release for lost games, incorrect winners, duplicate scoring, or music that cannot be reliably recovered on the pilot speaker.
+4. Run the comparative dinner trial. Prioritize the recorded pain points before adding more scoring mechanics.
+5. Keep the single-server SQLite deployment for the pilot. Review timed starts by source, reconnect and completion rates, checkpoint latency and event-loop delay before deciding whether to change infrastructure.
 
-## Future: Gameplay Improvements
-
-- [ ] **Streak bonus** -- Reward consecutive correct placements with bonus tokens or visual flair; adds excitement and a "hot hand" feeling
-- [ ] **Difficulty scaling** -- In Original mode, start with songs from widely different decades (easy to place) and gradually narrow the gaps as timelines grow; makes early game accessible and late game tense
-
-## Future: Content Expansion
-
-(All content expansion items completed)
-
-## Future: Social & UX Features
-
-- [ ] **Spectator mode** -- Join a room as an observer without being in the turn order; great for parties where people arrive late
-- [ ] **Chat / reactions** -- Quick reactions during gameplay
-- [ ] **Player avatars** -- Custom images or preset avatar selection
-
-## Future: Persistence and Accounts
-
-- [x] **Persistent storage** -- SQLite database at data/tunes.db; rooms saved on state changes, restored on startup via restoreRoomsFromDatabase()
-- [x] **Leaderboards** -- Global ranked table with medals, win rate, best streak; accessible from Home screen
-- [x] **Game history** -- Per-player game history with mode, result, cards won; saved to SQLite on game end
-- [x] **Statistics** -- Player profile with stats cards (accuracy, streaks, challenges, songs named, fastest placement)
-- [x] **Custom playlists** -- Spotify playlist import with URL validation, preset cards (Summer Hits, Rock Classics, Hip-Hop, Latin, 90s, Indie, All-Time Greatest), album-art-style UI
-
-## Future: Deployment and Infrastructure
-
-- [x] **Production deployment** -- Live on Railway
-- [x] **Database** -- SQLite for room/game state persistence (Redis for horizontal scaling is a future option)
-- [ ] **CDN** -- Serve the frontend via CDN for fast global access
-- [x] **Monitoring** -- Structured logging with game event tracking; health check endpoint
-- [ ] **Mobile app** -- Native mobile client
-
----
-
-## Code Audit (Completed)
-
-A full-stack audit was performed covering 30 server issues and 20 client issues. All critical, high, and medium priority items have been fixed:
-
-**Critical fixes:**
-- Race condition: double start-game prevented with phase guard
-- Game stuck after reconnect during challenge phase — timers now restarted
-- Infinite turn loop when all players disconnect — now ends game gracefully
-
-**High-priority fixes:**
-- Reconnect no longer leaks song year to rejoining players
-- buyCard now checks game phase before allowing purchase
-- Async start-game handler wrapped in try/catch
-- Settings validated (cardsToWin bounds, valid game modes)
-- Restored games reset to lobby (deck not persisted)
-- Host transfer clears old host's isHost flag
-- Rules of Hooks violation fixed in Game.tsx
-- Challengers cleared between turns
-- Premature connected state removed
-
-**Medium-priority fixes:**
-- Fisher-Yates shuffle replaces biased sort
-- Settings changes now persisted to DB
-- Card placement position bounds-checked
-- Player names validated (1-30 chars, trimmed)
-- confirmReveal restricted to host
-- Voluntary leave skips disconnect grace period
-- Password field uses type="password"
-- Start button disabled without playlist URL
-- WaitingState timer cleanup on unmount
-- Case-insensitive leaderboard username matching
-- useSocket optimized (getState instead of full store subscription)
-- Dead code removed (normalize, unused imports)
-- LOG_LEVEL env var validated
-
----
-
-## Known Limitations
-
-- Spotify Premium is required for the host to use the Web Playback SDK
-- SQLite limits horizontal scaling to a single server instance (Redis would be needed for multi-instance)
-- Password hashing uses SHA-256 without salt (acceptable for a game, not for sensitive data)
-- No rate limiting on auth endpoints
-- CORS origin is wildcard (should be restricted in production)
-- Spotify preview URLs are no longer available via Client Credentials API (removed by Spotify late 2024); preview URLs accumulate via the background-resolve mechanism as Premium-hosted games are played
+The pilot catalogue pairs independently sourced familiar recording facts with externally cued audio for Manual DJ. The bundled automatic pack contains independent instrumentals with its own credits. Broader familiar-song automatic hosting depends on a written rights and delivery decision for each territory. [Bundled music credits](app/public/music-credits.html)

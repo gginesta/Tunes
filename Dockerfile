@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 
 WORKDIR /app
 
@@ -8,13 +8,13 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++
 
 # Copy package files for all workspaces
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 COPY shared/package.json shared/
 COPY server/package.json server/
 COPY app/package.json app/
 
 # Install all dependencies (including devDependencies for building)
-RUN npm install
+RUN npm ci
 
 # Copy source code
 COPY tsconfig.base.json ./
@@ -22,24 +22,19 @@ COPY shared/ shared/
 COPY app/ app/
 COPY server/ server/
 
-# Write VITE env vars for frontend build. Pass the client id at build time:
-#   docker build --build-arg VITE_SPOTIFY_CLIENT_ID=... .
-# (docker compose forwards it from the environment via the args mapping)
-ARG VITE_SPOTIFY_CLIENT_ID
-RUN echo "VITE_SPOTIFY_CLIENT_ID=${VITE_SPOTIFY_CLIENT_ID}" > app/.env && \
-    echo "VITE_SERVER_URL=" >> app/.env && \
-    echo "VITE_SPOTIFY_REDIRECT_URI=" >> app/.env
+ARG BUILD_REVISION=development
+ENV VITE_BUILD_REVISION=${BUILD_REVISION}
 
 # Build shared, then app, then server
 RUN npm run build
 
 # Stage 2: Production
-FROM node:20-alpine
+FROM node:24-alpine
 
 WORKDIR /app
 
 # Copy package files
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 COPY shared/package.json shared/
 COPY server/package.json server/
 COPY app/package.json app/
@@ -47,7 +42,7 @@ COPY app/package.json app/
 # Install production dependencies only. Remove the temporary native build
 # toolchain after better-sqlite3 has compiled.
 RUN apk add --no-cache --virtual .native-build-deps python3 make g++ && \
-    npm install --omit=dev && \
+    npm ci --omit=dev && \
     apk del .native-build-deps
 
 # Copy built shared library
@@ -66,6 +61,8 @@ COPY data/ data-seed/
 RUN printf '#!/bin/sh\nif [ ! -f /app/data/songs.json ]; then\n  mkdir -p /app/data\n  cp -r /app/data-seed/* /app/data/\n  echo "Seeded /app/data from data-seed"\nfi\nexec node server/dist/index.js\n' > /app/start.sh && chmod +x /app/start.sh
 
 ENV NODE_ENV=production
+ARG BUILD_REVISION=development
+ENV BUILD_REVISION=${BUILD_REVISION}
 
 EXPOSE 3000
 

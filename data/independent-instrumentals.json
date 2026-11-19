@@ -1,0 +1,366 @@
+{
+  "id": "independent-instrumentals",
+  "name": "Independent instrumentals",
+  "tracks": [
+    {
+      "recordingId": "sb-wonderful",
+      "title": "Wonderful",
+      "artist": "Scott Buckley",
+      "year": 2014,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/wonderful/",
+      "audioUrl": "/listening/b1ae020dc9c45060.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-rainbows",
+      "title": "Rainbows",
+      "artist": "Scott Buckley",
+      "year": 2014,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/rainbows/",
+      "audioUrl": "/listening/6e52ecb49e89c584.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-tomorrow",
+      "title": "Tomorrow",
+      "artist": "Scott Buckley",
+      "year": 2015,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/tomorrow/",
+      "audioUrl": "/listening/d2af250a3756b827.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-passage",
+      "title": "Passage",
+      "artist": "Scott Buckley",
+      "year": 2015,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/passage/",
+      "audioUrl": "/listening/2cf2692f9c875977.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-patagonia",
+      "title": "Patagonia",
+      "artist": "Scott Buckley",
+      "year": 2016,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/patagonia/",
+      "audioUrl": "/listening/531769b290c4fb77.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-jade",
+      "title": "Jade",
+      "artist": "Scott Buckley",
+      "year": 2016,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/jade/",
+      "audioUrl": "/listening/ecf646ea9eb6ef50.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-theory-of-machines",
+      "title": "Theory of Machines",
+      "artist": "Scott Buckley",
+      "year": 2017,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/theory-of-machines/",
+      "audioUrl": "/listening/65a901b37fc9ee8e.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-cassini",
+      "title": "Cassini",
+      "artist": "Scott Buckley",
+      "year": 2017,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/cassini/",
+      "audioUrl": "/listening/43e799c27185f1c2.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-growing-up",
+      "title": "Growing Up",
+      "artist": "Scott Buckley",
+      "year": 2018,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/growing-up/",
+      "audioUrl": "/listening/3e2ae6d6eaf813d2.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-time-and-space",
+      "title": "Time and Space",
+      "artist": "Scott Buckley",
+      "year": 2018,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/time-and-space/",
+      "audioUrl": "/listening/e8b26a4b9d895f4b.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-childhood",
+      "title": "Childhood",
+      "artist": "Scott Buckley",
+      "year": 2019,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/childhood/",
+      "audioUrl": "/listening/7bc1a9bf1d57d1eb.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-skyscraper-samba",
+      "title": "Skyscraper Samba",
+      "artist": "Scott Buckley",
+      "year": 2019,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/skyscraper-samba/",
+      "audioUrl": "/listening/1a1006303196e837.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-soar",
+      "title": "Soar",
+      "artist": "Scott Buckley",
+      "year": 2020,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/soar/",
+      "audioUrl": "/listening/945e77bdb4d462f9.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-discovery",
+      "title": "Discovery",
+      "artist": "Scott Buckley",
+      "year": 2020,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/discovery/",
+      "audioUrl": "/listening/e4629422bd18a927.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-the-climb",
+      "title": "The Climb",
+      "artist": "Scott Buckley",
+      "year": 2021,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/the-climb/",
+      "audioUrl": "/listening/791472ee1554311c.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-chasing-daylight",
+      "title": "Chasing Daylight",
+      "artist": "Scott Buckley",
+      "year": 2021,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/chasing-daylight/",
+      "audioUrl": "/listening/f8581d155e0a05ea.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-glow",
+      "title": "Glow",
+      "artist": "Scott Buckley",
+      "year": 2022,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/glow/",
+      "audioUrl": "/listening/c35662d307b98901.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-race-the-sun",
+      "title": "Race The Sun",
+      "artist": "Scott Buckley",
+      "year": 2022,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/race-the-sun/",
+      "audioUrl": "/listening/b970c977d46db351.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-golden-hour",
+      "title": "Golden Hour",
+      "artist": "Scott Buckley",
+      "year": 2023,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/golden-hour/",
+      "audioUrl": "/listening/fc46696027b2f55a.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-cirrus",
+      "title": "Cirrus",
+      "artist": "Scott Buckley",
+      "year": 2023,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/cirrus/",
+      "audioUrl": "/listening/020b1e913bfc263c.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-clear-skies",
+      "title": "Clear Skies",
+      "artist": "Scott Buckley",
+      "year": 2024,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/clear-skies/",
+      "audioUrl": "/listening/0b71c4460054e26f.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-life-in-motion",
+      "title": "Life in Motion",
+      "artist": "Scott Buckley",
+      "year": 2024,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/life-in-motion/",
+      "audioUrl": "/listening/e72d716034afe99b.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-meanwhile",
+      "title": "Meanwhile",
+      "artist": "Scott Buckley",
+      "year": 2025,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/meanwhile/",
+      "audioUrl": "/listening/39fd49bfb138bcee.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    },
+    {
+      "recordingId": "sb-amberlight",
+      "title": "Amberlight",
+      "artist": "Scott Buckley",
+      "year": 2025,
+      "version": "Artist library recording",
+      "sourceUrl": "https://www.scottbuckley.com.au/library/amberlight/",
+      "audioUrl": "/listening/3cce8ecd622a870c.mp3",
+      "territories": [
+        "*"
+      ],
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "recordingNote": "Year of publication in the official music library."
+    }
+  ]
+}

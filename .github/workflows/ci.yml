@@ -10,11 +10,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run build
+        env:
+          VITE_BUILD_REVISION: ${{ github.sha }}
       - run: npm test
+      - run: npm run test:multiplayer
       - run: npm run lint
       - name: Build production image
-        run: docker build --build-arg VITE_SPOTIFY_CLIENT_ID=ci-smoke -t tunes-ci .
+        run: docker build --build-arg BUILD_REVISION="$GITHUB_SHA" -t tunes-ci .
+      - name: Start production image with SQLite
+        run: |
+          docker run --detach --name tunes-ci --publish 127.0.0.1:3000:3000 tunes-ci
+          trap 'docker logs tunes-ci; docker rm -f tunes-ci' EXIT
+          curl --fail --retry 12 --retry-all-errors --retry-delay 1 http://127.0.0.1:3000/health | jq -e --arg revision "$GITHUB_SHA" '.status == "ok" and .revision == $revision'
+          docker exec tunes-ci node -e "const db = new (require('better-sqlite3'))('/app/data/tunes.db', {readonly: true}); if (db.pragma('quick_check', {simple: true}) !== 'ok') process.exit(1); db.close()"
+          curl --fail --silent --output /dev/null http://127.0.0.1:3000/
