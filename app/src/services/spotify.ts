@@ -1,3 +1,5 @@
+import { appPath } from '../paths';
+
 const SCOPES = ['streaming', 'user-read-email', 'user-read-private', 'user-modify-playback-state', 'user-read-playback-state'];
 const TOKEN_ENDPOINT = 'https://accounts.spotify.com/api/token';
 const AUTH_ENDPOINT = 'https://accounts.spotify.com/authorize';
@@ -17,7 +19,8 @@ function clientConfig() {
   const {origin, protocol, hostname} = window.location;
   const loopback = hostname === '127.0.0.1' || hostname === '[::1]';
   if (protocol !== 'https:' && !(loopback && protocol === 'http:')) return null;
-  if (redirectUri !== origin + '/callback.html') return null;
+  // The root legacy callback uses a different popup protocol.
+  if (redirectUri !== origin + appPath('callback.html')) return null;
   return {clientId, redirectUri};
 }
 

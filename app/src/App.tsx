@@ -5,6 +5,7 @@ import { useTableAudio } from './hooks/useTableAudio';
 import { Home } from './components/Home';
 import { Lobby } from './components/Lobby';
 import { Game } from './components/Game';
+import { joinCodeFromPath } from './paths';
 
 // Secondary screens are code-split so they don't weigh down the initial bundle
 const Results = lazy(() => import('./components/Results').then((m) => ({ default: m.Results })));
@@ -19,9 +20,9 @@ export default function App() {
   useTableAudio();
 
   useEffect(() => {
-    const match = window.location.pathname.match(/^\/join\/([a-zA-Z]{4})\/?$/);
-    if (match) {
-      setPendingJoinCode(match[1].toUpperCase());
+    const code = joinCodeFromPath(window.location.pathname);
+    if (code) {
+      setPendingJoinCode(code);
       // Preserve the invite until the server confirms the new seat.
     }
   }, [setPendingJoinCode]);

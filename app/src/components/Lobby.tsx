@@ -7,6 +7,7 @@ import { disconnectSpotifySpeaker } from '../services/tableAudio';
 import { hasTableSpotifyCredential } from '../services/tableSpotifyCredential';
 import { useSpotifyClassic } from '../hooks/useSpotifyClassic';
 import { useGameStore } from '../store';
+import { appPath } from '../paths';
 import { Brand, Message, MODE_NAMES, WorkedExample } from './TableUi';
 
 const MODES: { id: GameMode; help: string }[] = [
@@ -41,7 +42,7 @@ function toggled<T>(values: T[] | undefined, value: T) {
 }
 
 function InviteBlock({ code }: { code: string }) {
-  const link = new URL(`/join/${code}`, window.location.origin).href;
+  const link = new URL(appPath(`join/${code}`), window.location.origin).href;
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
 
   async function copy() {
@@ -273,7 +274,7 @@ export function Lobby() {
                       {licensedPacks.map((pack) => <option value={pack.id} key={pack.id}>{pack.name} · {pack.trackCount} recordings</option>)}
                     </select>
                   </label>
-                  {licensedPacks.length > 0 && <a className="tunes-link" href="/music-credits.html" target="_blank" rel="noreferrer">Automatic music credits</a>}
+                  {licensedPacks.length > 0 && <a className="tunes-link" href={appPath('music-credits.html')} target="_blank" rel="noreferrer">Automatic music credits</a>}
                 </div>
               )}
               <fieldset className="tunes-fieldset" disabled={!connected || isPreparing}>

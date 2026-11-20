@@ -1,4 +1,5 @@
 import { useGameStore } from '../store';
+import { appPath } from '../paths';
 import { getSocket } from './socket';
 import type { CueAction, RoundAudio } from '@tunes/shared';
 import { isSpotifyClientConfigured, openSpotifyLogin } from './spotify';
@@ -160,7 +161,9 @@ async function playCurrent(audio: RoundAudio, ref: CueAction, force: boolean) {
   const attempt = ++generation;
   cue = ref.cueId;
   media.volume = useGameStore.getState().volume;
-  const url = new URL(audio.source.url, window.location.origin).href;
+  const source = audio.source.url;
+  const localClip = source.startsWith('/listening/') || source.startsWith('/licensed-audio/');
+  const url = new URL(localClip ? appPath(source.slice(1)) : source, window.location.origin).href;
   const round = ref.matchId + '/' + ref.roundId;
   if (media.src !== url) media.src = url;
   else if (currentRound !== round) media.currentTime = 0;

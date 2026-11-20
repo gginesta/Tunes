@@ -20,6 +20,7 @@
     "test": "npm run test --workspace=server",
     "test:multiplayer": "node scripts/rehearse-release.mjs",
     "test:spotify-room": "node scripts/verify-spotify-classic.mjs",
+    "test:prefixed-room": "node scripts/verify-prefixed-room.mjs",
     "lint": "eslint ."
   },
   "devDependencies": {

@@ -20,6 +20,8 @@ jobs:
       - run: npm run test:multiplayer
       - name: Verify Spotify Classic room recovery with a simulated player
         run: npm run test:spotify-room
+      - name: Verify both players stay under the playtest path
+        run: npm run test:prefixed-room
       - run: npm run lint
       - name: Build production image
         run: docker build --build-arg BUILD_REVISION="$GITHUB_SHA" -t tunes-ci .
@@ -30,3 +32,31 @@ jobs:
           curl --fail --retry 12 --retry-all-errors --retry-delay 1 http://127.0.0.1:3000/health | jq -e --arg revision "$GITHUB_SHA" '.status == "ok" and .revision == $revision'
           docker exec tunes-ci node -e "const db = new (require('better-sqlite3'))('/app/data/tunes.db', {readonly: true}); if (db.pragma('quick_check', {simple: true}) !== 'ok') process.exit(1); db.close()"
           curl --fail --silent --output /dev/null http://127.0.0.1:3000/
+  playtest-routing:
+    runs-on: ubuntu-latest
+    env:
+      BUILD_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the playtest release behind Caddy
+        run: |
+          docker compose -f deploy/compose.play.yaml up -d --build
+          cat > "$RUNNER_TEMP/Caddyfile" <<'CADDY'
+          import /etc/caddy/play.caddy
+          http://127.0.0.1:3218 {
+            import tunes_play 127.0.0.1:3217
+            handle {
+              respond "Original site"
+            }
+          }
+          CADDY
+          docker run -d --name tunes-play-proxy --network host \
+            -v "$RUNNER_TEMP/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            -v "$PWD/deploy/play.caddy:/etc/caddy/play.caddy:ro" caddy:2-alpine
+          origin=http://127.0.0.1:3218
+          curl --fail --retry 15 --retry-all-errors --retry-delay 1 "$origin/play/health" | jq -e --arg revision "$GITHUB_SHA" '.revision == $revision and .status == "ok"'
+          test "$(curl -fsS "$origin/")" = "Original site"
+          test "$(curl -fsS "$origin/socket.io/")" = "Original site"
+          test "$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' "$origin/play")" = "308 $origin/play/"
+          curl -fsS "$origin/play/join/ABCD" | grep -q 'src="/play/assets/'
+          curl -fsS "$origin/play/socket.io/?EIO=4&transport=polling" | grep -q '"sid"'

@@ -59,6 +59,22 @@ npm start
 
 The server serves the built client on the same origin. A successful `GET /health` reports status, uptime, connected players, room count and server build revision. Home also displays the server build. Docker uses the lockfile and Node 24 in both stages. `docker compose up --build` starts the service and mounts `./data` for SQLite.
 
+### Host the new game at `/play/`
+
+The [playtest Compose file](deploy/compose.play.yaml) starts one Dinner Edition instance with all five game modes, the bundled automatic music pack, and a separate SQLite volume. Run these commands from the release checkout on the host. Set `TUNES_PLAY_PORT` if the default loopback port 3217 is occupied and use the selected port in the health check and proxy.
+
+```sh
+export BUILD_REVISION="$(git rev-parse HEAD)"
+docker compose -f deploy/compose.play.yaml up -d --build
+curl --fail http://127.0.0.1:3217/health
+```
+
+Import [the playtest snippet](deploy/play.caddy) into the existing Caddyfile. Inside the `tunes.buzzrounds.com` site block, add `import tunes_play 127.0.0.1:3217` ahead of the existing game's catch-all handler. For containerized Caddy, connect the new service to the proxy's private Docker network and use that service’s network alias and port 3000 as the upstream. Validate and reload Caddy using the host's existing deployment process.
+
+Verify that `/play/health` returns the new commit, `/health` still returns the existing game's response, and a guest can join from the new lobby's `/play/join/CODE` QR. In the new lobby, choose **Customize → Music source → Independent instrumentals** to test automatic playback. Lock the host iPhone during a song, unlock it, return to Safari and tap **Resume music** if prompted. Check the room code, turn and guest roster before advancing. To take the pilot offline, remove its Caddy import, reload the proxy and stop the playtest Compose project. Its named volume retains its saved rooms.
+
+This prefixed build uses `/play/callback.html` for its own Spotify sign-in protocol if enabled on a separately authorized deployment. The original game continues to use the registered root callback.
+
 ### Configuration and licensed packs
 
 Set runtime variables in the shell or hosting service. To load a local copy of the example with the compiled server, use `node --env-file=.env scripts/start.mjs`. [Configuration example](.env.example)
@@ -68,6 +84,7 @@ Set runtime variables in the shell or hosting service. To load a local copy of t
 | `PORT`, `DATA_DIR` | Default port 3000 and repository `data/`. Set `DATA_DIR` to a writable persistent directory on the host. |
 | `ALLOWED_ORIGINS` | Comma-separated list for a separately hosted client. Same-origin production hosting works with it unset. |
 | `BUILD_REVISION` | Server build stamp in logs, health and Home. Pass it as a build argument in Docker. |
+| `VITE_BASE_PATH` | Public path with leading and trailing slashes, such as `/play/`. Defaults to `/`. The edge proxy strips this prefix before forwarding. |
 | `VITE_SPOTIFY_CLIENT_ID`, `VITE_SPOTIFY_REDIRECT_URI` | Public client ID and exact same-origin callback for an authorized Spotify Classic deployment. Pass as build arguments in Docker. |
 | `TUNES_SPOTIFY_CLASSIC_ENABLED`, `TUNES_SPOTIFY_MANIFEST` | Server opt-in and absolute path to the deployment’s permitted recording list. Default is off. |
 | `TUNES_DINNER_ENABLED=false`, `TUNES_LICENSED_ENABLED=false` | Disable new starts for the respective pilot feature. Existing snapshots can still recover and finish, subject to recording eligibility. |
@@ -85,6 +102,7 @@ npm run lint
 npm run build
 npm run test:multiplayer
 npm run test:spotify-room
+npm run test:prefixed-room
 ```
 
 The test and multiplayer commands use loopback sockets and disposable SQLite files. The production rehearsal starts the compiled server, exercises concurrent 2-, 6- and 12-seat rooms, and reports snapshot payload sizes, SQLite checkpoint latency, and time to simulated first-audio acknowledgement by source. It checks the automatic audio route with byte ranges. CI also starts the production container, checks the matching health revision and SQLite integrity, and fetches the client route.

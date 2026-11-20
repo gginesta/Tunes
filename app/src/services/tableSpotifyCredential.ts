@@ -1,4 +1,5 @@
 import { refreshAccessToken, SpotifySignInExpiredError } from './spotify';
+import { appStorageKey } from '../paths';
 
 type Credential = { accessToken: string; refreshToken: string; expiresIn?: number };
 type Access = { token: string; refreshToken: string; expiresAt: number; persistent: boolean };
@@ -7,7 +8,7 @@ const access = new Map<string, Access>();
 const refreshing = new Map<string, { refreshToken: string; request: ReturnType<typeof refreshAccessToken> }>();
 
 function storageKey(roomCode: string, playerId: string): string {
-  return JSON.stringify(['tunes-table-spotify', roomCode, playerId]);
+  return appStorageKey(JSON.stringify(['tunes-table-spotify', roomCode, playerId]));
 }
 
 function readRefresh(key: string): string | null {

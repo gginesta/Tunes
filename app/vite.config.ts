@@ -3,7 +3,15 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { defineConfig } from 'vite';
 
+const base = process.env.VITE_BASE_PATH || '/';
+if (!/^\/(?:[\w-]+\/)*$/.test(base)) {
+  throw new Error('VITE_BASE_PATH must be / or a path such as /play/ with both slashes.');
+}
+const proxyPath = (path: string) => base.slice(0, -1) + path;
+const stripBase = (path: string) => path.slice(base.length - 1);
+
 export default defineConfig({
+  base,
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -31,10 +39,14 @@ export default defineConfig({
   server: {
     host: true,
     proxy: {
-      '/licensed-audio': 'http://localhost:3000',
-      '/socket.io': {
+      [proxyPath('/licensed-audio')]: {
+        target: 'http://localhost:3000',
+        rewrite: stripBase,
+      },
+      [proxyPath('/socket.io')]: {
         target: 'http://localhost:3000',
         ws: true,
+        rewrite: stripBase,
       },
     },
   },

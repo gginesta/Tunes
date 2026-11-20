@@ -1,0 +1,15 @@
+name: tunes-play
+services:
+  play:
+    build:
+      context: ..
+      args:
+        BUILD_REVISION: ${BUILD_REVISION:?Set BUILD_REVISION to the checked out Git commit}
+        VITE_BASE_PATH: /play/
+    ports:
+      - "127.0.0.1:${TUNES_PLAY_PORT:-3217}:3000"
+    volumes:
+      - play-data:/app/data
+    restart: unless-stopped
+volumes:
+  play-data:

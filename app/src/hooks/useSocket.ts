@@ -3,6 +3,7 @@ import type { Room } from '@tunes/shared';
 import { clearSession, getGuestToken, getSession, getSocket, resumeSavedRoom, saveSession } from '../services/socket';
 import { useGameStore } from '../store';
 import { clearTableSpotifyCredential } from '../services/tableSpotifyCredential';
+import { appBase, appPath, joinCodeFromPath } from '../paths';
 
 export function useSocket() {
   useEffect(() => {
@@ -29,7 +30,7 @@ export function useSocket() {
       const guestToken = getGuestToken();
       if (guestToken) socket.emit('get-my-tables', { guestToken });
       if (store.getState().recoveryStatus === 'replaced') return;
-      const incoming = /^\/join\/([A-Za-z]{4})\/?$/.exec(window.location.pathname)?.[1] || store.getState().pendingJoinCode;
+      const incoming = joinCodeFromPath(window.location.pathname) || store.getState().pendingJoinCode;
       const seat = getSession();
       if (seat && (!incoming || incoming.toUpperCase() === seat.roomCode)) resumeSavedRoom();
     }
@@ -38,7 +39,7 @@ export function useSocket() {
       saveSession(data.room.code, data.playerId, data.resumeToken, data.guestToken);
       store.setState({ myId: data.playerId, pendingJoinCode: null, error: null, errorAction: null });
       store.getState().syncRoom(data.room);
-      if (window.location.pathname.startsWith('/join/')) window.history.replaceState({}, '', '/');
+      if (window.location.pathname.startsWith(appPath('join/'))) window.history.replaceState({}, '', appBase);
       const guestToken = getGuestToken();
       if (guestToken) socket.emit('get-my-tables', { guestToken });
     }
