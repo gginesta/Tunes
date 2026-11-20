@@ -36,27 +36,31 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BUILD_REVISION: ${{ github.sha }}
+      TUNES_CADDY_NETWORK: tunes-ci-proxy
     steps:
       - uses: actions/checkout@v4
       - name: Start the playtest release behind Caddy
         run: |
-          docker compose -f deploy/compose.play.yaml up -d --build
+          docker network create "$TUNES_CADDY_NETWORK"
+          docker compose -f deploy/compose.play.yaml up -d --build --wait
+          docker run -d --name tunes-app --network "$TUNES_CADDY_NETWORK" node:24-alpine \
+            node -e 'require("node:http").createServer((req, res) => res.end("Original site")).listen(3000)'
           cat > "$RUNNER_TEMP/Caddyfile" <<'CADDY'
           import /etc/caddy/play.caddy
-          http://127.0.0.1:3218 {
-            import tunes_play 127.0.0.1:3217
-            handle {
-              respond "Original site"
-            }
+          http://:3218 {
+            import tunes_play tunes-play:3000
+            reverse_proxy tunes-app:3000
           }
           CADDY
-          docker run -d --name tunes-play-proxy --network host \
+          docker run -d --name tunes-play-proxy --network "$TUNES_CADDY_NETWORK" -p 127.0.0.1:3218:3218 \
             -v "$RUNNER_TEMP/Caddyfile:/etc/caddy/Caddyfile:ro" \
             -v "$PWD/deploy/play.caddy:/etc/caddy/play.caddy:ro" caddy:2-alpine
           origin=http://127.0.0.1:3218
           curl --fail --retry 15 --retry-all-errors --retry-delay 1 "$origin/play/health" | jq -e --arg revision "$GITHUB_SHA" '.revision == $revision and .status == "ok"'
           test "$(curl -fsS "$origin/")" = "Original site"
           test "$(curl -fsS "$origin/socket.io/")" = "Original site"
+          test "$(curl -fsS "$origin/callback.html")" = "Original site"
+          curl -fsS "$origin/play/callback.html" | grep -q 'tunes:spotify:code'
           test "$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' "$origin/play")" = "308 $origin/play/"
           curl -fsS "$origin/play/join/ABCD" | grep -q 'src="/play/assets/'
           curl -fsS "$origin/play/socket.io/?EIO=4&transport=polling" | grep -q '"sid"'

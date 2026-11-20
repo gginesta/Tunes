@@ -61,19 +61,7 @@ The server serves the built client on the same origin. A successful `GET /health
 
 ### Host the new game at `/play/`
 
-The [playtest Compose file](deploy/compose.play.yaml) starts one Dinner Edition instance with all five game modes, the bundled automatic music pack, and a separate SQLite volume. Run these commands from the release checkout on the host. Set `TUNES_PLAY_PORT` if the default loopback port 3217 is occupied and use the selected port in the health check and proxy.
-
-```sh
-export BUILD_REVISION="$(git rev-parse HEAD)"
-docker compose -f deploy/compose.play.yaml up -d --build
-curl --fail http://127.0.0.1:3217/health
-```
-
-Import [the playtest snippet](deploy/play.caddy) into the existing Caddyfile. Inside the `tunes.buzzrounds.com` site block, add `import tunes_play 127.0.0.1:3217` ahead of the existing game's catch-all handler. For containerized Caddy, connect the new service to the proxy's private Docker network and use that service’s network alias and port 3000 as the upstream. Validate and reload Caddy using the host's existing deployment process.
-
-Verify that `/play/health` returns the new commit, `/health` still returns the existing game's response, and a guest can join from the new lobby's `/play/join/CODE` QR. In the new lobby, choose **Customize → Music source → Independent instrumentals** to test automatic playback. Lock the host iPhone during a song, unlock it, return to Safari and tap **Resume music** if prompted. Check the room code, turn and guest roster before advancing. To take the pilot offline, remove its Caddy import, reload the proxy and stop the playtest Compose project. Its named volume retains its saved rooms.
-
-This prefixed build uses `/play/callback.html` for its own Spotify sign-in protocol if enabled on a separately authorized deployment. The original game continues to use the registered root callback.
+Use the [operator handoff](deploy/README.md) to deploy alongside the original game with Docker and Caddy. It covers build inputs, the private network and separate volume, URL routing, acceptance on an iPhone, and rollback.
 
 ### Configuration and licensed packs
 
