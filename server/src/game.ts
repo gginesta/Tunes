@@ -34,6 +34,8 @@ export class GameEngine {
   private challengeTimer: ReturnType<typeof setTimeout> | null = null;
   private turnTimer: ReturnType<typeof setTimeout> | null = null;
   private anchorTimer: ReturnType<typeof setTimeout> | null = null;
+  private phaseDeadline: number | null = null;
+  private hostPause: { startedAt: number; remaining: number | null } | null = null;
   private songNamed = new Set<string>();
   /** Tracks whether each player's song name guess was correct this round */
   private songNameCorrect = new Map<string, boolean>();
@@ -105,25 +107,16 @@ export class GameEngine {
   }
 
   resetGame() {
-    // Clear timers
-    if (this.challengeTimer) {
-      clearTimeout(this.challengeTimer);
-      this.challengeTimer = null;
-    }
-    if (this.turnTimer) {
-      clearTimeout(this.turnTimer);
-      this.turnTimer = null;
-    }
-    if (this.anchorTimer) {
-      clearTimeout(this.anchorTimer);
-      this.anchorTimer = null;
-    }
+    this.clearPhaseTimers();
+    this.hostPause = null;
 
     // Clear disconnect timers
     for (const timer of this.disconnectTimers.values()) {
       clearTimeout(timer);
     }
     this.disconnectTimers.clear();
+    delete this.room.hostRecovery;
+    delete this.room.reconnectDeadlines;
 
     // Clear engine state
     this.deck = [];
@@ -211,9 +204,46 @@ export class GameEngine {
    */
   skipAnchors() {
     if (!this.anchorTimer) return;
-    clearTimeout(this.anchorTimer);
-    this.anchorTimer = null;
+    this.clearPhaseTimers();
     this.startTurn();
+  }
+
+  pauseForHost(): void {
+    const now = Date.now();
+    this.hostPause ??= {
+      startedAt: now,
+      remaining: this.phaseDeadline === null ? null : Math.max(0, this.phaseDeadline - now),
+    };
+    this.clearPhaseTimers();
+  }
+
+  resumeCurrentPhase(): void {
+    const gs = this.room.gameState;
+    const active = gs.currentTurnPlayerId;
+    if (!active || this.room.hostRecovery) return;
+    if (gs.phase !== 'playing' && gs.phase !== 'challenge') {
+      this.hostPause = null;
+      return;
+    }
+
+    if (!this.room.players[active]?.connected) {
+      // A guest can still be away when the host comes back. Wait their normal
+      // grace period before changing the turn that everyone just recovered.
+      if (!this.disconnectTimers.has(active)) this.handlePlayerDisconnect(active);
+      return;
+    }
+
+    const pause = this.hostPause;
+    this.hostPause = null;
+    const remaining = pause?.remaining ?? undefined;
+    if (gs.phase === 'challenge') {
+      this.startChallengeTimer(remaining);
+    } else if (!gs.currentSong) {
+      this.startAnchorTimer(remaining);
+    } else {
+      if (pause) this.turnStartTime += Date.now() - pause.startedAt;
+      this.startTurnTimer(active, remaining);
+    }
   }
 
   /**
@@ -322,13 +352,19 @@ export class GameEngine {
     }
 
     // Delay first turn to let clients show the anchor card animation
+    this.startAnchorTimer();
+  }
+
+  private startAnchorTimer(delay = 3500) {
+    this.phaseDeadline = Date.now() + delay;
     this.anchorTimer = setTimeout(() => {
       this.anchorTimer = null;
       this.startTurn();
-    }, 3500);
+    }, delay);
   }
 
   private startTurn() {
+    this.hostPause = null;
     const song = this.deck.pop();
     if (!song) {
       this.endGame();
@@ -338,6 +374,7 @@ export class GameEngine {
     this.room.gameState.currentSong = song;
     this.room.gameState.phase = 'playing';
     this.room.gameState.pendingPlacement = null;
+    delete this.room.gameState.lastReveal;
     this.room.gameState.challengers = [];
     this.room.gameState.deckSize = this.deck.length;
     this.songNamed.clear();
@@ -364,20 +401,7 @@ export class GameEngine {
       songCard: { id: song.id },
     });
 
-    // Emit turn-started with deadline for countdown
-    const turnDeadline = Date.now() + TURN_TIME_MS;
-    this.io.to(this.room.code).emit('turn-started', {
-      turnPlayerId,
-      turnDeadline,
-    });
-
-    // Start turn timer — auto-skip on timeout (no token cost)
-    this.turnTimer = setTimeout(() => {
-      this.turnTimer = null;
-      if (this.room.gameState.phase === 'playing' && this.room.gameState.currentTurnPlayerId === turnPlayerId) {
-        this.advanceTurn();
-      }
-    }, TURN_TIME_MS);
+    this.startTurnTimer(turnPlayerId);
 
     // Tell host to play the song
     if (song.spotifyTrackId || song.previewUrl) {
@@ -388,6 +412,38 @@ export class GameEngine {
     }
   }
 
+  private startTurnTimer(turnPlayerId: string, delay = TURN_TIME_MS) {
+    const turnDeadline = Date.now() + delay;
+    this.phaseDeadline = turnDeadline;
+    this.room.gameState.turnDeadline = turnDeadline;
+    this.io.to(this.room.code).emit('turn-started', { turnPlayerId, turnDeadline });
+    this.turnTimer = setTimeout(() => {
+      this.turnTimer = null;
+      this.room.gameState.turnDeadline = null;
+      if (this.room.gameState.phase === 'playing' && this.room.gameState.currentTurnPlayerId === turnPlayerId) {
+        this.advanceTurn();
+      }
+    }, delay);
+  }
+
+  private startChallengeTimer(delay = this.isCoop ? 2000 : CHALLENGE_WINDOW_MS) {
+    this.phaseDeadline = Date.now() + delay;
+    this.room.gameState.challengeDeadline = this.isCoop ? null : this.phaseDeadline;
+    this.challengeTimer = setTimeout(() => this.resolveRound(), delay);
+  }
+
+  private clearPhaseTimers() {
+    if (this.anchorTimer) clearTimeout(this.anchorTimer);
+    if (this.turnTimer) clearTimeout(this.turnTimer);
+    if (this.challengeTimer) clearTimeout(this.challengeTimer);
+    this.anchorTimer = null;
+    this.turnTimer = null;
+    this.challengeTimer = null;
+    this.phaseDeadline = null;
+    this.room.gameState.turnDeadline = null;
+    this.room.gameState.challengeDeadline = null;
+  }
+
   placeCard(playerId: string, position: number) {
     const gs = this.room.gameState;
     if (gs.phase !== 'playing' || gs.currentTurnPlayerId !== playerId) return;
@@ -396,11 +452,7 @@ export class GameEngine {
     const timeline = this.isCoop ? gs.sharedTimeline : this.room.players[playerId]?.timeline;
     if (!timeline || position < 0 || position > timeline.length) return;
 
-    // Clear turn timer since player acted
-    if (this.turnTimer) {
-      clearTimeout(this.turnTimer);
-      this.turnTimer = null;
-    }
+    this.clearPhaseTimers();
 
     // Track placement speed for stats
     const placementMs = Date.now() - this.turnStartTime;
@@ -412,20 +464,12 @@ export class GameEngine {
     gs.pendingPlacement = position;
     gs.phase = 'challenge';
 
-    const challengeDeadline = this.isCoop ? undefined : Date.now() + CHALLENGE_WINDOW_MS;
-    this.io.to(this.room.code).emit('card-placed', { playerId, position, challengeDeadline });
-
-    if (this.isCoop) {
-      // Co-op: no challenge window, resolve immediately after a short delay
-      this.challengeTimer = setTimeout(() => {
-        this.resolveRound();
-      }, 2000);
-    } else {
-      // Start challenge window
-      this.challengeTimer = setTimeout(() => {
-        this.resolveRound();
-      }, CHALLENGE_WINDOW_MS);
-    }
+    this.startChallengeTimer();
+    this.io.to(this.room.code).emit('card-placed', {
+      playerId,
+      position,
+      challengeDeadline: gs.challengeDeadline ?? undefined,
+    });
   }
 
   challenge(challengerId: string, position: number): { error?: string } {
@@ -538,11 +582,7 @@ export class GameEngine {
     const player = this.room.players[playerId];
     if (!player || player.tokens < SKIP_COST) return;
 
-    // Clear turn timer since player acted
-    if (this.turnTimer) {
-      clearTimeout(this.turnTimer);
-      this.turnTimer = null;
-    }
+    this.clearPhaseTimers();
 
     player.tokens -= SKIP_COST;
     this.io.to(this.room.code).emit('tokens-updated', {
@@ -599,10 +639,7 @@ export class GameEngine {
   }
 
   private resolveRound() {
-    if (this.challengeTimer) {
-      clearTimeout(this.challengeTimer);
-      this.challengeTimer = null;
-    }
+    this.clearPhaseTimers();
 
     const gs = this.room.gameState;
     const song = gs.currentSong!;
@@ -818,7 +855,7 @@ export class GameEngine {
       }
     }
 
-    this.io.to(this.room.code).emit('reveal', {
+    this.room.gameState.lastReveal = {
       song,
       correct: result.correct,
       winnerId: result.winnerId,
@@ -829,7 +866,8 @@ export class GameEngine {
         yearCorrect: result.yearCorrect,
       },
       challengeResults: Object.keys(challengeResults).length > 0 ? challengeResults : undefined,
-    });
+    };
+    this.io.to(this.room.code).emit('reveal', this.room.gameState.lastReveal);
   }
 
   private resolveCoopRound(
@@ -882,7 +920,7 @@ export class GameEngine {
 
     gs.phase = 'reveal';
 
-    this.io.to(this.room.code).emit('reveal', {
+    gs.lastReveal = {
       song,
       correct: placementCorrect,
       winnerId: placementCorrect ? activePlayerId : null,
@@ -892,7 +930,8 @@ export class GameEngine {
         songNamed: false,
         coopPenalty: !placementCorrect,
       },
-    });
+    };
+    this.io.to(this.room.code).emit('reveal', gs.lastReveal);
 
     this.io.to(this.room.code).emit('shared-timeline-updated', {
       timeline: sharedTimeline,
@@ -950,11 +989,8 @@ export class GameEngine {
 
     // A rapid disconnect/reconnect/disconnect can re-enter here while an old
     // grace timer is still pending; clear it so Map.set never orphans a timer.
-    const existingGrace = this.disconnectTimers.get(playerId);
-    if (existingGrace) {
-      clearTimeout(existingGrace);
-      this.disconnectTimers.delete(playerId);
-    }
+    this.clearDisconnectTimer(playerId);
+    (this.room.reconnectDeadlines ??= {})[playerId] = reconnectDeadline;
 
     // Emit disconnected event so clients can show a countdown
     this.io.to(this.room.code).emit('player-disconnected', { playerId, reconnectDeadline });
@@ -966,39 +1002,28 @@ export class GameEngine {
       graceMs: DISCONNECT_GRACE_MS,
     });
 
-    // If it's their turn, pause turn timer and start grace period
-    if (gs.currentTurnPlayerId === playerId && (gs.phase === 'playing' || gs.phase === 'challenge')) {
-      // Clear any running timers for this turn
-      if (this.turnTimer) {
-        clearTimeout(this.turnTimer);
-        this.turnTimer = null;
-      }
-      if (this.challengeTimer) {
-        clearTimeout(this.challengeTimer);
-        this.challengeTimer = null;
-      }
+    const heldActiveTurn = gs.currentTurnPlayerId === playerId
+      && (gs.phase === 'playing' || gs.phase === 'challenge');
+    if (heldActiveTurn) this.clearPhaseTimers();
 
-      const timer = setTimeout(() => {
-        this.disconnectTimers.delete(playerId);
-        logger.info('Player disconnect grace period expired, skipping turn', {
-          roomCode: this.room.code,
-          playerId,
-          playerName: this.room.players[playerId]?.name,
-        });
-        this.io.to(this.room.code).emit('player-timed-out', { playerId });
+    const timer = setTimeout(() => {
+      this.clearDisconnectTimer(playerId);
+      this.io.to(this.room.code).emit('player-timed-out', { playerId });
+      if (heldActiveTurn && !this.room.hostRecovery && gs.currentTurnPlayerId === playerId
+        && (gs.phase === 'playing' || gs.phase === 'challenge')) {
         this.advanceTurn();
-      }, DISCONNECT_GRACE_MS);
+      }
+    }, DISCONNECT_GRACE_MS);
+    this.disconnectTimers.set(playerId, timer);
+  }
 
-      this.disconnectTimers.set(playerId, timer);
-    } else {
-      // Not their turn — just track a grace timer so we can cancel it on reconnect
-      const timer = setTimeout(() => {
-        this.disconnectTimers.delete(playerId);
-        this.io.to(this.room.code).emit('player-timed-out', { playerId });
-      }, DISCONNECT_GRACE_MS);
-
-      this.disconnectTimers.set(playerId, timer);
-    }
+  private clearDisconnectTimer(playerId: string): boolean {
+    const timer = this.disconnectTimers.get(playerId);
+    if (!timer) return false;
+    clearTimeout(timer);
+    this.disconnectTimers.delete(playerId);
+    if (this.room.reconnectDeadlines) delete this.room.reconnectDeadlines[playerId];
+    return true;
   }
 
   /**
@@ -1006,36 +1031,10 @@ export class GameEngine {
    * and restarts phase-appropriate timers if it was their turn.
    */
   handlePlayerReconnect(playerId: string): void {
-    const timer = this.disconnectTimers.get(playerId);
-    if (timer) {
-      clearTimeout(timer);
-      this.disconnectTimers.delete(playerId);
-
-      logger.info('Player reconnected within grace period', {
-        roomCode: this.room.code,
-        playerId,
-        playerName: this.room.players[playerId]?.name,
-      });
-
-      this.io.to(this.room.code).emit('player-reconnected', { playerId });
-
-      // Restart phase-appropriate timers if it was the reconnecting player's turn
-      const gs = this.room.gameState;
-      if (gs.currentTurnPlayerId === playerId) {
-        if (gs.phase === 'challenge') {
-          this.challengeTimer = setTimeout(() => {
-            this.resolveRound();
-          }, CHALLENGE_WINDOW_MS);
-        } else if (gs.phase === 'playing') {
-          const turnPlayerId = playerId;
-          this.turnTimer = setTimeout(() => {
-            this.turnTimer = null;
-            if (this.room.gameState.phase === 'playing' && this.room.gameState.currentTurnPlayerId === turnPlayerId) {
-              this.advanceTurn();
-            }
-          }, TURN_TIME_MS);
-        }
-      }
+    if (!this.clearDisconnectTimer(playerId)) return;
+    this.io.to(this.room.code).emit('player-reconnected', { playerId });
+    if (this.room.gameState.currentTurnPlayerId === playerId) {
+      this.resumeCurrentPhase();
     }
   }
 
@@ -1048,26 +1047,16 @@ export class GameEngine {
     if (gs.phase === 'lobby' || gs.phase === 'game_over') return;
 
     // Clear any existing disconnect timer for this player
-    const existingTimer = this.disconnectTimers.get(playerId);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-      this.disconnectTimers.delete(playerId);
-    }
+    this.clearDisconnectTimer(playerId);
 
     // Emit disconnected event (no reconnect expected)
     this.io.to(this.room.code).emit('player-disconnected', { playerId, reconnectDeadline: Date.now() });
     this.io.to(this.room.code).emit('player-timed-out', { playerId });
 
     // If it's their turn, immediately advance
-    if (gs.currentTurnPlayerId === playerId && (gs.phase === 'playing' || gs.phase === 'challenge')) {
-      if (this.turnTimer) {
-        clearTimeout(this.turnTimer);
-        this.turnTimer = null;
-      }
-      if (this.challengeTimer) {
-        clearTimeout(this.challengeTimer);
-        this.challengeTimer = null;
-      }
+    if (!this.room.hostRecovery && Object.values(this.room.players).some((p) => p.connected)
+      && gs.currentTurnPlayerId === playerId && (gs.phase === 'playing' || gs.phase === 'challenge')) {
+      this.clearPhaseTimers();
       this.advanceTurn();
     }
   }
@@ -1098,6 +1087,7 @@ export class GameEngine {
   }
 
   private endGame() {
+    this.clearPhaseTimers();
     this.room.gameState.phase = 'game_over';
 
     let winnerId = '';
@@ -1117,6 +1107,7 @@ export class GameEngine {
     }
 
     const finalScores: Record<string, number> = {};
+    this.room.gameState.winnerId = winnerId;
     for (const player of Object.values(this.room.players)) {
       finalScores[player.name] = this.isCoop
         ? this.room.gameState.sharedTimeline.length

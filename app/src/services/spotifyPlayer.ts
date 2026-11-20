@@ -7,10 +7,13 @@
  * until our device appears in the list before attempting playback.
  */
 
-const PLAYER_NAME = 'Tunes Game';
+const PLAYER_NAME = 'Tunes Game ' + Math.random().toString(36).slice(2, 8);
 
 let player: Spotify.Player | null = null;
 let deviceId: string | null = null;
+let sdkDeviceId: string | null = null;
+let deviceGeneration = 0;
+let connectionAttempt: Promise<boolean> | null = null;
 let sdkLoaded = false;
 let sdkReady: Promise<void> | null = null;
 let activated = false;
@@ -27,7 +30,9 @@ export function preUnlockAudio(): void {
   if (audioUnlocked) return;
   try {
     // Method 1: Resume an AudioContext
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const audioWindow = window as Window & { webkitAudioContext?: typeof AudioContext };
+    const AudioContextType = window.AudioContext || audioWindow.webkitAudioContext;
+    const ctx = new AudioContextType();
     if (ctx.state === 'suspended') {
       ctx.resume().catch(() => {});
     }
@@ -81,13 +86,24 @@ export interface SpotifyPlayerCallbacks {
   onDeviceConfirmed: () => void;
 }
 
+function connectPlayer(): Promise<boolean> {
+  if (!player || deviceId) return Promise.resolve(!!deviceId);
+  connectionAttempt ??= player.connect().catch(() => false).finally(() => {
+    connectionAttempt = null;
+  });
+  return connectionAttempt;
+}
 export async function initPlayer(
   getToken: () => Promise<string>,
   callbacks: SpotifyPlayerCallbacks,
 ): Promise<void> {
-  if (player) return;
+  if (player) {
+    await connectPlayer();
+    return;
+  }
 
   await loadSDK();
+  if (player) return;
 
   player = new window.Spotify.Player({
     name: PLAYER_NAME,
@@ -98,16 +114,20 @@ export async function initPlayer(
   });
 
   player.addListener('ready', ({ device_id }) => {
+    sdkDeviceId = device_id;
     deviceId = device_id;
     deviceConfirmed = false;
     console.log('[Tunes] SDK ready, device:', device_id);
     callbacks.onReady(device_id);
 
     // Start polling to confirm the device is registered with Spotify's servers
-    pollForDevice(device_id, getToken, callbacks);
+    void pollForDevice(device_id, ++deviceGeneration, getToken, callbacks);
   });
 
   player.addListener('not_ready', ({ device_id }) => {
+    if (sdkDeviceId !== device_id) return;
+    sdkDeviceId = null;
+    deviceGeneration++;
     console.warn('[Tunes] Device offline:', device_id);
     deviceId = null;
     deviceConfirmed = false;
@@ -147,7 +167,7 @@ export async function initPlayer(
     callbacks.onStateChange(state.paused, state.track_window.current_track.id);
   });
 
-  const connected = await player.connect();
+  const connected = await connectPlayer();
   if (!connected) {
     callbacks.onError('Couldn\'t reach Spotify — check your connection, then tap the play button to retry.');
   } else {
@@ -166,12 +186,12 @@ export async function initPlayer(
 /**
  * Poll GET /v1/me/player/devices until our device appears.
  *
- * IMPORTANT: The SDK's device_id from the 'ready' event does NOT match
- * the device ID in Spotify's REST API. We must match by device NAME
- * and use the API's ID for all subsequent REST API calls.
+ * Some SDK device IDs differ from the REST API IDs. Use the exact ID
+ * when available, or this document's player name if Spotify rewrites the ID.
  */
 async function pollForDevice(
   _sdkDeviceId: string,
+  generation: number,
   getToken: () => Promise<string>,
   callbacks: SpotifyPlayerCallbacks,
 ): Promise<void> {
@@ -179,6 +199,7 @@ async function pollForDevice(
   const POLL_INTERVAL = 2000;
 
   for (let i = 0; i < MAX_POLLS; i++) {
+    if (generation !== deviceGeneration) return;
     try {
       const token = await getToken();
       const res = await fetch('https://api.spotify.com/v1/me/player/devices', {
@@ -187,14 +208,15 @@ async function pollForDevice(
 
       if (res.ok) {
         const data = await res.json();
-        const devices: { name: string; id: string }[] = data.devices || [];
+        if (generation !== deviceGeneration) return;
+        const devices: { name: string; id: string | null }[] = data.devices || [];
         console.log(`[Tunes] Devices poll ${i + 1}/${MAX_POLLS}:`,
-          devices.map((d) => `${d.name} (${d.id.slice(0, 8)}...)`));
+          devices.map((d) => `${d.name} (${d.id?.slice(0, 8) ?? 'no ID'}...)`));
 
-        // Match by NAME, not by ID — the SDK's device_id differs from the API's
-        const found = devices.find((d) => d.name === PLAYER_NAME);
-        if (found) {
-          console.log('[Tunes] Device found in API! SDK id:', _sdkDeviceId.slice(0, 8), '→ API id:', found.id.slice(0, 8));
+        const found = devices.find((d) => d.id === _sdkDeviceId)
+          ?? devices.find((d) => d.name === PLAYER_NAME && d.id);
+        if (found?.id) {
+          console.log('[Tunes] Device found in API! SDK id:', _sdkDeviceId.slice(0, 8), '→ API id:', found.id?.slice(0, 8) ?? 'no ID');
           // Use the API's device ID for REST calls, not the SDK's
           deviceId = found.id;
           deviceConfirmed = true;
@@ -209,6 +231,7 @@ async function pollForDevice(
     await new Promise((r) => setTimeout(r, POLL_INTERVAL));
   }
 
+  if (generation !== deviceGeneration) return;
   console.warn('[Tunes] Device never appeared after', MAX_POLLS, 'polls — trying with SDK device ID');
   deviceConfirmed = true;
   callbacks.onDeviceConfirmed();
@@ -257,6 +280,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function playTrack(
   trackId: string,
   accessToken: string,
+  isCurrent: () => boolean = () => true,
 ): Promise<boolean> {
   if (!deviceId) {
     console.error('[Tunes] playTrack: no deviceId');
@@ -300,6 +324,7 @@ export async function playTrack(
       await sleep(attempt * 2000);
     }
 
+    if (!isCurrent()) return false;
     const res = await doPlay();
 
     if (res.ok || res.status === 204) {
@@ -363,6 +388,8 @@ export function disconnect(): void {
     player.disconnect();
     player = null;
     deviceId = null;
+    sdkDeviceId = null;
+    deviceGeneration++;
     deviceConfirmed = false;
     activated = false;
   }

@@ -35,6 +35,8 @@ interface GameStore {
   myId: string;
   roomCode: string;
   connected: boolean;
+  reconnecting: boolean;
+  hostRecovery: Room['hostRecovery'] | null;
   error: string | null;
   /** Transient informational banner (auto-dismisses), e.g. late-join briefing */
   notice: string | null;
@@ -167,6 +169,8 @@ const initialState = {
   myId: '',
   roomCode: '',
   connected: false,
+  reconnecting: false,
+  hostRecovery: null,
   error: null,
   notice: null,
   previewSongsAvailable: true,
@@ -332,6 +336,11 @@ export const useGameStore = create<GameStore>((set) => ({
   setMyHistory: (myHistory) => set({ myHistory }),
   syncRoom: (room) =>
     set({
+      hostRecovery: room.hostRecovery ?? null,
+      turnDeadline: room.gameState.turnDeadline ?? null,
+      challengeDeadline: room.gameState.challengeDeadline ?? null,
+      lastReveal: room.gameState.lastReveal ?? null,
+      disconnectedPlayers: room.reconnectDeadlines ?? {},
       players: room.players,
       hostId: room.hostId,
       settings: room.settings,

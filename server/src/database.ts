@@ -10,6 +10,10 @@ const DB_PATH = join(DATA_DIR, 'tunes.db');
 
 let db: Database.Database;
 
+export function closeDatabase(): void {
+  if (db?.open) db.close();
+}
+
 export function initDatabase(): void {
   if (!existsSync(DATA_DIR)) {
     mkdirSync(DATA_DIR, { recursive: true });

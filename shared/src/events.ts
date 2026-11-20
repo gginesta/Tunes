@@ -5,6 +5,7 @@ import type {
   LeaderboardEntry,
   PlayedSong,
   Player,
+  RevealResult,
   Room,
   SongCard,
   SongGuess,
@@ -13,7 +14,9 @@ import type {
 export interface ClientToServerEvents {
   'create-room': (data: { playerName: string; spotifyAccessToken?: string }) => void;
   'join-room': (data: { code: string; playerName: string }) => void;
-  'rejoin-room': (data: { code: string; playerId: string }) => void;
+  'rejoin-room': (data: { code: string; playerId: string; waitForPlayback?: boolean }) => void;
+  'host-playback-suspended': () => void;
+  'host-playback-ready': (data: { recoveryId: string }) => void;
   'leave-room': () => void;
   'update-settings': (settings: Partial<GameSettings>) => void;
   'start-game': (data?: { spotifyAccessToken?: string }) => void;
@@ -34,7 +37,7 @@ export interface ClientToServerEvents {
 
 export interface ServerToClientEvents {
   'room-created': (data: { code: string; playerId: string; room: Room }) => void;
-  'room-joined': (data: { room: Room; playerId: string }) => void;
+  'room-joined': (data: { room: Room; playerId: string; rejoined?: true }) => void;
   'player-joined': (player: Player) => void;
   'player-left': (playerId: string) => void;
   'settings-updated': (settings: GameSettings) => void;
@@ -44,19 +47,7 @@ export interface ServerToClientEvents {
   'play-song': (data: { spotifyTrackId: string; previewUrl?: string }) => void;
   'card-placed': (data: { playerId: string; position: number; challengeDeadline?: number }) => void;
   'challenge-made': (data: { challengerId: string; position?: number }) => void;
-  'reveal': (data: {
-    song: SongCard;
-    correct: boolean;
-    winnerId: string | null;
-    stolenBy: string | null;
-    modeResult?: {
-      placementCorrect: boolean;
-      songNamed: boolean;
-      yearCorrect?: boolean;
-      coopPenalty?: boolean;
-    };
-    challengeResults?: Record<string, { position: number; correct: boolean }>;
-  }) => void;
+  'reveal': (data: RevealResult) => void;
   'shared-timeline-updated': (data: { timeline: SongCard[] }) => void;
   'tokens-updated': (data: { playerId: string; tokens: number }) => void;
   'timeline-updated': (data: { playerId: string; timeline: SongCard[] }) => void;

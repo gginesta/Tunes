@@ -35,6 +35,7 @@ describe('room playback mode persistence', () => {
   });
 
   afterAll(() => {
+    database?.closeDatabase();
     vi.unstubAllEnvs();
     rmSync(dataDir, { recursive: true, force: true });
   });

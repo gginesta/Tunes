@@ -1,25 +1,15 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useGameStore } from '../store';
-import {
-  activateElement,
-  playTrack,
-  pause,
-  resume,
-  togglePlay,
-  setPlayerVolume,
-} from '../services/spotifyPlayer';
-import {
-  playPreviewUrl,
-  pauseFallback,
-  resumeFallback,
-  setFallbackVolume,
-} from '../services/audioFallback';
+import { getSocket } from '../services/socket';
+import { activateElement, playTrack, pause, setPlayerVolume } from '../services/spotifyPlayer';
+import { playPreviewUrl, pauseFallback, setFallbackVolume } from '../services/audioFallback';
 import {
   ensureFallbackAudio,
   ensureSpotifySession,
   beginSpotifyPlaybackAttempt,
   cancelSpotifyPlaybackAttempt,
   getSpotifyToken,
+  restoreSpotifyForCurrentHost,
   isUsingFallback,
   setUsingFallback,
 } from '../services/spotifySession';
@@ -30,178 +20,183 @@ export function useSpotifyPlayer() {
   const hostId = useGameStore((s) => s.hostId);
   const myId = useGameStore((s) => s.myId);
   const phase = useGameStore((s) => s.phase);
+  const cardId = useGameStore((s) => s.currentSong?.id);
   const currentTrackId = useGameStore((s) => s.currentTrackId);
   const currentPreviewUrl = useGameStore((s) => s.currentPreviewUrl);
   const spotifyReady = useGameStore((s) => s.spotifyReady);
   const volume = useGameStore((s) => s.volume);
+  const reconnecting = useGameStore((s) => s.reconnecting);
+  const recoveryId = useGameStore((s) => s.hostRecovery?.id);
+  const isPlaying = useGameStore((s) => s.isPlaying);
 
-  const isHost = myId === hostId;
+  const isHost = myId !== '' && myId === hostId;
   const lastTrackRef = useRef<string | null>(null);
+  const activeAttempt = useRef<{ key: string } | null>(null);
+  const recoveryAttempt = useRef<string | null>(null);
+  const recoveredCard = useRef<string | null>(null);
 
-  // Initialize fallback audio for all hosts (preview mode needs it)
   useEffect(() => {
     if (!isHost) return;
     ensureFallbackAudio();
-  }, [isHost]);
+    if (spotifyToken && !reconnecting) ensureSpotifySession();
+  }, [isHost, spotifyToken, reconnecting]);
 
-  // Initialize SDK player (host with Spotify only); idempotent, may have
-  // already happened via App's early init in the lobby
-  useEffect(() => {
-    if (!isHost || !spotifyToken) return;
-    ensureSpotifySession();
-  }, [isHost, spotifyToken]);
-
-  const tryFallback = useCallback(async (): Promise<boolean> => {
-    const previewUrl = useGameStore.getState().currentPreviewUrl;
-    if (previewUrl) {
-      console.log('[Tunes] Trying preview URL fallback');
-      setUsingFallback(true);
-      const ok = await playPreviewUrl(previewUrl);
-      if (ok) {
-        useGameStore.setState({ isPlaying: true });
-        return true;
-      }
-    }
-    console.error('[Tunes] All playback methods failed');
-    useGameStore.setState({
-      spotifyError: 'Could not play this song. Try clicking the play button.',
-    });
-    return false;
-  }, []);
-
-  /**
-   * Attempt to play a track. Tries SDK first, falls back to preview URL.
-   */
-  const attemptPlayTrack = useCallback(async (trackId: string): Promise<boolean> => {
-    beginSpotifyPlaybackAttempt(trackId);
-    let token: string;
-    try {
-      token = await getSpotifyToken();
-    } catch {
-      console.warn('[Tunes] Could not get token for playback');
-      cancelSpotifyPlaybackAttempt(trackId);
-      return tryFallback();
-    }
-
-    // Try SDK playback
-    const success = await playTrack(trackId, token);
-    if (success) return true;
-
-    // Token might be expired — refresh and retry
-    console.log('[Tunes] Refreshing token and retrying...');
-    try {
-      token = await getSpotifyToken(true);
-      const retrySuccess = await playTrack(trackId, token);
-      if (retrySuccess) return true;
-    } catch {
-      console.warn('[Tunes] Token refresh failed');
-    }
-
-    cancelSpotifyPlaybackAttempt(trackId);
-    return tryFallback();
-  }, [tryFallback]);
-
-  // Sync volume to Spotify player and fallback audio
   useEffect(() => {
     setPlayerVolume(volume);
     setFallbackVolume(volume);
   }, [volume]);
 
-  // Auto-play when track changes and device is confirmed ready
-  useEffect(() => {
-    if (!isHost || (!currentTrackId && !currentPreviewUrl)) return;
-    if (phase !== 'playing') return;
-    const playbackRoute = getPlaybackRoute(
-      currentTrackId,
-      currentPreviewUrl,
-      !!spotifyToken,
-    );
-    const playbackKey = getPlaybackAttemptKey(
-      playbackRoute,
-      currentTrackId,
-      currentPreviewUrl,
-    );
-    if (!playbackKey || playbackKey === lastTrackRef.current) return;
-
-    // For SDK playback, wait until device is confirmed
-    if (playbackRoute === 'spotify' && !spotifyReady) return;
-
-    lastTrackRef.current = playbackKey;
-
-    if (playbackRoute === 'spotify' && currentTrackId) {
-      // SDK path: activate element and play via Spotify
-      activateElement();
-      attemptPlayTrack(currentTrackId);
-    } else if (playbackRoute === 'preview' && currentPreviewUrl) {
-      cancelSpotifyPlaybackAttempt();
-      setUsingFallback(true);
-      playPreviewUrl(currentPreviewUrl).then((ok) => {
-        if (ok) {
-          useGameStore.setState({ isPlaying: true, autoplayBlocked: false });
-        } else {
-          // Browser blocked autoplay — show the banner
-          useGameStore.setState({ isPlaying: false, autoplayBlocked: true });
-        }
-      });
-    }
-  }, [isHost, spotifyToken, spotifyReady, currentTrackId, currentPreviewUrl, phase, attemptPlayTrack]);
-
-  // Auto-pause on reveal/game_over (keep music playing during challenge)
-  useEffect(() => {
-    if (!isHost) return;
-    if (phase === 'reveal' || phase === 'game_over') {
-      cancelSpotifyPlaybackAttempt();
-      pause();
-      pauseFallback();
-    }
-  }, [isHost, phase]);
-
-  // Play button handler — called on user gesture (click).
-  // This is the critical path for unlocking audio. It must:
-  // 1. Call activateElement() to unlock the SDK's AudioContext (every time, not just once)
-  // 2. Call player.resume() directly — this goes through the SDK's own AudioContext
-  //    from within the user gesture call stack, which browsers trust
-  // 3. Then also try the REST API path as a backup
-  const togglePlayback = useCallback(async () => {
-    activateElement();
-    useGameStore.setState({ autoplayBlocked: false });
-
+  const startPlayback = useCallback(async (fromGesture: boolean) => {
+    const state = useGameStore.getState();
+    if (document.hidden || state.reconnecting || state.myId !== state.hostId) return;
+    if (state.phase !== 'playing' && state.phase !== 'challenge') return;
     const {
-      isPlaying: playing,
       currentTrackId: trackId,
       currentPreviewUrl: previewUrl,
-    } = useGameStore.getState();
-    const playbackRoute = getPlaybackRoute(trackId, previewUrl, !!spotifyToken);
+      currentSong,
+      hostRecovery,
+    } = state;
+    const route = getPlaybackRoute(trackId, previewUrl, !!state.spotifyToken);
+    const playbackKey = getPlaybackAttemptKey(route, trackId, previewUrl);
+    if (!playbackKey) return;
+    const attempt = { key: [currentSong?.id, playbackKey, hostRecovery?.id].join(':') };
+    if (activeAttempt.current?.key === attempt.key) return;
+    activeAttempt.current = attempt;
+    const isCurrent = () => {
+      const latest = useGameStore.getState();
+      return activeAttempt.current === attempt
+        && !document.hidden && !latest.reconnecting
+        && latest.screen === 'game'
+        && latest.myId === state.myId && latest.hostId === state.myId
+        && latest.roomCode === state.roomCode
+        && latest.currentSong?.id === currentSong?.id
+        && latest.currentTrackId === trackId && latest.currentPreviewUrl === previewUrl
+        && latest.hostRecovery?.id === hostRecovery?.id
+        && (latest.phase === 'playing' || latest.phase === 'challenge');
+    };
 
-    if (playing) {
-      if (isUsingFallback()) {
-        cancelSpotifyPlaybackAttempt();
-        pauseFallback();
-        useGameStore.setState({ isPlaying: false });
-      } else {
-        await togglePlay();
-      }
-    } else {
-      if (playbackRoute === 'preview' && previewUrl) {
-        cancelSpotifyPlaybackAttempt();
-        // Continue an existing preview from its paused position. Only assign
-        // the URL again when there is no resumable fallback audio.
-        const resumed = await resumeFallback();
-        if (!resumed) await tryFallback();
-      } else if (playbackRoute === 'spotify' && trackId) {
+    if (fromGesture && hostRecovery) recoveryAttempt.current = hostRecovery.id;
+    try {
+      useGameStore.setState({ autoplayBlocked: false, spotifyError: null });
+      if (route === 'spotify' && trackId) {
+        if (fromGesture) ensureSpotifySession();
         beginSpotifyPlaybackAttempt(trackId);
-        // The SDK resume runs inside the gesture context, which browsers trust.
-        await resume().catch(() => {});
-        await attemptPlayTrack(trackId);
-      } else {
-        await togglePlay();
+        let sent = false;
+        try {
+          const token = await getSpotifyToken();
+          if (isCurrent()) sent = await playTrack(trackId, token, isCurrent);
+          if (!sent && isCurrent()) {
+            const refreshed = await getSpotifyToken(true);
+            if (isCurrent()) sent = await playTrack(trackId, refreshed, isCurrent);
+          }
+        } catch {
+          // A failed SDK/API attempt can still use the current card's preview.
+        }
+        if (sent || !isCurrent()) return;
+        cancelSpotifyPlaybackAttempt(trackId);
+      }
+
+      if (previewUrl && isCurrent()) {
+        setUsingFallback(true);
+        const played = await playPreviewUrl(previewUrl, fromGesture);
+        if (!isCurrent()) return;
+        if (played) {
+          useGameStore.setState({ isPlaying: true, autoplayBlocked: false });
+          return;
+        }
+      }
+      if (isCurrent()) {
+        useGameStore.setState({
+          isPlaying: false,
+          autoplayBlocked: true,
+          spotifyError: 'Could not play this song. Tap play to try again.',
+        });
+      }
+    } finally {
+      if (activeAttempt.current === attempt) activeAttempt.current = null;
+    }
+  }, []);
+
+  // Keep the recovery paused until the host explicitly starts the current song.
+  useEffect(() => {
+    if (reconnecting || !isHost || (phase !== 'playing' && phase !== 'challenge')) {
+      activeAttempt.current = null;
+      recoveryAttempt.current = null;
+      if (phase !== 'playing' && phase !== 'challenge') {
+        lastTrackRef.current = null;
+        recoveredCard.current = null;
       }
     }
-  }, [attemptPlayTrack, spotifyToken, tryFallback]);
+    if (!isHost || reconnecting || recoveryId || phase !== 'playing' || document.hidden) return;
+    if (recoveredCard.current === cardId) return;
+    const route = getPlaybackRoute(currentTrackId, currentPreviewUrl, !!spotifyToken);
+    const playbackKey = getPlaybackAttemptKey(route, currentTrackId, currentPreviewUrl);
+    if (!playbackKey || (route === 'spotify' && !spotifyReady)) return;
+    const key = `${cardId ?? ''}:${playbackKey}`;
+    if (lastTrackRef.current === key) return;
+    lastTrackRef.current = key;
+    void startPlayback(false);
+  }, [
+    isHost, reconnecting, recoveryId, phase, cardId, spotifyToken, spotifyReady,
+    currentTrackId, currentPreviewUrl, startPlayback,
+  ]);
 
-  return {
-    isHost,
-    spotifyReady,
-    togglePlayback,
-  };
+  useEffect(() => {
+    if (!isHost || reconnecting || !recoveryId || document.hidden) return;
+    const needsMusic = (phase === 'playing' || phase === 'challenge')
+      && !!(currentTrackId || currentPreviewUrl);
+    if (needsMusic && (!isPlaying || recoveryAttempt.current !== recoveryId)) return;
+    const socket = getSocket();
+    if (!socket.connected) return;
+    if (needsMusic) recoveredCard.current = cardId ?? null;
+    socket.emit('host-playback-ready', { recoveryId });
+  }, [isHost, reconnecting, recoveryId, phase, cardId, currentTrackId, currentPreviewUrl, isPlaying]);
+
+  // Music continues during the challenge window.
+  useEffect(() => {
+    if (!isHost || (phase !== 'reveal' && phase !== 'game_over')) return;
+    cancelSpotifyPlaybackAttempt();
+    void pause();
+    pauseFallback();
+  }, [isHost, phase]);
+
+  const togglePlayback = useCallback(() => {
+    const state = useGameStore.getState();
+    if (!isHost || state.reconnecting || (state.phase !== 'playing' && state.phase !== 'challenge')) return;
+    if (state.isPlaying) {
+      activeAttempt.current = null;
+      cancelSpotifyPlaybackAttempt();
+      if (isUsingFallback()) {
+        pauseFallback();
+      } else {
+        void pause();
+      }
+      useGameStore.setState({ isPlaying: false });
+      return;
+    }
+    activateElement();
+    const route = getPlaybackRoute(state.currentTrackId, state.currentPreviewUrl, !!state.spotifyToken);
+    const key = getPlaybackAttemptKey(route, state.currentTrackId, state.currentPreviewUrl);
+    if (key) lastTrackRef.current = `${state.currentSong?.id ?? ''}:${key}`;
+    if (!key && state.currentTrackId) {
+      void restoreSpotifyForCurrentHost(state.roomCode, state.myId, state.hostId)
+        .then((token) => {
+          const latest = useGameStore.getState();
+          if (token && latest.roomCode === state.roomCode && latest.myId === state.myId
+            && latest.currentSong?.id === state.currentSong?.id
+            && latest.hostRecovery?.id === state.hostRecovery?.id) {
+            void startPlayback(true);
+          } else if (!token) {
+            useGameStore.setState({ spotifyError: 'Could not restore Spotify. Check your connection and tap play again.' });
+          }
+        })
+        .catch(() => {
+          useGameStore.setState({ spotifyError: 'Could not restore Spotify. Check your connection and tap play again.' });
+        });
+      return;
+    }
+    void startPlayback(true);
+  }, [isHost, startPlayback]);
+
+  return { isHost, spotifyReady, togglePlayback };
 }

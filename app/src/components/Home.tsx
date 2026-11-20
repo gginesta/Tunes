@@ -380,7 +380,7 @@ export function Home() {
         )}
       </div>
       <p className="text-center text-[10px] text-white/25 mt-3 tabular-nums">
-        TUNES v2.3.0 · 33⅓ rpm {connected ? <Wifi className="inline w-3 h-3" /> : <WifiOff className="inline w-3 h-3" />}
+        TUNES v2.3.1 · 33⅓ rpm {connected ? <Wifi className="inline w-3 h-3" /> : <WifiOff className="inline w-3 h-3" />}
       </p>
     </div>
   );
