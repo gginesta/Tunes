@@ -916,6 +916,20 @@ describe('disconnect handling', () => {
     });
   }
 
+  it('excludes the host recovery hold from placement speed', () => {
+    const { room, engine } = disconnectSetup();
+    vi.advanceTimersByTime(1000);
+    room.hostRecovery = { id: 'episode', reconnectDeadline: null };
+    engine.pauseForHost();
+    vi.advanceTimersByTime(90_000);
+    delete room.hostRecovery;
+    engine.resumeCurrentPhase();
+    vi.advanceTimersByTime(2000);
+
+    engine.placeCard('p1', 1);
+    expect(engine.getGameStats().playerStats.get('p1')?.fastestPlacementMs).toBe(3000);
+  });
+
   it('skips the active player after the grace period expires', () => {
     const { room, engine, eventsOf } = disconnectSetup();
 

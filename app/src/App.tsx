@@ -1,5 +1,6 @@
 import { useEffect, lazy, Suspense } from 'react';
 import { useSocket } from './hooks/useSocket';
+import { useScreenWakeLock } from './hooks/useScreenWakeLock';
 import { useGameStore } from './store';
 import { ensureSpotifySession } from './services/spotifySession';
 import { Home } from './components/Home';
@@ -19,6 +20,7 @@ export default function App() {
   const spotifyToken = useGameStore((s) => s.spotifyToken);
   const hostId = useGameStore((s) => s.hostId);
   const myId = useGameStore((s) => s.myId);
+  useScreenWakeLock(screen === 'lobby' || screen === 'game');
   const isHost = myId !== '' && myId === hostId;
 
   // Initialize Spotify SDK early (in lobby) so it's ready when the game starts

@@ -15,6 +15,14 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+      - name: Verify host lock and rejoin with two Classic players
+        run: npm run test:classic-recovery
+      - name: Verify Classic recovery in WebKit
+        env:
+          TUNES_TEST_BROWSER: webkit
+        run: |
+          npx --no-install playwright-core install --with-deps webkit
+          npm run test:classic-recovery
       - run: npm run lint
       - name: Build production image
         run: docker build --build-arg VITE_SPOTIFY_CLIENT_ID=ci-smoke -t tunes-ci .

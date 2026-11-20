@@ -8,27 +8,89 @@ import {
 } from '../services/socket';
 import { useGameStore } from '../store';
 import { playBuzzSound, playBuzzAlertSound, playTurnSound } from '../services/sounds';
-import { restoreSpotifyForCurrentHost } from '../services/spotifySession';
+import { cancelSpotifyPlaybackAttempt, restoreSpotifyForCurrentHost } from '../services/spotifySession';
+import { pause } from '../services/spotifyPlayer';
+import { pauseFallback } from '../services/audioFallback';
 
 export function useSocket() {
   useEffect(() => {
     const socket = getSocket();
-    socket.connect();
+    let rejoinTimeout: ReturnType<typeof setTimeout> | undefined;
+    let backgrounded = false;
+
+    const clearRejoinTimeout = () => {
+      clearTimeout(rejoinTimeout);
+      rejoinTimeout = undefined;
+    };
+
+    const rejoin = () => {
+      const session = getSession();
+      if (!session || rejoinTimeout !== undefined) return;
+      useGameStore.setState({ reconnecting: true });
+      socket.emit('rejoin-room', {
+        code: session.roomCode,
+        playerId: session.playerId,
+        waitForPlayback: true,
+      });
+      // Safari can wake with a dead transport that still reports connected.
+      rejoinTimeout = setTimeout(() => {
+        clearRejoinTimeout();
+        if (document.hidden || !navigator.onLine) return;
+        socket.disconnect();
+        socket.connect();
+      }, 5000);
+    };
+
+    const suspend = (notifyServer: boolean) => {
+      const state = useGameStore.getState();
+      if (state.screen !== 'game' && state.screen !== 'lobby') return;
+      useGameStore.setState({ reconnecting: true });
+      if (state.screen !== 'game' || state.myId !== state.hostId) return;
+      if (notifyServer && socket.connected) socket.emit('host-playback-suspended');
+      cancelSpotifyPlaybackAttempt();
+      void pause();
+      pauseFallback();
+      useGameStore.setState({ isPlaying: false });
+    };
+
+    const recover = () => {
+      if (document.hidden) return;
+      if (socket.connected) {
+        rejoin();
+      } else {
+        socket.connect();
+      }
+    };
+    const onPageHide = () => {
+      if (backgrounded) return;
+      backgrounded = true;
+      suspend(true);
+    };
+    const onForeground = () => {
+      backgrounded = false;
+      recover();
+    };
+    const onVisibility = () => {
+      if (document.hidden) onPageHide();
+      else onForeground();
+    };
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) onForeground();
+    };
 
     socket.on('connect', () => {
       useGameStore.getState().setConnected(true);
-
-      // Auto-rejoin room after reconnect
-      const session = getSession();
-      if (session) {
-        console.log('[Tunes] Reconnected — attempting rejoin', session.roomCode);
-        socket.emit('rejoin-room', {
-          code: session.roomCode,
-          playerId: session.playerId,
-        });
-      }
+      rejoin();
     });
-    socket.on('disconnect', () => useGameStore.getState().setConnected(false));
+    socket.on('disconnect', () => {
+      clearRejoinTimeout();
+      useGameStore.getState().setConnected(false);
+      suspend(false);
+    });
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('pageshow', onPageShow);
+    window.addEventListener('online', recover);
 
     socket.on('server-config', ({ previewSongsAvailable }) => {
       useGameStore.setState({ previewSongsAvailable });
@@ -46,7 +108,8 @@ export function useSocket() {
       saveSession(code, playerId);
     });
 
-    socket.on('room-joined', ({ room, playerId }) => {
+    socket.on('room-joined', ({ room, playerId, rejoined }) => {
+      if (rejoined) clearRejoinTimeout();
       migrateSessionPlaybackIntent(
         room.playbackMode,
         playerId === room.originalHostId,
@@ -57,9 +120,31 @@ export function useSocket() {
       store.setPlayers(room.players);
       store.setHostId(room.hostId);
       store.setSettings(room.settings);
-      // Only navigate to lobby if not in an active game
-      const phase = room.gameState.phase;
-      if (phase === 'lobby') {
+      const { phase, currentSong, winnerId } = room.gameState;
+      if (rejoined) {
+        const hasActiveSong = phase === 'playing' || phase === 'challenge';
+        const isHost = playerId === room.hostId;
+        const showingAnchors = phase === 'anchor_preview' || (phase === 'playing' && !currentSong);
+        const sharedAnchor = room.gameState.sharedTimeline[0];
+        const anchorCards = showingAnchors
+          ? room.settings.mode === 'coop' && sharedAnchor
+            ? { __shared__: sharedAnchor }
+            : Object.fromEntries(Object.values(room.players).flatMap((player) => {
+              const anchor = player.timeline[0];
+              return anchor ? [[player.id, anchor]] : [];
+            }))
+          : null;
+        store.syncRoom(room);
+        useGameStore.setState({
+          screen: phase === 'lobby' ? 'lobby' : phase === 'game_over' ? 'results' : 'game',
+          currentTrackId: isHost && hasActiveSong ? currentSong?.spotifyTrackId ?? null : null,
+          currentPreviewUrl: isHost && hasActiveSong ? currentSong?.previewUrl ?? null : null,
+          reconnecting: false,
+          anchorCards,
+          winnerId: winnerId ?? null,
+          finalPlayers: phase === 'game_over' ? room.players : {},
+        });
+      } else if (phase === 'lobby') {
         store.setScreen('lobby');
       } else if (phase !== 'game_over') {
         // Late joiner: brief them on the game in progress
@@ -116,6 +201,7 @@ export function useSocket() {
       const store = useGameStore.getState();
       store.setCurrentTurnPlayerId(turnPlayerId);
       store.setCurrentSong(songCard);
+      store.setCurrentTrackId(null);
       store.setPhase('playing');
       store.setPendingPlacement(null);
       store.setLastReveal(null);
@@ -126,7 +212,7 @@ export function useSocket() {
       // Notify player when it's their turn (sound + vibrate + background notification)
       if (turnPlayerId === store.myId) {
         playTurnSound();
-        if (document.hidden && Notification.permission === 'granted') {
+        if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
           new Notification('Tunes', { body: "It's your turn!", icon: '/favicon.ico' });
         }
       }
@@ -227,7 +313,11 @@ export function useSocket() {
       if (code === 'REJOIN_FAILED') {
         // An expired/cleaned-up session is not the user's fault — say so
         // instead of surfacing the raw server error.
+        clearRejoinTimeout();
         clearSession();
+        const store = useGameStore.getState();
+        store.reset();
+        useGameStore.setState({ connected: socket.connected, previewSongsAvailable: store.previewSongsAvailable });
         useGameStore.getState().setError('Your previous game session has ended — host or join a new room.');
         return;
       }
@@ -278,7 +368,14 @@ export function useSocket() {
       useGameStore.getState().setMyHistory(games);
     });
 
+    socket.connect();
+
     return () => {
+      clearRejoinTimeout();
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('pageshow', onPageShow);
+      window.removeEventListener('online', recover);
       socket.removeAllListeners();
       socket.disconnect();
     };

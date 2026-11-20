@@ -6,7 +6,7 @@ import { useGameStore } from '../store';
 import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
 import { useGameTimers } from '../hooks/useGameTimers';
 import { useGameSounds } from '../hooks/useGameSounds';
-import { preUnlockAudio, activateElement } from '../services/spotifyPlayer';
+import { preUnlockAudio } from '../services/spotifyPlayer';
 import { SKIP_COST, BUY_CARD_COST } from '@tunes/shared';
 import { SongHistory } from './SongHistory';
 import { WaitingState } from './WaitingState';
@@ -31,9 +31,14 @@ export function Game() {
   const lastReveal = useGameStore((s) => s.lastReveal);
   const settings = useGameStore((s) => s.settings);
   const isPlayingMusic = useGameStore((s) => s.isPlaying);
+  const currentCardId = useGameStore((s) => s.currentSong?.id);
+  const autoplayBlocked = useGameStore((s) => s.autoplayBlocked);
   const spotifyError = useGameStore((s) => s.spotifyError);
   const notice = useGameStore((s) => s.notice);
   const isHost = myId === hostId;
+  const reconnecting = useGameStore((s) => s.reconnecting);
+  const hostRecovery = useGameStore((s) => s.hostRecovery);
+  const hasCurrentMusic = useGameStore((s) => !!(s.currentTrackId || s.currentPreviewUrl));
 
   // Stop game confirmation
   const [showStopConfirm, setShowStopConfirm] = useState(false);
@@ -73,13 +78,13 @@ export function Game() {
     if (isPlayingMusic) setMusicStarted(true);
   }, [isPlayingMusic]);
   // Reset when track changes (new turn)
-  const prevTrackRef = useRef(currentTurnPlayerId);
+  const prevTrackRef = useRef(currentCardId);
   useEffect(() => {
-    if (currentTurnPlayerId !== prevTrackRef.current) {
-      prevTrackRef.current = currentTurnPlayerId;
+    if (currentCardId !== prevTrackRef.current) {
+      prevTrackRef.current = currentCardId;
       setMusicStarted(false);
     }
-  }, [currentTurnPlayerId]);
+  }, [currentCardId]);
 
   // Clear guess inputs when turn changes
   useEffect(() => {
@@ -89,19 +94,13 @@ export function Game() {
     useGameStore.setState({ songNameResult: null });
   }, [currentTurnPlayerId]);
 
-  const needsPlayButton = isHost && phase === 'playing' && !musicStarted && !isPlayingMusic;
+  const needsPlayButton = isHost && !reconnecting && !isPlayingMusic && hasCurrentMusic
+    && ((phase === 'playing' && (!musicStarted || autoplayBlocked)) || (!!hostRecovery && (phase === 'playing' || phase === 'challenge')));
 
   const handlePlayTap = () => {
-    // Call everything synchronously from the gesture context:
-    // 1. Pre-unlock a generic AudioContext
     preUnlockAudio();
-    // 2. Unlock the SDK's internal AudioContext (can be called multiple times)
-    activateElement();
-    // 3. Route the gesture to the current card. Preview-only cards must never
-    // resume the SDK's previous Spotify track.
     togglePlayback();
   };
-
   const socket = getSocket();
   const isMyTurn = currentTurnPlayerId === myId;
   const me = players[myId];
@@ -199,6 +198,12 @@ export function Game() {
         onStopGame={() => setShowStopConfirm(true)}
       />
 
+      {(reconnecting || (hostRecovery && !isHost)) && (
+        <div role="status" className="bg-black/40 border-b border-neon-pink/30 px-4 py-2 text-center text-sm">
+          {reconnecting ? 'Reconnecting to your game…' : 'Game paused while the host reconnects.'}
+        </div>
+      )}
+
       {/* Big play button — shown when music hasn't started yet */}
       {needsPlayButton && (
         <motion.div
@@ -211,7 +216,7 @@ export function Game() {
             className="btn btn-primary btn-lg w-full"
           >
             <Play className="w-5 h-5" fill="currentColor" />
-            TAP TO PLAY MUSIC
+            {hostRecovery ? 'TAP TO RESUME MUSIC' : 'TAP TO PLAY MUSIC'}
           </button>
         </motion.div>
       )}

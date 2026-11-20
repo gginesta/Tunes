@@ -11,6 +11,10 @@ A real-time multiplayer music party game where players compete to build a chrono
 5. **Challenge!** -- Other players have 15 seconds to spend a token and challenge if they think the placement is wrong
 6. **First to collect enough cards wins!**
 
+### Hosting on an iPhone
+
+Tunes asks Safari to keep your screen awake while you host. If your phone locks or loses its connection during a song, open Tunes again in the same Safari browser. Your friends can stay in the room while you return. Tap **Resume music** if prompted to continue the same turn.
+
 ## Features
 
 - **Real-time multiplayer** -- 2-12 players per room via Socket.io (late joiners welcome)
@@ -31,7 +35,7 @@ A real-time multiplayer music party game where players compete to build a chrono
 - **Structured logging** -- JSON structured logger with debug/info/warn/error levels; LOG_LEVEL env var; pretty-print in dev, JSON in production; request and game event logging
 - **Health check** -- GET /health returns status, uptime, room/player counts, and version
 - **Guest identity** -- No accounts or passwords: leaderboards, stats and history are keyed by your stage name (keep using the same name to build your record)
-- **Connection handling** -- Tracks player online/offline status with automatic host reassignment and 30-second disconnect grace period
+- **Connection handling** -- An interrupted host can return to their seat and current turn. Choosing to leave hands hosting to a connected player.
 - **Anchor card animation** -- Starting cards dealt with a flip animation before the first turn
 - **Fuzzy song matching** -- Levenshtein distance with typo tolerance for song naming in Pro/Expert modes
 - **Genre & decade packs** -- Filter songs by genre, decade, or both for themed game nights

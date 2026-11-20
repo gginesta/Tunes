@@ -161,7 +161,11 @@ export function ensureFallbackAudio(): void {
   initFallbackAudio({
     onStateChange: (paused) => {
       if (usingFallback) {
-        useGameStore.setState({ isPlaying: !paused });
+        const state = useGameStore.getState();
+        useGameStore.setState({
+          isPlaying: !paused && !document.hidden && !state.reconnecting
+            && (state.phase === 'playing' || state.phase === 'challenge'),
+        });
       }
     },
   });
@@ -192,7 +196,11 @@ export function ensureSpotifySession(): void {
       useGameStore.setState({ spotifyReady: true, spotifyError: null });
     },
     onNotReady: () => {
-      useGameStore.setState({ spotifyDeviceId: null });
+      useGameStore.setState({
+        spotifyDeviceId: null,
+        spotifyReady: false,
+        ...(!usingFallback ? { isPlaying: false } : {}),
+      });
       console.log('[Tunes] Device went offline, waiting for reconnection...');
     },
     onError: (message) => {
@@ -202,10 +210,21 @@ export function ensureSpotifySession(): void {
       handleSpotifyAutoplayFailed();
     },
     onStateChange: (paused, trackId) => {
+      const state = useGameStore.getState();
+      if (!paused && (
+        document.hidden || state.reconnecting || state.hostId !== state.myId
+        || (state.phase !== 'playing' && state.phase !== 'challenge')
+        || state.currentTrackId !== trackId
+        || (state.hostRecovery && pendingSpotifyTrackId !== trackId && !state.isPlaying)
+      )) {
+        void pauseSpotify();
+        return;
+      }
       handleSpotifyPlayerStateChange(paused, trackId);
     },
     onActive: (active) => {
       if (!active) {
+        if (!usingFallback) useGameStore.setState({ isPlaying: false });
         console.log('[Tunes] Player state null — device not yet active');
       }
     },

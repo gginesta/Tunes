@@ -53,6 +53,24 @@ export interface GameState {
   turnIndex: number;
   deckSize: number;
   sharedTimeline: SongCard[];
+  turnDeadline?: number | null;
+  challengeDeadline?: number | null;
+  lastReveal?: RevealResult;
+  winnerId?: string;
+}
+
+export interface RevealResult {
+  song: SongCard;
+  correct: boolean;
+  winnerId: string | null;
+  stolenBy: string | null;
+  modeResult?: {
+    placementCorrect: boolean;
+    songNamed: boolean;
+    yearCorrect?: boolean;
+    coopPenalty?: boolean;
+  };
+  challengeResults?: Record<string, { position: number; correct: boolean }>;
 }
 
 export interface Room {
@@ -63,6 +81,8 @@ export interface Room {
   originalHostId?: string;
   /** Persisted hosting choice; also migrates rooms created before client intent storage. */
   playbackMode?: 'spotify' | 'preview';
+  hostRecovery?: { id: string; reconnectDeadline: number | null };
+  reconnectDeadlines?: Record<string, number>;
   settings: GameSettings;
   gameState: GameState;
 }

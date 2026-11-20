@@ -46,10 +46,13 @@ type TunesServer = Server<ClientToServerEvents, ServerToClientEvents>;
 const rooms = new Map<string, Room>();
 const games = new Map<string, GameEngine>();
 const socketToRoom = new Map<string, { code: string; playerId: string }>();
+const supersededSockets = new WeakMap<TunesSocket, { code: string; playerId: string }>();
 const roomSpotifyCredentials = new Map<string, HostSpotifyCredential>();
 
 /** Timers for delayed room cleanup when all players disconnect */
 const roomCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const EMPTY_LOBBY_GRACE_MS = 5 * 60 * 1000;
+const EMPTY_GAME_GRACE_MS = 30 * 60 * 1000;
 
 const ALLOWED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 
@@ -252,8 +255,7 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
     };
 
     rooms.set(code, room);
-    socketToRoom.set(socket.id, { code, playerId });
-    socket.join(code);
+    bindPlayerSocket(io, socket, room, playerId);
 
     const engine = new GameEngine(room, io);
     setupGameEndHook(engine, code);
@@ -315,8 +317,7 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
     };
 
     room.players[playerId] = player;
-    socketToRoom.set(socket.id, { code: upperCode, playerId });
-    socket.join(upperCode);
+    bindPlayerSocket(io, socket, room, playerId);
 
     // Cancel any pending room cleanup (someone came back)
     cancelRoomCleanup(upperCode);
@@ -349,7 +350,7 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
 
   socket.on('rejoin-room', (payload) => {
     if (!isRecord(payload)) return;
-    const { code, playerId } = payload;
+    const { code, playerId, waitForPlayback } = payload;
     if (!isShortString(code, 10) || !isShortString(playerId, 64)) return;
     const upperCode = code.toUpperCase();
     const room = rooms.get(upperCode);
@@ -358,12 +359,14 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
       socket.emit('error', { message: 'Room not found or player unknown', code: 'REJOIN_FAILED' });
       return;
     }
+    const superseded = supersededSockets.get(socket);
+    if (superseded?.code === upperCode && superseded.playerId === playerId) return;
 
-    // Re-associate this socket with the existing player
     const player = room.players[playerId];
+    const previous = socketToRoom.get(socket.id);
+    const sameSocket = previous?.code === upperCode && previous.playerId === playerId;
     player.connected = true;
-    socketToRoom.set(socket.id, { code: upperCode, playerId });
-    socket.join(upperCode);
+    bindPlayerSocket(io, socket, room, playerId);
 
     // Cancel any pending room cleanup (player came back)
     cancelRoomCleanup(upperCode);
@@ -376,45 +379,49 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
       }
       room.hostId = playerId;
       player.isHost = true;
+      roomSpotifyCredentials.delete(upperCode);
+      games.get(upperCode)?.setSpotifyToken(null);
       logger.info('Original host restored', { code: upperCode, playerId, name: player.name });
     }
 
-    logger.info('Player rejoined', { code: upperCode, playerId, name: player.name });
-
-    // Send full state to the reconnecting client
-    socket.emit('room-joined', { room, playerId });
-    // Notify others
-    io.to(upperCode).emit('state-sync', room);
-
-    // If game is in progress, resend current game screen and handle reconnect
-    if (room.gameState.phase !== 'lobby' && room.gameState.phase !== 'game_over') {
-      // Clear disconnect grace timer if one is running
-      const engine = games.get(upperCode);
-      if (engine) {
-        engine.handlePlayerReconnect(playerId);
+    const engine = games.get(upperCode);
+    if (!sameSocket) {
+      if (playerId === room.hostId && isActiveGame(room)) {
+        if (waitForPlayback === true) holdForHost(room);
+        else releaseHostRecovery(room);
       }
-
-      socket.emit('game-started', { gameState: room.gameState });
-
-      // Re-send current turn info (strip song details to avoid leaking answers)
-      if (room.gameState.currentTurnPlayerId && room.gameState.currentSong) {
-        socket.emit('new-turn', {
-          turnPlayerId: room.gameState.currentTurnPlayerId,
-          songCard: { id: room.gameState.currentSong.id },
-        });
-      }
+      engine?.handlePlayerReconnect(playerId);
+      logger.info('Player rejoined', { code: upperCode, playerId, name: player.name });
     }
 
+    // One snapshot preserves challenge and reveal without replaying a turn.
+    socket.emit('room-joined', { room, playerId, rejoined: true });
+    if (!sameSocket) socket.to(upperCode).emit('state-sync', room);
+    if (waitForPlayback !== true) sendLegacyRejoinState(socket, room, playerId);
+
     // Re-send song history if available
-    const engineForHistory = games.get(upperCode);
-    if (engineForHistory) {
-      const history = engineForHistory.getSongHistory();
+    if (engine) {
+      const history = engine.getSongHistory();
       if (history.length > 0) {
         socket.emit('song-history', { history });
       }
     }
 
     persistRoom(upperCode);
+  });
+
+  socket.on('host-playback-suspended', () => {
+    const room = getSocketHostRoom(socket);
+    if (!room || !isActiveGame(room)) return;
+    holdForHost(room);
+    io.to(room.code).emit('state-sync', room);
+  });
+
+  socket.on('host-playback-ready', (payload) => {
+    const room = getSocketHostRoom(socket);
+    if (!room?.hostRecovery || !isRecord(payload) || payload.recoveryId !== room.hostRecovery.id) return;
+    releaseHostRecovery(room);
+    io.to(room.code).emit('state-sync', room);
   });
 
   socket.on('leave-room', () => {
@@ -593,6 +600,9 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
         }
       }
 
+      if (socketToRoom.get(socket.id)?.playerId !== mapping.playerId || room.hostId !== mapping.playerId
+        || room.gameState.phase !== 'lobby') return;
+
       let engine = games.get(mapping.code);
       if (!engine) {
         engine = new GameEngine(room, io);
@@ -659,7 +669,7 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
     const mapping = socketToRoom.get(socket.id);
     if (!mapping) return;
     const room = rooms.get(mapping.code);
-    if (!room || room.gameState.phase !== 'playing') return;
+    if (!room || room.hostRecovery || room.gameState.phase !== 'playing') return;
     if (mapping.playerId === room.gameState.currentTurnPlayerId) return;
     io.to(mapping.code).emit('player-buzzed', { playerId: mapping.playerId });
   });
@@ -673,8 +683,75 @@ export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
 
 function getEngine(socket: TunesSocket): GameEngine | null {
   const mapping = socketToRoom.get(socket.id);
-  if (!mapping) return null;
+  if (!mapping || rooms.get(mapping.code)?.hostRecovery) return null;
   return games.get(mapping.code) || null;
+}
+
+function getSocketHostRoom(socket: TunesSocket): Room | undefined {
+  const mapping = socketToRoom.get(socket.id);
+  if (!mapping) return;
+  const room = rooms.get(mapping.code);
+  if (room?.hostId === mapping.playerId) return room;
+}
+
+function isActiveGame(room: Room): boolean {
+  return room.gameState.phase !== 'lobby' && room.gameState.phase !== 'game_over';
+}
+
+function sendLegacyRejoinState(socket: TunesSocket, room: Room, playerId: string): void {
+  const gs = room.gameState;
+  if (isActiveGame(room)) socket.emit('game-started', { gameState: gs });
+  socket.emit('state-sync', room);
+  if (gs.phase === 'game_over' && gs.winnerId !== undefined) {
+    socket.emit('game-over', { winnerId: gs.winnerId, players: room.players });
+  } else if (gs.phase === 'reveal' && gs.lastReveal) {
+    socket.emit('reveal', gs.lastReveal);
+  } else if (gs.phase === 'challenge' && gs.currentTurnPlayerId && gs.pendingPlacement !== null) {
+    socket.emit('card-placed', {
+      playerId: gs.currentTurnPlayerId,
+      position: gs.pendingPlacement,
+      challengeDeadline: gs.challengeDeadline ?? undefined,
+    });
+  } else if (gs.currentTurnPlayerId && gs.turnDeadline) {
+    socket.emit('turn-started', { turnPlayerId: gs.currentTurnPlayerId, turnDeadline: gs.turnDeadline });
+  }
+  if (gs.phase === 'playing' && gs.currentSong && playerId === room.hostId) {
+    const { spotifyTrackId, previewUrl } = gs.currentSong;
+    if (spotifyTrackId || previewUrl) socket.emit('play-song', { spotifyTrackId: spotifyTrackId || '', previewUrl });
+  }
+}
+
+function holdForHost(room: Room, reconnectDeadline: number | null = null): void {
+  room.hostRecovery = { id: uuidv4(), reconnectDeadline };
+  games.get(room.code)?.pauseForHost();
+}
+
+function releaseHostRecovery(room: Room): void {
+  if (!room.hostRecovery) return;
+  delete room.hostRecovery;
+  games.get(room.code)?.resumeCurrentPhase();
+}
+
+function bindPlayerSocket(io: TunesServer, socket: TunesSocket, room: Room, playerId: string): void {
+  const previous = socketToRoom.get(socket.id);
+  if (previous?.code === room.code && previous.playerId === playerId) return;
+  if (previous) handleLeave(io, socket, true);
+
+  // A foreground reconnect can beat the older transport's timeout. Retire its
+  // association now so neither its actions nor its eventual teardown affect this seat.
+  for (const [socketId, mapping] of socketToRoom) {
+    if (mapping.code === room.code && mapping.playerId === playerId) {
+      socketToRoom.delete(socketId);
+      const oldSocket = io.sockets.sockets.get(socketId);
+      if (oldSocket) {
+        supersededSockets.set(oldSocket, mapping);
+        oldSocket.leave(room.code);
+      }
+      break;
+    }
+  }
+  socketToRoom.set(socket.id, { code: room.code, playerId });
+  socket.join(room.code);
 }
 
 function cancelRoomCleanup(code: string): void {
@@ -682,6 +759,8 @@ function cancelRoomCleanup(code: string): void {
   if (timer) {
     clearTimeout(timer);
     roomCleanupTimers.delete(code);
+    const recovery = rooms.get(code)?.hostRecovery;
+    if (recovery) recovery.reconnectDeadline = null;
     logger.info('Room cleanup cancelled (player reconnected)', { code });
   }
 }
@@ -702,43 +781,36 @@ function handleLeave(io: TunesServer, socket: TunesSocket, voluntary: boolean = 
   socketToRoom.delete(socket.id);
   socket.leave(mapping.code);
 
-  // If player was mid-turn, handle accordingly
   const engine = games.get(mapping.code);
-  if (engine) {
-    if (voluntary) {
-      // Voluntary leave skips grace period — immediately advance turn if needed
-      engine.handlePlayerVoluntaryLeave(mapping.playerId);
-    } else {
-      // Disconnect gets a grace period for reconnection
-      engine.handlePlayerDisconnect(mapping.playerId);
-    }
-  }
-
   const connectedPlayers = Object.values(room.players).filter((p) => p.connected);
+  const hostLeft = mapping.playerId === room.hostId;
   if (connectedPlayers.length === 0) {
-    // Don't destroy immediately — give players time to come back (e.g. tab switch)
-    const ROOM_CLEANUP_DELAY_MS = 5 * 60 * 1000; // 5 minutes
+    const active = isActiveGame(room);
+    const delayMs = active ? EMPTY_GAME_GRACE_MS : EMPTY_LOBBY_GRACE_MS;
     const code = mapping.code;
-    logger.info('All players disconnected, room cleanup scheduled', { code, delayMs: ROOM_CLEANUP_DELAY_MS });
+    if (active) holdForHost(room, Date.now() + delayMs);
+    logger.info('All players disconnected, room cleanup scheduled', { code, delayMs });
 
-    // Store cleanup timer so it can be cancelled if someone reconnects
     if (!roomCleanupTimers.has(code)) {
       const timer = setTimeout(() => {
         roomCleanupTimers.delete(code);
         const currentRoom = rooms.get(code);
-        if (!currentRoom) return; // already cleaned up
+        if (!currentRoom) return;
         const stillConnected = Object.values(currentRoom.players).filter((p) => p.connected);
         if (stillConnected.length === 0) {
           logger.info('Room destroyed (cleanup timer expired)', { code });
+          games.get(code)?.resetGame();
           rooms.delete(code);
           games.delete(code);
           roomSpotifyCredentials.delete(code);
           deleteRoom(code);
         }
-      }, ROOM_CLEANUP_DELAY_MS);
+      }, delayMs);
       roomCleanupTimers.set(code, timer);
     }
-  } else if (mapping.playerId === room.hostId) {
+  } else if (hostLeft && !voluntary) {
+    if (isActiveGame(room)) holdForHost(room);
+  } else if (hostLeft) {
     const oldHost = room.players[mapping.playerId];
     if (oldHost) {
       oldHost.isHost = false;
@@ -752,11 +824,16 @@ function handleLeave(io: TunesServer, socket: TunesSocket, voluntary: boolean = 
     roomSpotifyCredentials.delete(mapping.code);
     engine?.setSpotifyToken(null);
     logger.info('Host transferred', { code: mapping.code, newHostId: newHost.id });
-    io.to(mapping.code).emit('state-sync', room);
-    persistRoom(mapping.code);
+    if (room.gameState.currentTurnPlayerId === mapping.playerId) delete room.hostRecovery;
+    else releaseHostRecovery(room);
+    engine?.handlePlayerVoluntaryLeave(mapping.playerId);
+  } else if (voluntary) {
+    engine?.handlePlayerVoluntaryLeave(mapping.playerId);
   } else {
-    persistRoom(mapping.code);
+    engine?.handlePlayerDisconnect(mapping.playerId);
   }
+  io.to(mapping.code).emit('state-sync', room);
+  persistRoom(mapping.code);
 }
 
 export function getRoomCount(): number {

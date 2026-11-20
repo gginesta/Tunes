@@ -16,14 +16,6 @@ export function getSocket(): GameSocket {
       reconnectionDelay: 1000,
       reconnectionDelayMax: 10000,
     });
-
-    // When tab becomes visible again, force reconnect if disconnected
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && socket && !socket.connected) {
-        console.log('[Tunes] Tab visible again — reconnecting socket');
-        socket.connect();
-      }
-    });
   }
   return socket;
 }
