@@ -10,11 +10,57 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run build
+        env:
+          VITE_BUILD_REVISION: ${{ github.sha }}
       - run: npm test
+      - run: npm run test:multiplayer
+      - name: Verify Spotify Classic room recovery with a simulated player
+        run: npm run test:spotify-room
+      - name: Verify both players stay under the playtest path
+        run: npm run test:prefixed-room
       - run: npm run lint
       - name: Build production image
-        run: docker build --build-arg VITE_SPOTIFY_CLIENT_ID=ci-smoke -t tunes-ci .
+        run: docker build --build-arg BUILD_REVISION="$GITHUB_SHA" -t tunes-ci .
+      - name: Start production image with SQLite
+        run: |
+          docker run --detach --name tunes-ci --publish 127.0.0.1:3000:3000 tunes-ci
+          trap 'docker logs tunes-ci; docker rm -f tunes-ci' EXIT
+          curl --fail --retry 12 --retry-all-errors --retry-delay 1 http://127.0.0.1:3000/health | jq -e --arg revision "$GITHUB_SHA" '.status == "ok" and .revision == $revision'
+          docker exec tunes-ci node -e "const db = new (require('better-sqlite3'))('/app/data/tunes.db', {readonly: true}); if (db.pragma('quick_check', {simple: true}) !== 'ok') process.exit(1); db.close()"
+          curl --fail --silent --output /dev/null http://127.0.0.1:3000/
+  playtest-routing:
+    runs-on: ubuntu-latest
+    env:
+      BUILD_REVISION: ${{ github.sha }}
+      TUNES_CADDY_NETWORK: tunes-ci-proxy
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the playtest release behind Caddy
+        run: |
+          docker network create "$TUNES_CADDY_NETWORK"
+          docker compose -f deploy/compose.play.yaml up -d --build --wait
+          docker run -d --name tunes-app --network "$TUNES_CADDY_NETWORK" node:24-alpine \
+            node -e 'require("node:http").createServer((req, res) => res.end("Original site")).listen(3000)'
+          cat > "$RUNNER_TEMP/Caddyfile" <<'CADDY'
+          import /etc/caddy/play.caddy
+          http://:3218 {
+            import tunes_play tunes-play:3000
+            reverse_proxy tunes-app:3000
+          }
+          CADDY
+          docker run -d --name tunes-play-proxy --network "$TUNES_CADDY_NETWORK" -p 127.0.0.1:3218:3218 \
+            -v "$RUNNER_TEMP/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            -v "$PWD/deploy/play.caddy:/etc/caddy/play.caddy:ro" caddy:2-alpine
+          origin=http://127.0.0.1:3218
+          curl --fail --retry 15 --retry-all-errors --retry-delay 1 "$origin/play/health" | jq -e --arg revision "$GITHUB_SHA" '.revision == $revision and .status == "ok"'
+          test "$(curl -fsS "$origin/")" = "Original site"
+          test "$(curl -fsS "$origin/socket.io/")" = "Original site"
+          test "$(curl -fsS "$origin/callback.html")" = "Original site"
+          curl -fsS "$origin/play/callback.html" | grep -q 'tunes:spotify:code'
+          test "$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' "$origin/play")" = "308 $origin/play/"
+          curl -fsS "$origin/play/join/ABCD" | grep -q 'src="/play/assets/'
+          curl -fsS "$origin/play/socket.io/?EIO=4&transport=polling" | grep -q '"sid"'

@@ -27,7 +27,9 @@ export function preUnlockAudio(): void {
   if (audioUnlocked) return;
   try {
     // Method 1: Resume an AudioContext
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const AudioContextConstructor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextConstructor) return;
+    const ctx = new AudioContextConstructor();
     if (ctx.state === 'suspended') {
       ctx.resume().catch(() => {});
     }
@@ -51,16 +53,26 @@ export function preUnlockAudio(): void {
   }
 }
 
-function loadSDK(): Promise<void> {
-  if (sdkLoaded) return Promise.resolve();
+export function loadSpotifyPlaybackSDK(): Promise<void> {
+  if (sdkLoaded || window.Spotify?.Player) return Promise.resolve();
   if (sdkReady) return sdkReady;
 
-  sdkReady = new Promise<void>((resolve) => {
+  sdkReady = new Promise<void>((resolve, reject) => {
     const script = document.createElement('script');
     script.src = 'https://sdk.scdn.co/spotify-player.js';
     script.async = true;
 
+    const failed = () => {
+      clearTimeout(timeout);
+      script.remove();
+      sdkReady = null;
+      reject(new Error('Spotify could not load on this browser.'));
+    };
+    const timeout = setTimeout(failed, 10_000);
+    script.addEventListener('error', failed, { once: true });
     window.onSpotifyWebPlaybackSDKReady = () => {
+      clearTimeout(timeout);
+      script.removeEventListener('error', failed);
       sdkLoaded = true;
       resolve();
     };
@@ -87,7 +99,7 @@ export async function initPlayer(
 ): Promise<void> {
   if (player) return;
 
-  await loadSDK();
+  await loadSpotifyPlaybackSDK();
 
   player = new window.Spotify.Player({
     name: PLAYER_NAME,

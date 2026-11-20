@@ -1,163 +1,103 @@
-const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
-// Use 127.0.0.1 in dev because Spotify rejects "localhost" as insecure
-const REDIRECT_URI = window.location.hostname === 'localhost'
-  ? `http://127.0.0.1:${window.location.port}/callback.html`
-  : `${window.location.origin}/callback.html`;
-const SCOPES = [
-  'streaming',
-  'user-read-email',
-  'user-read-private',
-  'user-modify-playback-state',
-  'user-read-playback-state',
-].join(' ');
+import { appPath } from '../paths';
 
+const SCOPES = ['streaming', 'user-read-email', 'user-read-private', 'user-modify-playback-state', 'user-read-playback-state'];
 const TOKEN_ENDPOINT = 'https://accounts.spotify.com/api/token';
 const AUTH_ENDPOINT = 'https://accounts.spotify.com/authorize';
 
-function generateRandomString(length: number): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
-  const array = crypto.getRandomValues(new Uint8Array(length));
-  return Array.from(array, (b) => chars[b % chars.length]).join('');
+export interface SpotifyCredential {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
 }
 
-async function sha256(plain: string): Promise<ArrayBuffer> {
-  const encoder = new TextEncoder();
-  return crypto.subtle.digest('SHA-256', encoder.encode(plain));
+export class SpotifySignInExpiredError extends Error {}
+
+function clientConfig() {
+  const clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID?.trim();
+  const redirectUri = import.meta.env.VITE_SPOTIFY_REDIRECT_URI?.trim();
+  if (!clientId || !/^[a-zA-Z0-9]{32}$/.test(clientId) || !redirectUri) return null;
+  const {origin, protocol, hostname} = window.location;
+  const loopback = hostname === '127.0.0.1' || hostname === '[::1]';
+  if (protocol !== 'https:' && !(loopback && protocol === 'http:')) return null;
+  // The root legacy callback uses a different popup protocol.
+  if (redirectUri !== origin + appPath('callback.html')) return null;
+  return {clientId, redirectUri};
 }
 
-function base64UrlEncode(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+export function isSpotifyClientConfigured(): boolean {
+  return Boolean(clientConfig());
 }
 
-export async function getSpotifyAuthUrl(): Promise<string> {
-  const codeVerifier = generateRandomString(64);
-  sessionStorage.setItem('spotify_code_verifier', codeVerifier);
-  sessionStorage.setItem('spotify_client_id', CLIENT_ID);
-  sessionStorage.setItem('spotify_opener_origin', window.location.origin);
-
-  const challenge = base64UrlEncode(await sha256(codeVerifier));
-
-  const params = new URLSearchParams({
-    client_id: CLIENT_ID,
-    response_type: 'code',
-    redirect_uri: REDIRECT_URI,
-    scope: SCOPES,
-    code_challenge_method: 'S256',
-    code_challenge: challenge,
-  });
-
-  return `${AUTH_ENDPOINT}?${params.toString()}`;
+function randomNonce() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export async function exchangeCodeForToken(
-  code: string,
-): Promise<{ accessToken: string; refreshToken: string; expiresIn: number }> {
-  const codeVerifier = sessionStorage.getItem('spotify_code_verifier');
-  if (!codeVerifier) throw new Error('Missing PKCE code verifier');
+async function authorizeUrl(clientId: string, redirectUri: string, verifier: string, state: string) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  const challenge = btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return AUTH_ENDPOINT + '?' + new URLSearchParams({client_id:clientId, response_type:'code', redirect_uri:redirectUri,
+    state, scope:SCOPES.join(' '), code_challenge_method:'S256', code_challenge:challenge});
+}
 
-  const res = await fetch(TOKEN_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: CLIENT_ID,
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: REDIRECT_URI,
-      code_verifier: codeVerifier,
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error_description || 'Token exchange failed');
+async function requestToken(params: URLSearchParams, previousRefresh?: string): Promise<SpotifyCredential> {
+  const response = await fetch(TOKEN_ENDPOINT, {method:'POST', body:params,
+    signal:AbortSignal.timeout(20_000), referrerPolicy:'no-referrer'});
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (data.error === 'invalid_grant') throw new SpotifySignInExpiredError('Spotify sign-in has expired. Connect again on this phone.');
+    throw new Error('Spotify could not finish signing in. Try again.');
   }
-
-  const data = await res.json();
-  sessionStorage.removeItem('spotify_code_verifier');
-
-  return {
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token,
-    expiresIn: data.expires_in,
-  };
+  const refresh = data.refresh_token || previousRefresh;
+  if (typeof data.access_token !== 'string' || !data.access_token || typeof refresh !== 'string' || !refresh ||
+      !Number.isFinite(data.expires_in) || data.expires_in <= 0) throw new Error('Spotify returned an incomplete sign-in.');
+  return {accessToken:data.access_token, refreshToken:refresh, expiresIn:data.expires_in};
 }
 
-export async function refreshAccessToken(
-  refreshToken: string,
-): Promise<{ accessToken: string; refreshToken: string; expiresIn: number }> {
-  const res = await fetch(TOKEN_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: CLIENT_ID,
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-    }),
-  });
-
-  if (!res.ok) {
-    // Clear the invalid refresh token so we don't keep trying it
-    localStorage.removeItem('spotify_refresh_token');
-    throw new Error('Token refresh failed');
-  }
-
-  const data = await res.json();
-  return {
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token || refreshToken,
-    expiresIn: data.expires_in,
-  };
+export function refreshAccessToken(refreshToken: string): Promise<SpotifyCredential> {
+  const config = clientConfig();
+  if (!config) return Promise.reject(new Error('Spotify sign-in is unavailable on this site.'));
+  return requestToken(new URLSearchParams({client_id:config.clientId, grant_type:'refresh_token', refresh_token:refreshToken}), refreshToken);
 }
 
-export async function openSpotifyLogin(): Promise<{ accessToken: string; refreshToken: string }> {
-  const url = await getSpotifyAuthUrl();
+let pending: Promise<SpotifyCredential> | undefined;
 
-  return new Promise((resolve, reject) => {
-    const width = 500;
-    const height = 700;
-    const left = window.screenX + (window.outerWidth - width) / 2;
-    const top = window.screenY + (window.outerHeight - height) / 2;
+export function openSpotifyLogin(): Promise<SpotifyCredential> {
+  if (pending) return pending;
+  const config = clientConfig();
+  if (!config) return Promise.reject(new Error('Spotify sign-in is unavailable on this site.'));
+  const verifier = randomNonce();
+  const state = randomNonce();
+  // Open inside the tap handler, before the asynchronous PKCE digest, for iOS Safari.
+  const popup = window.open('about:blank', '_blank', 'popup,width=500,height=700');
+  if (!popup) return Promise.reject(new Error('Allow the Spotify sign-in window, then tap Connect Spotify again.'));
 
-    const popup = window.open(
-      url,
-      'spotify-auth',
-      `width=${width},height=${height},left=${left},top=${top}`,
-    );
-
-    if (!popup) {
-      reject(new Error('Popup blocked — please allow popups for this site'));
-      return;
-    }
-
-    const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type !== 'spotify-auth-callback') return;
-
-      window.removeEventListener('message', handleMessage);
-      clearInterval(pollTimer);
-
-      if (event.data.error) {
-        reject(new Error(event.data.error));
-      } else {
-        resolve({
-          accessToken: event.data.accessToken,
-          refreshToken: event.data.refreshToken,
-        });
-      }
+  const code = new Promise<string>((resolve, reject) => {
+    let finished = false;
+    const finish = (value: string, failed = false) => {
+      if (finished) return;
+      finished = true;
+      window.removeEventListener('message', message);
+      window.clearInterval(poll);
+      window.clearTimeout(timeout);
+      popup.close();
+      if (failed) reject(new Error(value));
+      else resolve(value);
     };
-
-    window.addEventListener('message', handleMessage);
-
-    // Poll to detect if popup was closed without completing
-    const pollTimer = setInterval(() => {
-      if (popup.closed) {
-        clearInterval(pollTimer);
-        window.removeEventListener('message', handleMessage);
-        reject(new Error('Spotify login cancelled'));
-      }
-    }, 500);
+    const message = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.source !== popup || event.data?.type !== 'tunes:spotify:code') return;
+      if (event.data.state !== state) return;
+      if (event.data.error || typeof event.data.code !== 'string' || !event.data.code) {
+        finish('Spotify sign-in was cancelled or denied.', true);
+      } else finish(event.data.code);
+    };
+    window.addEventListener('message', message);
+    const poll = window.setInterval(() => { if (popup.closed) finish('Spotify sign-in was cancelled.', true); }, 500);
+    const timeout = window.setTimeout(() => finish('Spotify sign-in timed out. Try again.', true), 5 * 60_000);
+    void authorizeUrl(config.clientId, config.redirectUri, verifier, state)
+      .then(url => { if (!finished) popup.location.replace(url); })
+      .catch(() => finish('Could not open Spotify sign-in.', true));
   });
+  pending = code.then(value => requestToken(new URLSearchParams({client_id:config.clientId, grant_type:'authorization_code',
+    code:value, redirect_uri:config.redirectUri, code_verifier:verifier}))).finally(() => { pending = undefined; });
+  return pending;
 }

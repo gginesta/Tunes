@@ -9,6 +9,9 @@ import { refreshAccessToken } from './spotify';
 import { initPlayer, isInitialized, pause as pauseSpotify } from './spotifyPlayer';
 import { initFallbackAudio, isFallbackPlaying, pauseFallback } from './audioFallback';
 import { sessionAllowsSpotifyRestore } from './socket';
+import { appStorageKey } from '../paths';
+
+const REFRESH_TOKEN_KEY = appStorageKey('spotify_refresh_token');
 
 /** True while playback is routed through the HTML5 preview fallback. */
 let usingFallback = false;
@@ -110,7 +113,7 @@ export async function restoreSavedSpotifyAccessToken(
     spotifyToken: result.accessToken,
     spotifyRefreshToken: result.refreshToken,
   });
-  localStorage.setItem('spotify_refresh_token', result.refreshToken);
+  localStorage.setItem(REFRESH_TOKEN_KEY, result.refreshToken);
   return result.accessToken;
 }
 
@@ -130,7 +133,7 @@ export async function restoreSpotifyForCurrentHost(
     return null;
   }
 
-  const savedRefresh = localStorage.getItem('spotify_refresh_token');
+  const savedRefresh = localStorage.getItem(REFRESH_TOKEN_KEY);
   if (!savedRefresh) return null;
   return restoreSavedSpotifyAccessToken(savedRefresh, roomCode, playerId);
 }
@@ -144,7 +147,7 @@ export async function getSpotifyToken(forceRefresh = false): Promise<string> {
   const state = useGameStore.getState();
   if (!forceRefresh && state.spotifyToken) return state.spotifyToken;
 
-  const refreshToken = state.spotifyRefreshToken || localStorage.getItem('spotify_refresh_token');
+  const refreshToken = state.spotifyRefreshToken || localStorage.getItem(REFRESH_TOKEN_KEY);
   if (!refreshToken) throw new Error('No token available');
 
   const result = await refreshAccessToken(refreshToken);
@@ -152,7 +155,7 @@ export async function getSpotifyToken(forceRefresh = false): Promise<string> {
     spotifyToken: result.accessToken,
     spotifyRefreshToken: result.refreshToken,
   });
-  localStorage.setItem('spotify_refresh_token', result.refreshToken);
+  localStorage.setItem(REFRESH_TOKEN_KEY, result.refreshToken);
   return result.accessToken;
 }
 

@@ -1,762 +1,855 @@
-import { Server, Socket } from 'socket.io';
-import { randomInt } from 'crypto';
-import { v4 as uuidv4 } from 'uuid';
+import { randomInt, randomUUID } from 'node:crypto';
+import type { Server, Socket } from 'socket.io';
 import type {
-  ClientToServerEvents,
+  ClientToServerEvents, GameSettings, GameState, PlaybackMode, Player, Room, SavedTable,
   ServerToClientEvents,
-  Room,
-  Player,
-  GameState,
 } from '@tunes/shared';
 import {
-  MAX_PLAYERS,
-  MIN_PLAYERS,
-  ROOM_CODE_LENGTH,
-  STARTING_TOKENS,
-  DEFAULT_CARDS_TO_WIN,
-  MIN_CARDS_TO_WIN,
-  MAX_CARDS_TO_WIN,
+  DEFAULT_CARDS_TO_WIN, getDinnerRoundCount, MAX_CARDS_TO_WIN, MAX_PLAYERS, MIN_CARDS_TO_WIN,
+  MIN_PLAYERS, ROOM_CODE_LENGTH, ROOM_RECOVERY_MS, STARTING_TOKENS,
 } from '@tunes/shared';
-import type { GameMode } from '@tunes/shared';
-
-const VALID_GAME_MODES: GameMode[] = ['original', 'pro', 'expert', 'coop'];
+import {
+  createSavedTable, deleteRoom, getSavedTableConfig, getSavedTables, loadAllRooms, saveFinishedMatch,
+  saveTableCheckpoint, updateSavedTableName,
+  type RoomRecovery, type SaveGameParticipant,
+} from './database';
 import { GameEngine } from './game';
-import {
-  selectGameDeck,
-  resolveTrackIds,
-  fetchPlaylistDeck,
-  getBuiltInDeckFilters,
-  getEffectiveSongPack,
-} from './songs';
-import { saveRoom, loadAllRooms, deleteRoom, saveGameResult, updateLeaderboard } from './database';
-import type { SaveGameParticipant } from './database';
 import { registerGameActionHandlers } from './gameActionHandlers';
-import { registerStatsHandlers } from './statsHandlers';
-import { guestNameKey, isRecord, isShortString } from './validate';
+import { authenticateGuest, getOrCreateGuest, issueToken, matchesToken, tokenHash } from './guestSession';
 import { logger } from './logger';
 import {
-  restoreHostSpotifyCredential,
-  spotifyTokenForHost,
-  type HostSpotifyCredential,
-} from './spotifyCredentials';
+  getLicensedPacks, getPartyDeck, isAuthorizedRecording, isAuthorizedSpotifyRecording, spotifyClassicAvailable,
+} from './partyCatalogue';
+import { registerStatsHandlers } from './statsHandlers';
+import { isBoundedInt, isRecord, isShortString } from './validate';
 
 type TunesSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 type TunesServer = Server<ClientToServerEvents, ServerToClientEvents>;
+type Mapping = { code: string; playerId: string };
+type Guest = { guestId: string; guestToken: string };
 
-const rooms = new Map<string, Room>();
-const games = new Map<string, GameEngine>();
-const socketToRoom = new Map<string, { code: string; playerId: string }>();
-const roomSpotifyCredentials = new Map<string, HostSpotifyCredential>();
+interface LiveRoom {
+  room: Room;
+  engine: GameEngine;
+  seats: RoomRecovery['seats'];
+  startsAt?: number;
+  audioReportedFor?: string;
+  lastAudio?: {matchId:string; roundId:number; cueId:string; status:string; issuedAt:number; confirmed:boolean};
+  cleanupTimer?: ReturnType<typeof setTimeout>;
+  completedMatchIds: string[];
+}
 
-/** Timers for delayed room cleanup when all players disconnect */
-const roomCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
+const rooms = new Map<string, LiveRoom>();
+const socketToRoom = new Map<string, Mapping>();
+const playerSockets = new Map<string, string>();
+const attachingSockets = new Set<string>();
+const startAttempts = new Map<string, symbol>();
+const VALID_MODES = ['original', 'pro', 'expert', 'coop', 'dinner'];
+const VALID_GENRES = ['rock', 'pop', 'hip-hop', 'r-and-b', 'country', 'electronic', 'jazz', 'classical', 'latin', 'other'];
+const VALID_REGIONS = ['global', 'uk', 'latin', 'kpop', 'bollywood'];
 const ALLOWED_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+
+export function dinnerStartsEnabled(): boolean {
+  return process.env.TUNES_DINNER_ENABLED !== 'false';
+}
+
+export function enabledLicensedPacks() {
+  return process.env.TUNES_LICENSED_ENABLED === 'false' ? [] : getLicensedPacks();
+}
 
 function generateRoomCode(): string {
   let code: string;
   do {
     code = '';
-    for (let i = 0; i < ROOM_CODE_LENGTH; i++) {
-      code += ALLOWED_CHARS[randomInt(ALLOWED_CHARS.length)];
-    }
+    for (let i = 0; i < ROOM_CODE_LENGTH; i++) code += ALLOWED_CHARS[randomInt(ALLOWED_CHARS.length)];
   } while (rooms.has(code));
   return code;
 }
 
-function createDefaultGameState(): GameState {
+function defaultState(): GameState {
   return {
-    phase: 'lobby',
-    currentTurnPlayerId: null,
-    currentSong: null,
-    pendingPlacement: null,
-    challengers: [],
-    turnOrder: [],
-    turnIndex: 0,
-    deckSize: 0,
-    sharedTimeline: [],
+    phase: 'lobby', currentTurnPlayerId: null, currentSong: null, pendingPlacement: null,
+    challengers: [], turnOrder: [], turnIndex: 0, deckSize: 0, sharedTimeline: [],
   };
 }
 
-/**
- * Persist the current room state to SQLite.
- */
+function connectedPlayers(room: Room): Player[] {
+  return Object.values(room.players).filter((player) => player.connected);
+}
+
+function setController(room: Room, playerId: string): void {
+  room.hostId = playerId;
+  for (const player of Object.values(room.players)) player.isHost = player.id === playerId;
+}
+
+function sendView(io: TunesServer, playerId: string, room: Room): void {
+  const socketId = playerSockets.get(playerId);
+  if (socketId && !attachingSockets.has(socketId)) io.to(socketId).emit('state-sync', room);
+}
+
+function broadcastState(io: TunesServer, live: LiveRoom): void {
+  updateStartAvailability(live.room);
+  for (const player of connectedPlayers(live.room)) {
+    sendView(io, player.id, live.engine.publicRoom(player.id));
+  }
+}
+
+function recoveryFor(live: LiveRoom): RoomRecovery {
+  const { room, seats, engine } = live;
+  return {
+    version: room.playbackMode === 'spotify' ? 2 : 1,
+    seats,
+    expiresAt: room.expiresAt,
+    speakerId: room.speakerId,
+    savedTableId: room.savedTableId,
+    restartRequired: room.recovery === 'restart-required',
+    completedMatchIds: live.completedMatchIds,
+    game: engine.serialize(),
+  };
+}
+
+function checkpointRoom(code: string, saveSettings = false): void {
+  const live = rooms.get(code);
+  if (!live) return;
+  const started = performance.now();
+  saveTableCheckpoint(live.room, recoveryFor(live), saveSettings);
+  logger.debug('Room checkpoint written', { code, durationMs: performance.now() - started });
+}
+
 function persistRoom(code: string): void {
-  const room = rooms.get(code);
-  if (!room) return;
-  const spotifyToken = spotifyTokenForHost(room.hostId, roomSpotifyCredentials.get(code));
   try {
-    saveRoom(code, room, spotifyToken);
+    checkpointRoom(code);
   } catch (err) {
     logger.error('Failed to persist room', { code, error: String(err) });
   }
 }
 
-/**
- * Set up the game-end callback to save results to the database.
- */
-function setupGameEndHook(engine: GameEngine, roomCode: string): void {
-  engine.onGameEnd(() => {
+function finishMatch(live: LiveRoom): void {
+  const { room, seats, engine } = live;
+  const result = engine.getResult();
+  if (!result || live.completedMatchIds.includes(result.matchId)) return;
+  const { playerStats, totalRounds } = engine.getGameStats();
+  const participants: SaveGameParticipant[] = Object.keys(result.scores).flatMap((playerId) => {
+    const player = room.players[playerId];
+    const seat = seats[playerId];
+    if (!seat || !player) return [];
+    const stats = playerStats.get(playerId);
+    return [{
+      username: seat.guestId,
+      displayName: player.name,
+      cardsWon: result.scores[playerId],
+      correctPlacements: stats?.correctPlacements ?? 0,
+      totalPlacements: stats?.totalPlacements ?? 0,
+      longestStreak: stats?.longestStreak ?? 0,
+      challengesWon: stats?.challengesWon ?? 0,
+      songsNamed: stats?.songsNamed ?? 0,
+      fastestPlacementMs: stats?.fastestPlacementMs ?? null,
+      isWinner: result.winnerIds.includes(playerId),
+    }];
+  });
+  const started = performance.now();
+  const completedMatchIds = [...live.completedMatchIds, result.matchId];
+  const inserted = saveFinishedMatch(room, { ...recoveryFor(live), completedMatchIds }, { result, totalRounds, participants });
+  live.completedMatchIds = completedMatchIds;
+  if (inserted) {
+    logger.info('Match completed', {
+      matchId: result.matchId, status: result.status, mode: room.settings.mode,
+      participantCount: participants.length, totalRounds, durationMs: performance.now() - started,
+    });
+  }
+}
+
+function reportAudioChange(live: LiveRoom): void {
+  const {matchId, roundId, audio} = live.room.gameState;
+  if (!matchId) return;
+  const now = performance.now();
+  const prior = live.lastAudio;
+  if (prior?.cueId === audio?.cueId && prior?.status === audio?.status) return;
+  const sameCue = !!prior && prior.cueId === audio?.cueId;
+  if (prior && !sameCue && !prior.confirmed) {
+    logger.info('Cue ended without confirmation', {matchId:prior.matchId, roundId:prior.roundId, source:live.room.playbackMode});
+  }
+  if (!audio?.cueId || audio.status === 'idle' || roundId === undefined) {
+    live.lastAudio = undefined;
+    return;
+  }
+  const issuedAt = sameCue ? prior.issuedAt : now;
+  const confirmed = (sameCue && prior.confirmed) || audio.status === 'playing';
+  if (audio.status === 'playing' || audio.status === 'paused') {
+    logger.info('Music status changed', {matchId, roundId, source:live.room.playbackMode,
+      status:audio.status, reason:audio.reason, elapsedSinceCueMs:now-issuedAt});
+  }
+  live.lastAudio = {matchId, roundId, cueId:audio.cueId, status:audio.status, issuedAt, confirmed};
+}
+
+function createLiveRoom(
+  io: TunesServer, room: Room, seats: LiveRoom['seats'] = {}, completedMatchIds: string[] = [],
+): LiveRoom {
+  const engine = new GameEngine(room, io, {
+    onChange: () => {
+      checkpointRoom(room.code);
+      const live = rooms.get(room.code);
+      if (live) reportAudioChange(live);
+      const matchId = room.gameState.matchId;
+      if (live && matchId && room.gameState.audio?.status === 'playing' && live.audioReportedFor !== matchId) {
+        live.audioReportedFor = matchId;
+        logger.info('First audio confirmed', {
+          matchId, mode: room.playbackMode,
+          timeToAudioMs: live.startsAt === undefined ? undefined : performance.now() - live.startsAt,
+        });
+      }
+    },
+    send: (playerId, view) => sendView(io, playerId, view),
+    canPlay: isAuthorizedRecording,
+    canPlaySpotify: isAuthorizedSpotifyRecording,
+  });
+  const live = { room, engine, seats, completedMatchIds };
+  engine.onGameEnd(() => finishMatch(live));
+  rooms.set(room.code, live);
+  return live;
+}
+
+function cancelCleanup(live: LiveRoom): void {
+  clearTimeout(live.cleanupTimer);
+  live.cleanupTimer = undefined;
+  live.room.expiresAt = undefined;
+}
+
+function removeRoom(live: LiveRoom): void {
+  const abandoned = live.engine.abandon();
+  if (abandoned.error) throw new Error(abandoned.error);
+  deleteRoom(live.room.code);
+  clearTimeout(live.cleanupTimer);
+  live.engine.dispose();
+  rooms.delete(live.room.code);
+  startAttempts.delete(live.room.code);
+}
+
+function scheduleCleanup(live: LiveRoom, expiresAt = Date.now() + ROOM_RECOVERY_MS): void {
+  clearTimeout(live.cleanupTimer);
+  live.room.expiresAt = expiresAt;
+  live.cleanupTimer = setTimeout(function expire() {
     try {
-      const room = engine.getRoom();
-      const { playerStats, totalRounds } = engine.getGameStats();
-      const winnerId = engine.getWinnerId();
-      const isCoop = room.settings.mode === 'coop';
-
-      // Every guest participates in stats, keyed by their display name
-      const participants: SaveGameParticipant[] = [];
-      let winnerUsername: string | null = null;
-
-      for (const [playerId, player] of Object.entries(room.players)) {
-        const username = guestNameKey(player.name);
-        if (!username) continue;
-
-        const stats = playerStats.get(playerId);
-        const isWinner = isCoop ? true : playerId === winnerId;
-        const cardsWon = isCoop
-          ? room.gameState.sharedTimeline.length
-          : player.timeline.length;
-
-        if (isWinner && !isCoop) {
-          winnerUsername = username;
-        }
-
-        participants.push({
-          username,
-          displayName: player.name,
-          cardsWon,
-          correctPlacements: stats?.correctPlacements ?? 0,
-          totalPlacements: stats?.totalPlacements ?? 0,
-          longestStreak: stats?.longestStreak ?? 0,
-          challengesWon: stats?.challengesWon ?? 0,
-          songsNamed: stats?.songsNamed ?? 0,
-          fastestPlacementMs: stats?.fastestPlacementMs ?? null,
-          isWinner,
-        });
-      }
-
-      if (participants.length === 0) return;
-
-      saveGameResult(
-        roomCode,
-        room.settings.mode,
-        winnerUsername,
-        Object.keys(room.players).length,
-        totalRounds,
-        participants,
-      );
-
-      for (const p of participants) {
-        updateLeaderboard(p.username, p.displayName, {
-          isWinner: p.isWinner,
-          correctPlacements: p.correctPlacements,
-          totalPlacements: p.totalPlacements,
-          longestStreak: p.longestStreak,
-          challengesWon: p.challengesWon,
-          songsNamed: p.songsNamed,
-          fastestPlacementMs: p.fastestPlacementMs,
-        });
-      }
-
-      logger.info('Game results saved to database', { roomCode, participantCount: participants.length });
+      removeRoom(live);
+      logger.info('Room expired', { code: live.room.code, matchId: live.room.gameState.matchId });
     } catch (err) {
-      logger.error('Failed to save game results', { roomCode, error: String(err) });
+      logger.error('Failed to expire room', { code: live.room.code, error: String(err) });
+      live.cleanupTimer = setTimeout(expire, 10_000);
+      live.cleanupTimer.unref();
+    }
+  }, Math.max(0, expiresAt - Date.now()));
+  live.cleanupTimer.unref();
+}
+
+function getRoomIfLive(code: string): LiveRoom | undefined {
+  const live = rooms.get(code);
+  if (live?.room.expiresAt !== undefined && live.room.expiresAt <= Date.now()) {
+    return undefined;
+  }
+  return live;
+}
+
+export function restoreRoomsFromDatabase(io: TunesServer): void {
+  for (const { room, recovery, hasLegacySpotifyCredential } of loadAllRooms()) {
+    const saved = recovery?.version === 1 || recovery?.version === 2 ? recovery : undefined;
+    const legacyPlayback = room.playbackMode === 'preview' || hasLegacySpotifyCredential ||
+      (room.playbackMode === 'spotify' && (saved?.version !== 2 || room.settings.mode === 'dinner'));
+    for (const player of Object.values(room.players)) player.connected = false;
+    if (legacyPlayback) room.playbackMode = 'manual';
+    if (room.settings.songPack === 'playlist') {
+      room.settings.songPack = 'standard';
+      room.settings.playlistUrl = undefined;
+    }
+    const live = createLiveRoom(io, room, saved?.seats, saved?.completedMatchIds);
+    // Native Spotify snapshots revalidate their current recording and resume paused.
+    if (saved?.game?.version === 1 && Array.isArray(saved.game.deck) && saved.game.state
+      && (!legacyPlayback || room.gameState.phase === 'game_over')) {
+      try {
+        live.engine.restore(saved.game);
+        if (room.gameState.phase === 'game_over') finishMatch(live);
+      } catch (err) {
+        logger.warn('Room snapshot could not be restored', { code: room.code, error: String(err) });
+        room.recovery = 'restart-required';
+      }
+    } else if (room.gameState.phase !== 'lobby' || !saved) {
+      room.recovery = 'restart-required';
+    }
+    if (saved?.restartRequired) room.recovery = 'restart-required';
+    if (room.recovery) {
+      room.gameState = defaultState();
+      live.engine.resetGame();
+    }
+    scheduleCleanup(live, saved?.expiresAt);
+    persistRoom(room.code);
+    logger.info('Room restored', { code: room.code, phase: room.gameState.phase, matchId: room.gameState.matchId });
+  }
+}
+
+function getMapping(socketId: string): Mapping | undefined {
+  const mapping = socketToRoom.get(socketId);
+  return mapping && playerSockets.get(mapping.playerId) === socketId ? mapping : undefined;
+}
+
+function getLiveForSocket(socketId: string): LiveRoom | undefined {
+  const mapping = getMapping(socketId);
+  return mapping && rooms.get(mapping.code);
+}
+
+function refuseIfSeated(socket: TunesSocket): boolean {
+  if (!getMapping(socket.id)) return false;
+  socket.emit('error', { message: 'Leave your current table before starting or joining another.' });
+  return true;
+}
+
+function parseName(payload: unknown, socket: TunesSocket): string | undefined {
+  if (isRecord(payload) && isShortString(payload.playerName, 100)) {
+    const name = payload.playerName.trim();
+    if (name.length >= 1 && name.length <= 30) return name;
+  }
+  socket.emit('error', { message: 'Player name must be between 1 and 30 characters' });
+  return undefined;
+}
+
+function bindSeat(socket: TunesSocket, live: LiveRoom, player: Player): void {
+  player.connected = true;
+  socketToRoom.set(socket.id, { code: live.room.code, playerId: player.id });
+  playerSockets.set(player.id, socket.id);
+  void socket.join(live.room.code);
+}
+
+function issueSeat(live: LiveRoom, socket: TunesSocket, name: string, guestId: string, id = randomUUID()) {
+  const resumeToken = issueToken();
+  const player: Player = {
+    id, name, timeline: [], tokens: STARTING_TOKENS, isHost: id === live.room.hostId, connected: true,
+  };
+  live.room.players[id] = player;
+  live.seats[id] = { guestId, resumeTokenHash: tokenHash(resumeToken) };
+  cancelCleanup(live);
+  bindSeat(socket, live, player);
+  if (live.room.savedTableId) updateSavedTableName(live.room.savedTableId, guestId, name);
+  return { player, resumeToken };
+}
+
+function createRoom(
+  io: TunesServer, socket: TunesSocket, name: string, guest: Guest,
+  playbackMode: PlaybackMode, settings: GameSettings, savedTableId?: string, heardRecordingIds: string[] = [],
+): void {
+  const code = generateRoomCode();
+  const playerId = randomUUID();
+  const room: Room = {
+    code, players: {}, hostId: playerId, originalHostId: playerId, speakerId: playerId,
+    playbackMode, savedTableId, settings, gameState: defaultState(),
+  };
+  const live = createLiveRoom(io, room);
+  live.engine.inheritHeardRecordingIds(heardRecordingIds);
+  try {
+    const { resumeToken } = issueSeat(live, socket, name, guest.guestId, playerId);
+    updateStartAvailability(room);
+    checkpointRoom(code);
+    logger.info('Room created', { code, playerId, playbackMode });
+    socket.emit('room-created', { code, playerId, resumeToken, guestToken: guest.guestToken, room: live.engine.publicRoom(playerId) });
+  } catch (err) {
+    socketToRoom.delete(socket.id);
+    playerSockets.delete(playerId);
+    rooms.delete(code);
+    live.engine.dispose();
+    void socket.leave(code);
+    logger.error('Could not create room', { code, error: String(err) });
+    socket.emit('error', { message: 'Could not save this table. Try again.', action: 'create-room' });
+  }
+}
+
+function joinRoom(io: TunesServer, socket: TunesSocket, live: LiveRoom, name: string, guest: Guest): void {
+  const { room, engine } = live;
+  if (startAttempts.has(room.code)) {
+    socket.emit('error', { message: 'This table is preparing a game. Try again in a moment.' });
+    return;
+  }
+  if (room.gameState.phase === 'game_over') {
+    socket.emit('error', { message: 'The match has ended. Ask the controller to open the next game.' });
+    return;
+  }
+  if (!room.recovery && Object.keys(room.players).length >= MAX_PLAYERS) {
+    socket.emit('error', { message: 'Room is full' });
+    return;
+  }
+  if (Object.values(live.seats).some((seat) => seat.guestId === guest.guestId)) {
+    socket.emit('error', { message: 'You already have a seat at this table. Use Resume your table.', code: 'SEAT_ALREADY_EXISTS' });
+    return;
+  }
+  attachingSockets.add(socket.id);
+  try {
+    const { player, resumeToken } = issueSeat(live, socket, name, guest.guestId);
+    if (room.recovery) {
+      room.recovery = undefined;
+      room.originalHostId = player.id;
+      room.speakerId = player.id;
+      for (const id of Object.keys(room.players)) if (!live.seats[id]) delete room.players[id];
+    }
+    if (!room.players[room.hostId]?.connected) setController(room, player.id);
+    if (!room.speakerId && room.gameState.phase === 'lobby') room.speakerId = player.id;
+    updateStartAvailability(room);
+    if (room.gameState.phase !== 'lobby') engine.addLatecomer(player.id);
+    persistRoom(room.code);
+    socket.emit('room-joined', {
+      room: engine.publicRoom(player.id), playerId: player.id, resumeToken, guestToken: guest.guestToken,
+    });
+    broadcastState(io, live);
+  } finally {
+    attachingSockets.delete(socket.id);
+  }
+}
+
+function rejoinRoom(io: TunesServer, socket: TunesSocket, payload: unknown): void {
+  if (!isRecord(payload) || !isShortString(payload.code, 10) || !isShortString(payload.playerId, 64)) return;
+  const code = payload.code.trim().toUpperCase();
+  const playerId = payload.playerId;
+  const live = getRoomIfLive(code);
+  if (!live) {
+    socket.emit('error', { message: 'This table has expired. Host or join a new table.', code: 'REJOIN_EXPIRED' });
+    return;
+  }
+  const { room, engine, seats } = live;
+  const seat = Object.prototype.hasOwnProperty.call(seats, playerId) ? seats[playerId] : undefined;
+  if (!seat || !matchesToken(payload.resumeToken, seat.resumeTokenHash)) {
+    socket.emit('error', room.recovery
+      ? { message: 'This room was saved before secure recovery. Join the room code again to start a fresh match.', code: 'ROOM_RESTART_REQUIRED' }
+      : { message: 'This device no longer has a saved seat at that table.', code: 'REJOIN_FAILED' });
+    return;
+  }
+  const player = room.players[playerId];
+  if (!player) return;
+  const current = getMapping(socket.id);
+  if (current && current.playerId !== playerId) {
+    refuseIfSeated(socket);
+    return;
+  }
+  const previous = playerSockets.get(playerId);
+  if (previous && previous !== socket.id) {
+    socketToRoom.delete(previous);
+    const oldSocket = io.sockets.sockets.get(previous);
+    void oldSocket?.leave(code);
+    oldSocket?.emit('error', { message: 'This seat moved to another connection.', code: 'SEAT_REPLACED' });
+    oldSocket?.disconnect(true);
+    if (room.gameState.audio?.operatorId === playerId && room.gameState.audio.kind === 'automatic') {
+      engine.handlePlayerDisconnect(playerId);
+    }
+    if (room.hostId === playerId) cancelStart(io, code);
+  }
+  attachingSockets.add(socket.id);
+  try {
+    const phase = room.gameState.phase;
+    cancelCleanup(live);
+    bindSeat(socket, live, player);
+    if (playerId === room.originalHostId || !room.players[room.hostId]?.connected) {
+      if (room.hostId !== playerId) cancelStart(io, code);
+      setController(room, playerId);
+    }
+    updateStartAvailability(room);
+    engine.handlePlayerReconnect(playerId);
+    persistRoom(code);
+    socket.emit('room-joined', { room: engine.publicRoom(playerId), playerId, resumeToken: payload.resumeToken as string });
+    broadcastState(io, live);
+    logger.info('Seat resumed', { code, playerId, matchId: room.gameState.matchId, phaseBefore: phase, phaseAfter: room.gameState.phase });
+  } finally {
+    attachingSockets.delete(socket.id);
+  }
+}
+
+function validList(value: unknown, allowed: string[]): boolean {
+  return Array.isArray(value) && value.length <= allowed.length && value.every((item) => allowed.includes(item));
+}
+
+function updateRoomSettings(room: Room, settings: unknown): boolean {
+  if (!isRecord(settings)) return false;
+  const { mode, cardsToWin, songPack, decades, genres, regions, playbackMode, packId, dinnerRounds, dedicatedDjId } = settings;
+  if (mode !== undefined && (typeof mode !== 'string' || !VALID_MODES.includes(mode))) return false;
+  if (cardsToWin !== undefined && !isBoundedInt(cardsToWin, MIN_CARDS_TO_WIN, MAX_CARDS_TO_WIN)) return false;
+  if (songPack !== undefined && (typeof songPack !== 'string' || !['standard', 'decades', 'genre', 'genre-decade'].includes(songPack))) return false;
+  if (decades !== undefined && (!Array.isArray(decades) || decades.length > 15 || !decades.every((year) => isBoundedInt(year, 1900, 2090) && year % 10 === 0))) return false;
+  if (genres !== undefined && !validList(genres, VALID_GENRES)) return false;
+  if (regions !== undefined && !validList(regions, VALID_REGIONS)) return false;
+  if (dinnerRounds !== undefined && !isBoundedInt(dinnerRounds, 2, 24)) return false;
+  if (dedicatedDjId !== undefined && dedicatedDjId !== ''
+    && (!isShortString(dedicatedDjId, 64) || !Object.prototype.hasOwnProperty.call(room.players, dedicatedDjId))) return false;
+  if (playbackMode !== undefined && playbackMode !== 'licensed' && playbackMode !== 'manual' && playbackMode !== 'spotify') return false;
+  const nextMode = (mode ?? room.settings.mode) as GameSettings['mode'];
+  let nextPlayback = playbackMode ?? room.playbackMode ?? 'manual';
+  if (nextPlayback === 'spotify' && nextMode === 'dinner' && playbackMode === undefined) nextPlayback = 'manual';
+  if (nextPlayback === 'spotify' && (nextMode === 'dinner' || !spotifyClassicAvailable())) return false;
+  const packs = enabledLicensedPacks();
+  if (nextPlayback === 'licensed' && packId !== undefined && !packs.some((pack) => pack.id === packId)) return false;
+  if (nextPlayback === 'licensed' && !packs.length) return false;
+
+  const typed = settings as Partial<GameSettings>;
+  room.settings = {
+    ...room.settings,
+    mode: nextMode,
+    cardsToWin: typed.cardsToWin ?? room.settings.cardsToWin,
+    songPack: typed.songPack ?? room.settings.songPack,
+    decades: typed.decades ?? room.settings.decades,
+    genres: typed.genres ?? room.settings.genres,
+    regions: typed.regions ?? room.settings.regions,
+    dinnerRounds: typed.dinnerRounds ?? room.settings.dinnerRounds,
+    dedicatedDjId: nextPlayback === 'manual'
+      ? (dedicatedDjId === undefined ? room.settings.dedicatedDjId : typed.dedicatedDjId || undefined)
+      : undefined,
+    packId: nextPlayback === 'licensed'
+      ? typed.packId ?? packs.find((pack) => pack.id === room.settings.packId)?.id ?? packs[0]?.id
+      : undefined,
+  };
+  room.playbackMode = nextPlayback;
+  if (playbackMode === 'spotify') room.speakerId = room.hostId;
+  return true;
+}
+
+function recordingsNeeded(room: Room, playerCount: number): number {
+  if (room.settings.mode === 'dinner') {
+    return 3 + getDinnerRoundCount(room.settings, room.playbackMode, playerCount);
+  }
+  return (room.settings.mode === 'coop' ? 1 : playerCount) + room.settings.cardsToWin - 1;
+}
+
+function startIssue(room: Room, playerCount: number, dedicatedDjReady: boolean, playable: number): string | undefined {
+  if (room.settings.mode === 'dinner' && !dinnerStartsEnabled()) return 'Dinner Set is unavailable for new starts.';
+  if (room.playbackMode === 'spotify' && (room.settings.mode === 'dinner' || !spotifyClassicAvailable())) {
+    return 'Spotify is unavailable for new Classic starts.';
+  }
+  if (room.playbackMode === 'licensed' && !enabledLicensedPacks().length) return 'Licensed playback is unavailable for new starts.';
+  if (!dedicatedDjReady) return 'Connect your dedicated DJ to start.';
+  if (playerCount < MIN_PLAYERS) return `Need at least ${MIN_PLAYERS} connected players.`;
+  const required = recordingsNeeded(room, playerCount);
+  if (playable < required) return `Only ${playable} usable recordings match this pack. This table needs ${required} for these settings.`;
+}
+
+function updateStartAvailability(room: Room): void {
+  room.startAvailability = undefined;
+  if (room.gameState.phase !== 'lobby') return;
+  const dedicatedId = room.playbackMode === 'manual' ? room.settings.dedicatedDjId : undefined;
+  const playerCount = connectedPlayers(room).filter(({ id }) => id !== dedicatedId).length;
+  const playable = getPartyDeck(room.settings, room.playbackMode ?? 'manual').length;
+  const required = recordingsNeeded(room, Math.max(MIN_PLAYERS, playerCount));
+  const issue = startIssue(room, playerCount, !dedicatedId || room.players[dedicatedId]?.connected, playable);
+  room.startAvailability = { playable, required, ready: !issue, issue };
+}
+
+function cancelStart(io: TunesServer, code: string): void {
+  if (startAttempts.delete(code)) io.to(code).emit('start-status', { phase: 'idle' });
+}
+
+async function startGame(io: TunesServer, socket: TunesSocket, rematchId?: string): Promise<void> {
+  const mapping = getMapping(socket.id);
+  const live = getLiveForSocket(socket.id);
+  if (!mapping || !live || live.room.hostId !== mapping.playerId) {
+    socket.emit('error', { message: 'Only the controller can start the game.' });
+    return;
+  }
+  const { room, engine } = live;
+  if (startAttempts.has(room.code)) return;
+  if (rematchId
+    ? room.gameState.phase !== 'game_over' || room.gameState.matchId !== rematchId
+    : room.gameState.phase !== 'lobby') return;
+
+  const attempt = Symbol();
+  startAttempts.set(room.code, attempt);
+  const started = performance.now();
+  let message: string | undefined;
+  io.to(room.code).emit('start-status', { phase: 'preparing' });
+
+  try {
+    // Yield before deck preparation so the room can see or cancel the attempt.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    if (startAttempts.get(room.code) !== attempt || room.hostId !== mapping.playerId || !getMapping(socket.id)) return;
+    const consenting = new Set(room.gameState.rematchPlayerIds ?? []);
+    const dedicatedId = room.playbackMode === 'manual' ? room.settings.dedicatedDjId : undefined;
+    const roster = connectedPlayers(room).filter((player) => !rematchId || consenting.has(player.id) || player.id === dedicatedId);
+    const players = roster.filter((player) => player.id !== dedicatedId);
+    if (players.length < MIN_PLAYERS || (dedicatedId && !roster.some((player) => player.id === dedicatedId))) {
+      socket.emit('error', { message: dedicatedId
+        ? `Connect your dedicated DJ and at least ${MIN_PLAYERS} players to start.`
+        : `Need at least ${MIN_PLAYERS} ${rematchId ? 'accepting' : 'connected'} players.`, action: 'start-game' });
+      return;
+    }
+    const automatic = room.playbackMode === 'licensed' || room.playbackMode === 'spotify';
+    const speakerId = (automatic && !room.players[room.speakerId ?? '']?.connected &&
+      (!rematchId || room.playbackMode === 'spotify')) ? room.hostId : room.speakerId;
+    if (automatic && !room.players[speakerId ?? '']?.connected) {
+      socket.emit('error', { message: 'Connect the speaker before starting.', action: 'start-game' });
+      return;
+    }
+    const heard = engine.getHeardRecordingIds();
+    const playbackMode = room.playbackMode ?? 'manual';
+    const deck = getPartyDeck(room.settings, playbackMode, [...heard]);
+    const needed = recordingsNeeded(room, players.length);
+    const issue = startIssue(room, players.length, !dedicatedId || roster.some((player) => player.id === dedicatedId), deck.length);
+    if (issue) {
+      socket.emit('error', { message: issue, action: 'start-game' });
+      return;
+    }
+    const heardKeys = new Set(heard);
+    if (deck.filter((card) => !heardKeys.has(card.recordingId ?? card.id)).length < needed) {
+      message = 'Some recordings will repeat to complete this set.';
+    }
+    room.speakerId = speakerId;
+    room.recovery = undefined;
+    room.startAvailability = undefined;
+    live.startsAt = started;
+    engine.startGame(deck, players.map((player) => player.id));
+    logger.info(rematchId ? 'Rematch started' : 'Match started', {
+      code: room.code, matchId: room.gameState.matchId, playerCount: players.length, source: playbackMode,
+      prepareMs: performance.now() - started,
+    });
+  } catch (err) {
+    logger.error('Could not prepare game', { code: room.code, error: String(err) });
+    socket.emit('error', { message: 'Could not prepare this game. Try again.', action: 'start-game' });
+  } finally {
+    if (startAttempts.get(room.code) === attempt) {
+      startAttempts.delete(room.code);
+      io.to(room.code).emit('start-status', { phase: 'idle', message });
+    }
+  }
+}
+
+function withLiveRooms(tables: SavedTable[]): SavedTable[] {
+  return tables.map((table) => ({
+    ...table,
+    currentRoomCode: [...rooms.values()].find(
+      ({ room }) => room.savedTableId === table.id && (room.expiresAt === undefined || room.expiresAt > Date.now()),
+    )?.room.code,
+  }));
+}
+
+function handleLeave(io: TunesServer, socket: TunesSocket, voluntary: boolean): void {
+  const mapping = getMapping(socket.id);
+  const live = getLiveForSocket(socket.id);
+  if (!mapping || !live) return;
+  const { room, engine, seats } = live;
+  const { code, playerId } = mapping;
+  room.players[playerId].connected = false;
+  socketToRoom.delete(socket.id);
+  playerSockets.delete(playerId);
+  void socket.leave(code);
+  if (room.hostId === playerId) {
+    cancelStart(io, code);
+    const next = connectedPlayers(room)[0];
+    if (next) setController(room, next.id);
+  }
+  if (voluntary) {
+    // Keep identity for terminal statistics while invalidating the resume token.
+    const seat = seats[playerId];
+    if (seat) seat.resumeTokenHash = '';
+    if (room.originalHostId === playerId) room.originalHostId = undefined;
+    if (room.gameState.phase === 'lobby') {
+      delete room.players[playerId];
+      delete seats[playerId];
+      if (room.speakerId === playerId) room.speakerId = connectedPlayers(room)[0]?.id;
+      if (room.settings.dedicatedDjId === playerId) room.settings.dedicatedDjId = undefined;
+    }
+  }
+  if (!connectedPlayers(room).length) {
+    if (voluntary && !Object.values(seats).some((seat) => seat.resumeTokenHash)) {
+      try {
+        removeRoom(live);
+        return;
+      } catch (err) {
+        logger.error('Could not close abandoned room', { code, error: String(err) });
+      }
+    }
+    scheduleCleanup(live, room.expiresAt);
+  }
+  if (voluntary) engine.handlePlayerVoluntaryLeave(playerId);
+  else engine.handlePlayerDisconnect(playerId);
+  persistRoom(code);
+  broadcastState(io, live);
+  logger.info('Seat disconnected', { code, playerId, matchId: room.gameState.matchId, phase: room.gameState.phase, voluntary });
+}
+
+function registerTableHandlers(io: TunesServer, socket: TunesSocket): void {
+  socket.on('save-table', (payload) => {
+    const mapping = getMapping(socket.id);
+    const live = getLiveForSocket(socket.id);
+    if (!mapping || !live || live.room.hostId !== mapping.playerId) return;
+    const guestId = live.seats[mapping.playerId]?.guestId;
+    if (!guestId) return;
+    try {
+      if (!live.room.savedTableId) {
+        const name = isRecord(payload) && isShortString(payload.name, 60) && payload.name.trim()
+          ? payload.name.trim()
+          : `${live.room.players[mapping.playerId].name}’s table`;
+        const members = new Map<string, string>();
+        for (const [playerId, seat] of Object.entries(live.seats)) {
+          const player = live.room.players[playerId];
+          if (player && (seat.resumeTokenHash || live.room.gameState.result?.scores[playerId] !== undefined)) {
+            members.set(seat.guestId, player.name);
+          }
+        }
+        live.room.savedTableId = createSavedTable(
+          live.room, recoveryFor(live), name,
+          [...members].map(([guestId, displayName]) => ({ guestId, displayName })),
+          live.completedMatchIds,
+        );
+        broadcastState(io, live);
+      }
+      const table = withLiveRooms(getSavedTables(guestId)).find((entry) => entry.id === live.room.savedTableId);
+      if (table) socket.emit('table-saved', { table });
+      else socket.emit('error', { message: 'This table is private to its original members.' });
+    } catch (err) {
+      logger.error('Could not save table', { code: live.room.code, error: String(err) });
+      socket.emit('error', { message: 'Could not save your table. Try again.' });
+    }
+  });
+
+  socket.on('open-table', (payload) => {
+    if (!isRecord(payload) || !isShortString(payload.tableId, 64) || !isShortString(payload.guestToken, 64)
+      || refuseIfSeated(socket)) return;
+    const name = parseName(payload, socket);
+    if (!name) return;
+    const guestId = authenticateGuest(payload.guestToken);
+    const config = guestId && getSavedTableConfig(payload.tableId, guestId);
+    if (!guestId || !config) {
+      socket.emit('error', { message: 'This private table is unavailable to this device.' });
+      return;
+    }
+    const guest = { guestId, guestToken: payload.guestToken };
+    const existing = [...rooms.values()].find((live) => live.room.savedTableId === payload.tableId);
+    const live = existing && getRoomIfLive(existing.room.code);
+    if (live) joinRoom(io, socket, live, name, guest);
+    else {
+      config.settings.dedicatedDjId = undefined;
+      if (config.playbackMode === 'licensed' && !enabledLicensedPacks().some((pack) => pack.id === config.settings.packId)) {
+        config.playbackMode = 'manual';
+      }
+      if (config.playbackMode === 'spotify' && (!spotifyClassicAvailable() || config.settings.mode === 'dinner')) {
+        config.playbackMode = 'manual';
+      }
+      if (!dinnerStartsEnabled() && config.settings.mode === 'dinner') config.settings.mode = 'original';
+      createRoom(io, socket, name, guest, config.playbackMode, config.settings, payload.tableId, config.heardRecordingIds);
     }
   });
 }
 
-/**
- * Load all rooms from the database on server startup.
- * GameEngine instances are recreated for rooms with active games.
- */
-export function restoreRoomsFromDatabase(_io: TunesServer): void {
-  const saved = loadAllRooms();
-  for (const { room, spotifyToken: legacySpotifyToken } of saved) {
-    // Pre-intent rows can be classified safely from server state: preview
-    // rooms never persisted a room token, while Spotify rooms did. Preserve
-    // only that mode marker; the unowned credential itself is still dropped.
-    room.playbackMode = room.playbackMode
-      ?? (legacySpotifyToken ? 'spotify' : 'preview');
-    rooms.set(room.code, room);
-    // Pre-owner rows cannot prove which player supplied the room-scoped token.
-    // Never assign that credential to whoever happens to be host after restart.
-    const restoredCredential = restoreHostSpotifyCredential(legacySpotifyToken, undefined);
-    if (restoredCredential) roomSpotifyCredentials.set(room.code, restoredCredential);
-
-    // Mark all players as disconnected since this is a fresh server start
-    for (const player of Object.values(room.players)) {
-      player.connected = false;
-    }
-
-    // Rooms with active games cannot be resumed (deck is not persisted),
-    // so reset them to lobby phase instead of trying to continue.
-    if (room.gameState.phase !== 'lobby' && room.gameState.phase !== 'game_over') {
-      logger.warn('Restored room had active game with no deck, resetting to lobby', {
-        code: room.code,
-        previousPhase: room.gameState.phase,
-      });
-      room.gameState = createDefaultGameState();
-      for (const player of Object.values(room.players)) {
-        player.timeline = [];
-        player.tokens = STARTING_TOKENS;
-      }
-    }
-
-    if (legacySpotifyToken && !restoredCredential) {
-      // Rewrite the row without the unowned credential. A current Spotify host
-      // sends their own existing/refreshed token on the next Start action.
-      saveRoom(room.code, room);
-      logger.info('Discarded ownerless persisted Spotify credential', { code: room.code });
-    }
-
-    logger.info('Restored room from database', { code: room.code, phase: room.gameState.phase });
-  }
-  logger.info('Room restoration complete', { count: saved.length });
-}
-
-export function registerRoomHandlers(io: TunesServer, socket: TunesSocket) {
+export function registerRoomHandlers(io: TunesServer, socket: TunesSocket): void {
   socket.on('create-room', (payload) => {
-    if (!isRecord(payload)) return;
-    const { playerName, spotifyAccessToken } = payload;
-    if (spotifyAccessToken !== undefined && !isShortString(spotifyAccessToken, 1000)) return;
-    if (!isShortString(playerName, 100)) {
-      socket.emit('error', { message: 'Player name must be between 1 and 30 characters' });
+    if (!isRecord(payload) || refuseIfSeated(socket)) return;
+    const name = parseName(payload, socket);
+    if (!name) return;
+    if ('spotifyAccessToken' in payload) {
+      socket.emit('error', { message: 'Refresh Tunes to use the available hosting modes.', code: 'REFRESH_REQUIRED' });
       return;
     }
-    const trimmedName = playerName.trim();
-    if (trimmedName.length < 1 || trimmedName.length > 30) {
-      socket.emit('error', { message: 'Player name must be between 1 and 30 characters' });
+    const playbackMode = payload.playbackMode ?? 'manual';
+    if ((playbackMode !== 'manual' && playbackMode !== 'licensed' && playbackMode !== 'spotify') ||
+      (playbackMode === 'spotify' && !spotifyClassicAvailable())) {
+      socket.emit('error', { message: 'This music source is unavailable.' });
       return;
     }
-
-    const code = generateRoomCode();
-    const playerId = uuidv4();
-
-    const player: Player = {
-      id: playerId,
-      name: trimmedName,
-      timeline: [],
-      tokens: STARTING_TOKENS,
-      isHost: true,
-      connected: true,
-    };
-
-    const room: Room = {
-      code,
-      players: { [playerId]: player },
-      hostId: playerId,
-      originalHostId: playerId,
-      playbackMode: spotifyAccessToken ? 'spotify' : 'preview',
-      settings: { mode: 'original', cardsToWin: DEFAULT_CARDS_TO_WIN, songPack: 'standard' },
-      gameState: createDefaultGameState(),
-    };
-
-    rooms.set(code, room);
-    socketToRoom.set(socket.id, { code, playerId });
-    socket.join(code);
-
-    const engine = new GameEngine(room, io);
-    setupGameEndHook(engine, code);
-    games.set(code, engine);
-
-    if (spotifyAccessToken) {
-      engine.setSpotifyToken(spotifyAccessToken);
-      roomSpotifyCredentials.set(code, { hostId: playerId, token: spotifyAccessToken });
+    const packs = playbackMode === 'licensed' ? enabledLicensedPacks() : [];
+    const pack = payload.packId ? packs.find((item) => item.id === payload.packId) : packs[0];
+    if (playbackMode === 'licensed' && !pack) {
+      socket.emit('error', { message: 'That licensed pack is unavailable.' });
+      return;
     }
-
-    persistRoom(code);
-
-    logger.info('Room created', { code, hostId: room.hostId, playerCount: Object.keys(room.players).length });
-    socket.emit('room-created', { code, playerId, room });
-    // Also send state-sync so the host's player data is fully populated
-    socket.emit('state-sync', room);
+    createRoom(io, socket, name, getOrCreateGuest(payload.guestToken), playbackMode, {
+      mode: 'original', cardsToWin: DEFAULT_CARDS_TO_WIN, songPack: 'standard', packId: pack?.id,
+    });
   });
 
   socket.on('join-room', (payload) => {
-    if (!isRecord(payload)) return;
-    const { code, playerName } = payload;
-    if (!isShortString(code, 10)) return;
-    if (!isShortString(playerName, 100)) {
-      socket.emit('error', { message: 'Player name must be between 1 and 30 characters' });
-      return;
-    }
-    const trimmedName = playerName.trim();
-    if (trimmedName.length < 1 || trimmedName.length > 30) {
-      socket.emit('error', { message: 'Player name must be between 1 and 30 characters' });
-      return;
-    }
-
-    const upperCode = code.toUpperCase();
-    const room = rooms.get(upperCode);
-
-    if (!room) {
-      socket.emit('error', { message: 'Room not found' });
-      return;
-    }
-
-    if (room.gameState.phase === 'game_over') {
-      socket.emit('error', { message: 'Game is over — ask the host to restart' });
-      return;
-    }
-
-    if (Object.keys(room.players).length >= MAX_PLAYERS) {
-      socket.emit('error', { message: 'Room is full' });
-      return;
-    }
-
-    const playerId = uuidv4();
-    const player: Player = {
-      id: playerId,
-      name: trimmedName,
-      timeline: [],
-      tokens: STARTING_TOKENS,
-      isHost: false,
-      connected: true,
-    };
-
-    room.players[playerId] = player;
-    socketToRoom.set(socket.id, { code: upperCode, playerId });
-    socket.join(upperCode);
-
-    // Cancel any pending room cleanup (someone came back)
-    cancelRoomCleanup(upperCode);
-
-    // If game is in progress, integrate the late joiner
-    const isGameActive = room.gameState.phase !== 'lobby';
-    if (isGameActive) {
-      const engine = games.get(upperCode);
-      if (engine) {
-        engine.addLatecomer(playerId);
-      }
-    }
-
-    persistRoom(upperCode);
-
-    socket.emit('room-joined', { room, playerId });
-    socket.to(upperCode).emit('player-joined', player);
-
-    // If game is active, send game state so the late joiner enters the game screen
-    if (isGameActive) {
-      socket.emit('game-started', { gameState: room.gameState });
-      if (room.gameState.currentTurnPlayerId && room.gameState.currentSong) {
-        socket.emit('new-turn', {
-          turnPlayerId: room.gameState.currentTurnPlayerId,
-          songCard: { id: room.gameState.currentSong.id },
-        });
-      }
-    }
+    if (!isRecord(payload) || !isShortString(payload.code, 10) || refuseIfSeated(socket)) return;
+    const name = parseName(payload, socket);
+    if (!name) return;
+    const live = getRoomIfLive(payload.code.trim().toUpperCase());
+    if (live) joinRoom(io, socket, live, name, getOrCreateGuest(payload.guestToken));
+    else socket.emit('error', { message: 'Room not found or expired' });
   });
-
-  socket.on('rejoin-room', (payload) => {
-    if (!isRecord(payload)) return;
-    const { code, playerId } = payload;
-    if (!isShortString(code, 10) || !isShortString(playerId, 64)) return;
-    const upperCode = code.toUpperCase();
-    const room = rooms.get(upperCode);
-
-    if (!room || !room.players[playerId]) {
-      socket.emit('error', { message: 'Room not found or player unknown', code: 'REJOIN_FAILED' });
-      return;
-    }
-
-    // Re-associate this socket with the existing player
-    const player = room.players[playerId];
-    player.connected = true;
-    socketToRoom.set(socket.id, { code: upperCode, playerId });
-    socket.join(upperCode);
-
-    // Cancel any pending room cleanup (player came back)
-    cancelRoomCleanup(upperCode);
-
-    // Restore host role if this is the original host (e.g. they have Spotify connected)
-    if (playerId === room.originalHostId && room.hostId !== playerId) {
-      const currentHost = room.players[room.hostId];
-      if (currentHost) {
-        currentHost.isHost = false;
-      }
-      room.hostId = playerId;
-      player.isHost = true;
-      logger.info('Original host restored', { code: upperCode, playerId, name: player.name });
-    }
-
-    logger.info('Player rejoined', { code: upperCode, playerId, name: player.name });
-
-    // Send full state to the reconnecting client
-    socket.emit('room-joined', { room, playerId });
-    // Notify others
-    io.to(upperCode).emit('state-sync', room);
-
-    // If game is in progress, resend current game screen and handle reconnect
-    if (room.gameState.phase !== 'lobby' && room.gameState.phase !== 'game_over') {
-      // Clear disconnect grace timer if one is running
-      const engine = games.get(upperCode);
-      if (engine) {
-        engine.handlePlayerReconnect(playerId);
-      }
-
-      socket.emit('game-started', { gameState: room.gameState });
-
-      // Re-send current turn info (strip song details to avoid leaking answers)
-      if (room.gameState.currentTurnPlayerId && room.gameState.currentSong) {
-        socket.emit('new-turn', {
-          turnPlayerId: room.gameState.currentTurnPlayerId,
-          songCard: { id: room.gameState.currentSong.id },
-        });
-      }
-    }
-
-    // Re-send song history if available
-    const engineForHistory = games.get(upperCode);
-    if (engineForHistory) {
-      const history = engineForHistory.getSongHistory();
-      if (history.length > 0) {
-        socket.emit('song-history', { history });
-      }
-    }
-
-    persistRoom(upperCode);
-  });
-
+  socket.on('rejoin-room', (payload) => rejoinRoom(io, socket, payload));
   socket.on('leave-room', () => {
     handleLeave(io, socket, true);
+    socket.emit('room-left');
   });
 
   socket.on('update-settings', (settings) => {
-    if (!isRecord(settings)) return;
-    const mapping = socketToRoom.get(socket.id);
-    if (!mapping) return;
-    const room = rooms.get(mapping.code);
-    if (!room || room.hostId !== mapping.playerId) return;
-
-    // Validate free-form settings fields before merging
-    if (settings.playlistUrl != null && !isShortString(settings.playlistUrl, 300)) {
-      socket.emit('error', { message: 'Playlist URL is too long' });
+    const mapping = getMapping(socket.id);
+    const live = getLiveForSocket(socket.id);
+    if (!mapping || !live || live.room.hostId !== mapping.playerId || live.room.gameState.phase !== 'lobby') return;
+    if (startAttempts.has(live.room.code)) return;
+    const { room } = live;
+    const previous = { settings: room.settings, playbackMode: room.playbackMode, speakerId: room.speakerId };
+    if (!updateRoomSettings(room, settings)) {
+      socket.emit('error', { message: 'These settings are unavailable for this table.', action: 'update-settings' });
       return;
     }
-    for (const field of ['decades', 'genres', 'regions'] as const) {
-      const value = settings[field];
-      if (value == null) continue;
-      if (!Array.isArray(value) || value.length > 50 || !value.every((v) => isShortString(v, 50))) {
-        socket.emit('error', { message: `Invalid ${field} filter` });
-        return;
-      }
-    }
-
-    // Validate cardsToWin
-    if (settings.cardsToWin != null) {
-      const ctw = Number(settings.cardsToWin);
-      if (isNaN(ctw) || ctw < MIN_CARDS_TO_WIN || ctw > MAX_CARDS_TO_WIN) {
-        socket.emit('error', { message: `cardsToWin must be between ${MIN_CARDS_TO_WIN} and ${MAX_CARDS_TO_WIN}` });
-        return;
-      }
-      settings.cardsToWin = ctw;
-    }
-
-    // Validate mode
-    if (settings.mode != null && !VALID_GAME_MODES.includes(settings.mode as GameMode)) {
-      socket.emit('error', { message: 'Invalid game mode' });
-      return;
-    }
-
-    room.settings = { ...room.settings, ...settings };
-    io.to(mapping.code).emit('settings-updated', room.settings);
-    persistRoom(mapping.code);
-  });
-
-  socket.on('start-game', async (data) => {
     try {
-      const mapping = socketToRoom.get(socket.id);
-      if (!mapping) {
-        socket.emit('error', { message: 'Connection lost. Please refresh and rejoin the room.' });
-        return;
-      }
-      const room = rooms.get(mapping.code);
-      if (!room) {
-        socket.emit('error', { message: 'Room no longer exists.' });
-        return;
-      }
-      if (room.hostId !== mapping.playerId) {
-        socket.emit('error', { message: 'Only the host can start the game.' });
-        return;
-      }
-
-      // Guard against double start
-      if (room.gameState.phase !== 'lobby') {
-        socket.emit('error', { message: 'Game already in progress' });
-        return;
-      }
-
-      const playerCount = Object.keys(room.players).length;
-      if (playerCount < MIN_PLAYERS) {
-        socket.emit('error', { message: `Need at least ${MIN_PLAYERS} players` });
-        return;
-      }
-
-      // Accept a fresh Spotify token from the client (handles token expiry)
-      if (data?.spotifyAccessToken && isShortString(data.spotifyAccessToken, 1000)) {
-        roomSpotifyCredentials.set(mapping.code, {
-          hostId: mapping.playerId,
-          token: data.spotifyAccessToken,
-        });
-        const engine = games.get(mapping.code);
-        if (engine) engine.setSpotifyToken(data.spotifyAccessToken);
-      }
-
-      const spotifyToken = spotifyTokenForHost(
-        room.hostId,
-        roomSpotifyCredentials.get(mapping.code),
-      );
-      logger.info('Starting game', {
-        code: mapping.code,
-        hasSpotifyToken: !!spotifyToken,
-        tokenPrefix: spotifyToken ? spotifyToken.slice(0, 10) + '...' : 'none',
-        songPack: room.settings.songPack,
-      });
-      const { songPack, decades, genres, regions, playlistUrl } = room.settings;
-      const requirePreview = !spotifyToken;
-      const effectiveSongPack = getEffectiveSongPack(songPack, requirePreview);
-      let deck: import('@tunes/shared').SongCard[];
-
-      if (effectiveSongPack === 'playlist') {
-        // Validate playlist URL is provided
-        if (!playlistUrl || playlistUrl.trim() === '') {
-          socket.emit('error', { message: 'Please enter a Spotify playlist URL before starting.' });
-          return;
-        }
-
-        if (!spotifyToken) {
-          socket.emit('error', { message: 'Spotify connection required for playlist mode.' });
-          return;
-        }
-
-        // Fetch songs directly from a Spotify playlist
-        io.to(mapping.code).emit('resolving-tracks');
-        deck = await fetchPlaylistDeck(playlistUrl, spotifyToken);
-        if (deck.length === 0) {
-          socket.emit('error', { message: 'Could not load songs from that playlist. It may be empty, private, or the link is invalid.' });
-          return;
-        }
-        if (deck.length < 10) {
-          socket.emit('error', {
-            message: `That playlist only has ${deck.length} playable track${deck.length === 1 ? '' : 's'}. A minimum of 10 are needed for a good game. Try a larger playlist.`,
-          });
-          return;
-        }
-      } else {
-        // Use built-in song database with optional decade/genre/region filters
-        const filters = getBuiltInDeckFilters(
-          effectiveSongPack,
-          decades,
-          genres,
-          regions,
-          requirePreview,
-        );
-        // In preview mode, select from the playable catalogue up front. If we
-        // select first and filter afterwards, a healthy preview catalogue can
-        // still randomly produce too few playable cards.
-        deck = selectGameDeck(
-          undefined,
-          filters.decades,
-          filters.genres,
-          filters.regions,
-          requirePreview,
-        );
-        if (deck.length === 0) {
-          socket.emit('error', { message: 'Not enough songs for the selected filters. Try broadening your selection.' });
-          return;
-        }
-
-        // Resolve Spotify track IDs if token available
-        if (spotifyToken) {
-          io.to(mapping.code).emit('resolving-tracks');
-          const playable = await resolveTrackIds(deck, spotifyToken);
-          if (playable.length === 0) {
-            socket.emit('error', { message: 'Could not find any songs on Spotify. Please try again.' });
-            return;
-          }
-          deck = playable;
-        } else {
-          // Preview mode: only keep songs that have a pre-baked previewUrl
-          deck = deck.filter((s) => !!s.previewUrl);
-          if (deck.length === 0) {
-            socket.emit('error', {
-              message: 'No song previews available. Please use "Host with Spotify" to play.',
-            });
-            return;
-          }
-          if (deck.length < 10) {
-            socket.emit('error', {
-              message: `Only ${deck.length} songs have preview audio. Try broadening your selection or use "Host with Spotify".`,
-            });
-            return;
-          }
-        }
-      }
-
-      let engine = games.get(mapping.code);
-      if (!engine) {
-        engine = new GameEngine(room, io);
-        setupGameEndHook(engine, mapping.code);
-        games.set(mapping.code, engine);
-      }
-
-      // Re-register hook in case engine was reused from a previous game
-      setupGameEndHook(engine, mapping.code);
-
-      engine.startGame(deck);
-      persistRoom(mapping.code);
+      const guestId = live.seats[mapping.playerId]?.guestId;
+      const saveSettings = guestId && room.savedTableId && getSavedTableConfig(room.savedTableId, guestId);
+      checkpointRoom(room.code, Boolean(saveSettings));
+      broadcastState(io, live);
     } catch (err) {
-      logger.error('start-game handler failed', { error: String(err) });
-      socket.emit('error', { message: 'Failed to start game. Please try again.' });
+      Object.assign(room, previous);
+      logger.error('Could not save room settings', { code: room.code, error: String(err) });
+      socket.emit('error', { message: 'Could not save these settings. Try again.', action: 'update-settings' });
     }
+  });
+  socket.on('start-game', (payload?: unknown) => {
+    if (isRecord(payload) && 'spotifyAccessToken' in payload) {
+      socket.emit('error', { message: 'Refresh Tunes to use the available hosting modes.', code: 'REFRESH_REQUIRED' });
+      return;
+    }
+    void startGame(io, socket);
+  });
+  socket.on('start-rematch', (payload) => {
+    if (isRecord(payload) && isShortString(payload.matchId, 64)) void startGame(io, socket, payload.matchId);
+  });
+  socket.on('cancel-start', () => {
+    const live = getLiveForSocket(socket.id);
+    if (live && live.room.hostId === getMapping(socket.id)?.playerId) cancelStart(io, live.room.code);
   });
 
   registerGameActionHandlers(socket, {
-    getEngine,
-    getMapping: (socketId) => socketToRoom.get(socketId),
-    getRoom: (code) => rooms.get(code),
-    persistRoom,
+    getEngine: () => getLiveForSocket(socket.id)?.engine ?? null,
+    getMapping,
   });
 
   socket.on('restart-game', () => {
-    const mapping = socketToRoom.get(socket.id);
-    if (!mapping) return;
-    const room = rooms.get(mapping.code);
-    if (!room) return;
-
-    // Only the host can restart
-    if (room.hostId !== mapping.playerId) {
-      socket.emit('error', { message: 'Only the host can restart the game' });
+    const mapping = getMapping(socket.id);
+    const live = getLiveForSocket(socket.id);
+    if (!mapping || !live || live.room.hostId !== mapping.playerId) return;
+    const { room, engine, seats } = live;
+    if (room.gameState.phase !== 'lobby' && room.gameState.phase !== 'game_over') {
+      socket.emit('error', { message: 'Finish the active match before opening a new game.' });
       return;
     }
-
-    // Reset engine state
-    const engine = games.get(mapping.code);
-    if (engine) {
-      engine.resetGame();
-    } else {
-      // No engine — reset room state manually
-      room.gameState = createDefaultGameState();
-      for (const player of Object.values(room.players)) {
-        player.timeline = [];
-        player.tokens = STARTING_TOKENS;
-      }
-    }
-
-    // Remove disconnected players
+    cancelStart(io, room.code);
+    room.recovery = undefined;
     for (const [id, player] of Object.entries(room.players)) {
-      if (!player.connected) {
+      if (!player.connected && !seats[id]?.resumeTokenHash) {
         delete room.players[id];
+        delete seats[id];
       }
     }
-
-    persistRoom(mapping.code);
-
-    io.to(mapping.code).emit('game-restarted', { room });
+    engine.resetGame();
+    updateStartAvailability(room);
+    persistRoom(room.code);
+    for (const player of connectedPlayers(room)) {
+      const socketId = playerSockets.get(player.id);
+      if (socketId) io.to(socketId).emit('game-restarted', { room: engine.publicRoom(player.id) });
+    }
   });
-
   socket.on('buzz', () => {
-    const mapping = socketToRoom.get(socket.id);
-    if (!mapping) return;
-    const room = rooms.get(mapping.code);
-    if (!room || room.gameState.phase !== 'playing') return;
-    if (mapping.playerId === room.gameState.currentTurnPlayerId) return;
-    io.to(mapping.code).emit('player-buzzed', { playerId: mapping.playerId });
+    const mapping = getMapping(socket.id);
+    const live = getLiveForSocket(socket.id);
+    if (mapping && live?.room.gameState.phase === 'playing' && live.room.gameState.audio?.status === 'playing'
+      && live.room.gameState.currentTurnPlayerId !== mapping.playerId) {
+      io.to(mapping.code).emit('player-buzzed', { playerId: mapping.playerId });
+    }
   });
 
-  registerStatsHandlers(socket);
-
-  socket.on('disconnect', () => {
-    handleLeave(io, socket, false);
-  });
-}
-
-function getEngine(socket: TunesSocket): GameEngine | null {
-  const mapping = socketToRoom.get(socket.id);
-  if (!mapping) return null;
-  return games.get(mapping.code) || null;
-}
-
-function cancelRoomCleanup(code: string): void {
-  const timer = roomCleanupTimers.get(code);
-  if (timer) {
-    clearTimeout(timer);
-    roomCleanupTimers.delete(code);
-    logger.info('Room cleanup cancelled (player reconnected)', { code });
-  }
-}
-
-function handleLeave(io: TunesServer, socket: TunesSocket, voluntary: boolean = false) {
-  const mapping = socketToRoom.get(socket.id);
-  if (!mapping) return;
-
-  const room = rooms.get(mapping.code);
-  if (!room) return;
-
-  const player = room.players[mapping.playerId];
-  if (player) {
-    player.connected = false;
-  }
-
-  socket.to(mapping.code).emit('player-left', mapping.playerId);
-  socketToRoom.delete(socket.id);
-  socket.leave(mapping.code);
-
-  // If player was mid-turn, handle accordingly
-  const engine = games.get(mapping.code);
-  if (engine) {
-    if (voluntary) {
-      // Voluntary leave skips grace period — immediately advance turn if needed
-      engine.handlePlayerVoluntaryLeave(mapping.playerId);
-    } else {
-      // Disconnect gets a grace period for reconnection
-      engine.handlePlayerDisconnect(mapping.playerId);
-    }
-  }
-
-  const connectedPlayers = Object.values(room.players).filter((p) => p.connected);
-  if (connectedPlayers.length === 0) {
-    // Don't destroy immediately — give players time to come back (e.g. tab switch)
-    const ROOM_CLEANUP_DELAY_MS = 5 * 60 * 1000; // 5 minutes
-    const code = mapping.code;
-    logger.info('All players disconnected, room cleanup scheduled', { code, delayMs: ROOM_CLEANUP_DELAY_MS });
-
-    // Store cleanup timer so it can be cancelled if someone reconnects
-    if (!roomCleanupTimers.has(code)) {
-      const timer = setTimeout(() => {
-        roomCleanupTimers.delete(code);
-        const currentRoom = rooms.get(code);
-        if (!currentRoom) return; // already cleaned up
-        const stillConnected = Object.values(currentRoom.players).filter((p) => p.connected);
-        if (stillConnected.length === 0) {
-          logger.info('Room destroyed (cleanup timer expired)', { code });
-          rooms.delete(code);
-          games.delete(code);
-          roomSpotifyCredentials.delete(code);
-          deleteRoom(code);
-        }
-      }, ROOM_CLEANUP_DELAY_MS);
-      roomCleanupTimers.set(code, timer);
-    }
-  } else if (mapping.playerId === room.hostId) {
-    const oldHost = room.players[mapping.playerId];
-    if (oldHost) {
-      oldHost.isHost = false;
-    }
-    const newHost = connectedPlayers[0];
-    room.hostId = newHost.id;
-    newHost.isHost = true;
-    // Spotify credentials belong to the departed host. The successor must
-    // explicitly provide their own token when starting, otherwise preview mode
-    // is used.
-    roomSpotifyCredentials.delete(mapping.code);
-    engine?.setSpotifyToken(null);
-    logger.info('Host transferred', { code: mapping.code, newHostId: newHost.id });
-    io.to(mapping.code).emit('state-sync', room);
-    persistRoom(mapping.code);
-  } else {
-    persistRoom(mapping.code);
-  }
+  registerTableHandlers(io, socket);
+  registerStatsHandlers(socket, () => {
+    const mapping = getMapping(socket.id);
+    return mapping && rooms.get(mapping.code)?.seats[mapping.playerId]?.guestId;
+  }, withLiveRooms);
+  socket.on('disconnect', () => handleLeave(io, socket, false));
 }
 
 export function getRoomCount(): number {
@@ -764,9 +857,17 @@ export function getRoomCount(): number {
 }
 
 export function getTotalPlayerCount(): number {
-  let count = 0;
-  for (const room of rooms.values()) {
-    count += Object.values(room.players).filter((p) => p.connected).length;
+  return [...rooms.values()].reduce((count, live) => count + connectedPlayers(live.room).length, 0);
+}
+
+export function stopRoomRuntime(): void {
+  for (const { cleanupTimer, engine } of rooms.values()) {
+    clearTimeout(cleanupTimer);
+    engine.dispose();
   }
-  return count;
+  rooms.clear();
+  socketToRoom.clear();
+  playerSockets.clear();
+  attachingSockets.clear();
+  startAttempts.clear();
 }

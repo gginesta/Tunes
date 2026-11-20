@@ -1,284 +1,115 @@
 import { useEffect } from 'react';
-import {
-  getSocket,
-  saveSession,
-  getSession,
-  clearSession,
-  migrateSessionPlaybackIntent,
-} from '../services/socket';
+import type { Room } from '@tunes/shared';
+import { clearSession, getGuestToken, getSession, getSocket, resumeSavedRoom, saveSession } from '../services/socket';
 import { useGameStore } from '../store';
-import { playBuzzSound, playBuzzAlertSound, playTurnSound } from '../services/sounds';
-import { restoreSpotifyForCurrentHost } from '../services/spotifySession';
+import { clearTableSpotifyCredential } from '../services/tableSpotifyCredential';
+import { appBase, appPath, joinCodeFromPath } from '../paths';
 
 export function useSocket() {
   useEffect(() => {
     const socket = getSocket();
-    socket.connect();
-
-    socket.on('connect', () => {
-      useGameStore.getState().setConnected(true);
-
-      // Auto-rejoin room after reconnect
-      const session = getSession();
-      if (session) {
-        console.log('[Tunes] Reconnected — attempting rejoin', session.roomCode);
-        socket.emit('rejoin-room', {
-          code: session.roomCode,
-          playerId: session.playerId,
-        });
+    const store = useGameStore;
+    const reset = () => {
+      store.getState().reset();
+      store.setState({ connected: socket.connected });
+    };
+    const left = () => {
+      const { room, myId } = store.getState();
+      if (room && myId) clearTableSpotifyCredential(room.code, myId);
+      reset();
+    };
+    const legacy = () => {
+      const roomCode = getSession()?.roomCode ?? null;
+      clearSession();
+      reset();
+      store.setState({ recoveryStatus: 'legacy', pendingJoinCode: roomCode });
+    };
+    const resuming = () => store.setState({ recoveryStatus: 'joining' });
+    function connected() {
+      store.setState({ connected: true });
+      const guestToken = getGuestToken();
+      if (guestToken) socket.emit('get-my-tables', { guestToken });
+      if (store.getState().recoveryStatus === 'replaced') return;
+      const incoming = joinCodeFromPath(window.location.pathname) || store.getState().pendingJoinCode;
+      const seat = getSession();
+      if (seat && (!incoming || incoming.toUpperCase() === seat.roomCode)) resumeSavedRoom();
+    }
+    function joined(data: { room: Room; playerId: string; resumeToken: string; guestToken?: string }) {
+      if (!data.resumeToken) { legacy(); return; }
+      saveSession(data.room.code, data.playerId, data.resumeToken, data.guestToken);
+      store.setState({ myId: data.playerId, pendingJoinCode: null, error: null, errorAction: null });
+      store.getState().syncRoom(data.room);
+      if (window.location.pathname.startsWith(appPath('join/'))) window.history.replaceState({}, '', appBase);
+      const guestToken = getGuestToken();
+      if (guestToken) socket.emit('get-my-tables', { guestToken });
+    }
+    socket.on('connect', connected);
+    socket.on('disconnect', (reason) => {
+      store.setState({ connected: false });
+      if (reason === 'io server disconnect' && store.getState().recoveryStatus === 'replaced') {
+        queueMicrotask(() => socket.connect());
       }
     });
-    socket.on('disconnect', () => useGameStore.getState().setConnected(false));
-
-    socket.on('server-config', ({ previewSongsAvailable }) => {
-      useGameStore.setState({ previewSongsAvailable });
+    socket.on('room-created', joined);
+    socket.on('room-joined', joined);
+    socket.on('room-left', () => {
+      clearSession();
+      left();
+      const guestToken = getGuestToken();
+      if (guestToken) socket.emit('get-my-tables', {guestToken});
     });
-
-    socket.on('room-created', ({ code, playerId, room }) => {
-      const store = useGameStore.getState();
-      store.setMyId(playerId);
-      store.setRoomCode(code);
-      store.setPlayers(room.players);
-      store.setHostId(room.hostId);
-      store.setSettings(room.settings);
-      store.setScreen('lobby');
-      store.setError(null);
-      saveSession(code, playerId);
+    socket.on('state-sync', (room) => {
+      const current = store.getState().room;
+      if (!current || current.code !== room.code) return;
+      if (current.gameState.matchId && current.gameState.matchId === room.gameState.matchId &&
+          (current.gameState.revision ?? 0) > (room.gameState.revision ?? 0)) return;
+      store.getState().syncRoom(room);
     });
-
-    socket.on('room-joined', ({ room, playerId }) => {
-      migrateSessionPlaybackIntent(
-        room.playbackMode,
-        playerId === room.originalHostId,
-      );
-      const store = useGameStore.getState();
-      store.setMyId(playerId);
-      store.setRoomCode(room.code);
-      store.setPlayers(room.players);
-      store.setHostId(room.hostId);
-      store.setSettings(room.settings);
-      // Only navigate to lobby if not in an active game
-      const phase = room.gameState.phase;
-      if (phase === 'lobby') {
-        store.setScreen('lobby');
-      } else if (phase !== 'game_over') {
-        // Late joiner: brief them on the game in progress
-        const { mode, cardsToWin } = room.settings;
-        const modeLabel = mode.charAt(0).toUpperCase() + mode.slice(1);
-        let briefing = `You're in! ${modeLabel} mode — first to ${cardsToWin} cards wins.`;
-        const leader = Object.values(room.players)
-          .filter((p) => p.id !== playerId)
-          .sort((a, b) => b.timeline.length - a.timeline.length)[0];
-        if (mode !== 'coop' && leader && leader.timeline.length > 0) {
-          briefing += ` ${leader.name} leads with ${leader.timeline.length}.`;
-        }
-        store.setNotice(briefing);
-      }
-      store.setError(null);
-      saveSession(room.code, playerId);
-
-      // Active-game rejoins bypass Lobby, so restore the fenced host
-      // credential here as well. Preview/join sessions fail closed in the
-      // session-intent guard without making a token request.
-      void restoreSpotifyForCurrentHost(room.code, playerId, room.hostId).catch(() => {});
-    });
-
-    socket.on('player-joined', (player) => {
-      useGameStore.getState().addPlayer(player);
-    });
-
-    socket.on('player-left', (playerId) => {
-      useGameStore.getState().removePlayer(playerId);
-    });
-
-    socket.on('settings-updated', (settings) => {
-      useGameStore.getState().setSettings(settings);
-    });
-
-    socket.on('game-started', ({ gameState, anchorCards }) => {
-      const store = useGameStore.getState();
-      store.setPhase(gameState.phase);
-      store.setTurnOrder(gameState.turnOrder || []);
-      store.setCurrentTurnPlayerId(gameState.currentTurnPlayerId);
-      store.setDeckSize(gameState.deckSize);
-      store.setLastReveal(null);
-      store.setAnchorCards(anchorCards ?? null);
-      useGameStore.setState({ triviaScore: { correct: 0, total: 0 } });
-      store.setScreen('game');
-
-      // Request notification permission for background turn alerts
-      if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission().catch(() => {});
-      }
-    });
-
-    socket.on('new-turn', ({ turnPlayerId, songCard }) => {
-      const store = useGameStore.getState();
-      store.setCurrentTurnPlayerId(turnPlayerId);
-      store.setCurrentSong(songCard);
-      store.setPhase('playing');
-      store.setPendingPlacement(null);
-      store.setLastReveal(null);
-      store.setAnchorCards(null);
-      useGameStore.setState({ songNameResult: null, turnDeadline: null, challengers: [] });
-      store.clearBuzzedPlayers();
-
-      // Notify player when it's their turn (sound + vibrate + background notification)
-      if (turnPlayerId === store.myId) {
-        playTurnSound();
-        if (document.hidden && Notification.permission === 'granted') {
-          new Notification('Tunes', { body: "It's your turn!", icon: '/favicon.ico' });
-        }
-      }
-    });
-
-    socket.on('turn-started', ({ turnDeadline }) => {
-      useGameStore.setState({ turnDeadline });
-    });
-
-    socket.on('play-song', ({ spotifyTrackId, previewUrl }) => {
-      useGameStore.getState().setCurrentTrackId(spotifyTrackId, previewUrl);
-    });
-
-    socket.on('resolving-tracks', () => {
-      // Could show a loading state — for now just log
-      console.log('Resolving Spotify track IDs...');
-    });
-
-    socket.on('card-placed', ({ playerId, position, challengeDeadline }) => {
-      const store = useGameStore.getState();
-      store.setPendingPlacement(position);
-      useGameStore.setState({ challengeDeadline: challengeDeadline ?? null, turnDeadline: null });
-      store.setPhase('challenge');
-
-      // Backgrounded phones would otherwise miss the challenge window entirely
-      if (playerId !== store.myId && document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-        const placerName = store.players[playerId]?.name || 'Someone';
-        new Notification('Tunes', {
-          body: `${placerName} placed a card — challenge window is open!`,
-          icon: '/favicon.ico',
-        });
-      }
-    });
-
-    socket.on('challenge-made', ({ challengerId }) => {
-      useGameStore.getState().addChallenger(challengerId);
-    });
-
-    socket.on('reveal', (data) => {
-      const store = useGameStore.getState();
-      store.setLastReveal(data);
-      store.setPhase('reveal');
-      store.setCurrentSong(data.song);
-      useGameStore.setState({ challengeDeadline: null, turnDeadline: null });
-    });
-
-    socket.on('tokens-updated', ({ playerId, tokens }) => {
-      useGameStore.getState().updatePlayerTokens(playerId, tokens);
-    });
-
-    socket.on('timeline-updated', ({ playerId, timeline }) => {
-      useGameStore.getState().updatePlayerTimeline(playerId, timeline);
-    });
-
-    socket.on('shared-timeline-updated', ({ timeline }) => {
-      useGameStore.getState().setSharedTimeline(timeline);
-    });
-
-    socket.on('song-named', ({ playerId, correct, titleMatch, artistMatch }) => {
-      useGameStore.getState().setSongNameResult(playerId, correct, titleMatch, artistMatch);
-    });
-
-    socket.on('game-stats', (data) => {
-      useGameStore.getState().setGameStats(data);
-    });
-
-    socket.on('song-history', ({ history }) => {
-      useGameStore.getState().setSongHistory(history);
-    });
-
-    socket.on('game-over', ({ winnerId, players }) => {
-      const store = useGameStore.getState();
-      store.setWinner(winnerId, players);
-      store.setPhase('game_over');
-      store.setScreen('results');
-      useGameStore.setState({ turnDeadline: null });
-    });
-
-    socket.on('game-restarted', ({ room }) => {
-      const store = useGameStore.getState();
-      store.syncRoom(room);
-      store.setScreen('lobby');
-      store.setCurrentTrackId(null);
-      store.setIsPlaying(false);
-      store.setLastReveal(null);
-      useGameStore.setState({
-        winnerId: null,
-        finalPlayers: {},
-        gameStats: null,
-        songHistory: [],
-        songNameResult: null,
-        challengeDeadline: null,
-        turnDeadline: null,
+    socket.on('game-restarted', ({room}) => store.getState().syncRoom(room));
+    socket.on('server-config', (config) => {
+      store.setState({
+        buildId: import.meta.env.VITE_BUILD_REVISION && config.revision && config.revision !== import.meta.env.VITE_BUILD_REVISION
+          ? import.meta.env.VITE_BUILD_REVISION + ' · server ' + config.revision
+          : config.revision || import.meta.env.VITE_BUILD_REVISION || 'local',
+        dinnerAvailable: config.dinnerAvailable !== false,
+        spotifyClassicAvailable: config.spotifyClassicAvailable === true,
+        licensedPackAvailable: !!config.licensedPacksAvailable,
+        licensedPacks: config.licensedPacks || [],
       });
     });
-
-    socket.on('error', ({ message, code }) => {
-      if (code === 'REJOIN_FAILED') {
-        // An expired/cleaned-up session is not the user's fault — say so
-        // instead of surfacing the raw server error.
-        clearSession();
-        useGameStore.getState().setError('Your previous game session has ended — host or join a new room.');
-        return;
+    socket.on('start-status', (status) => {
+      store.setState({startProgress: status.phase === 'preparing' ? status.message || 'Preparing the first song…' : null});
+      if (status.phase === 'idle' && status.message) store.getState().setNotice(status.message);
+    });
+    socket.on('error', ({message, code, action}) => {
+      if (code === 'ROOM_RESTART_REQUIRED') legacy();
+      else if (code === 'REJOIN_FAILED' || code === 'REJOIN_EXPIRED' || code === 'SEAT_REPLACED') {
+        // A replaced tab shares storage with its replacement. Keep the newest seat.
+        if (code !== 'SEAT_REPLACED') clearSession();
+        reset();
+        store.setState({recoveryStatus: code === 'SEAT_REPLACED' ? 'replaced' : 'expired'});
       }
-      useGameStore.getState().setError(message);
-      // Legacy fallback: clear saved session when the room is gone
-      if (message.includes('not found') || message.includes('unknown')) {
-        clearSession();
-      }
+      store.setState({ errorAction: action || null, startProgress: null });
+      store.getState().setError(message);
     });
-
-    socket.on('state-sync', (room) => {
-      useGameStore.getState().syncRoom(room);
+    socket.on('player-buzzed', ({playerId}) => store.getState().addBuzzedPlayer(playerId));
+    socket.on('leaderboard', ({entries}) => store.setState({leaderboard: entries}));
+    socket.on('my-stats', ({stats}) => store.setState({myStats: stats}));
+    socket.on('my-history', ({games}) => store.setState({myHistory: games}));
+    socket.on('my-tables', ({tables}) => store.setState({savedTables: tables}));
+    socket.on('table-saved', ({table}) => {
+      store.setState((s) => ({savedTables: [table, ...s.savedTables.filter(t => t.id !== table.id)]}));
+      store.getState().setNotice('Table saved. You can find it on Home.');
     });
-
-    socket.on('player-disconnected', ({ playerId, reconnectDeadline }) => {
-      useGameStore.getState().setPlayerDisconnected(playerId, reconnectDeadline);
-    });
-
-    socket.on('player-reconnected', ({ playerId }) => {
-      useGameStore.getState().setPlayerReconnected(playerId);
-    });
-
-    socket.on('player-timed-out', ({ playerId }) => {
-      useGameStore.getState().setPlayerTimedOut(playerId);
-    });
-
-    socket.on('player-buzzed', ({ playerId }) => {
-      const store = useGameStore.getState();
-      store.addBuzzedPlayer(playerId);
-      // Annoying alert for the active player, normal sound for others
-      if (store.currentTurnPlayerId === store.myId) {
-        playBuzzAlertSound();
-        store.triggerBuzzFlash();
-      } else {
-        playBuzzSound();
-      }
-    });
-
-    socket.on('leaderboard', ({ entries }) => {
-      useGameStore.getState().setLeaderboard(entries);
-    });
-
-    socket.on('my-stats', ({ stats }) => {
-      useGameStore.getState().setMyStats(stats);
-    });
-
-    socket.on('my-history', ({ games }) => {
-      useGameStore.getState().setMyHistory(games);
-    });
-
+    window.addEventListener('tunes:left', left);
+    window.addEventListener('tunes:legacy-seat', legacy);
+    window.addEventListener('tunes:resuming', resuming);
+    if (socket.connected) connected();
+    else socket.connect();
     return () => {
+      window.removeEventListener('tunes:left', left);
+      window.removeEventListener('tunes:legacy-seat', legacy);
+      window.removeEventListener('tunes:resuming', resuming);
       socket.removeAllListeners();
       socket.disconnect();
     };

@@ -1,0 +1,6 @@
+(tunes_play) {
+	redir /play /play/ 308
+	handle_path /play/* {
+		reverse_proxy {args[0]}
+	}
+}

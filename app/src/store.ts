@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type {
   GamePhase,
+  SavedTable,
   GameSettings,
   GameStats,
   GameHistoryEntry,
@@ -30,6 +31,17 @@ export interface RevealData {
 }
 
 interface GameStore {
+  room: Room | null;
+  recoveryStatus: 'idle' | 'joining' | 'expired' | 'replaced' | 'legacy';
+  buildId: string;
+  errorAction: string | null;
+  dinnerAvailable: boolean;
+  spotifyClassicAvailable: boolean;
+  licensedPackAvailable: boolean;
+  licensedPacks: { id: string; name: string; trackCount: number }[];
+  startProgress: string | null;
+  wakeLockStatus: 'off' | 'active' | 'unavailable';
+  savedTables: SavedTable[];
   // Connection
   screen: Screen;
   myId: string;
@@ -163,6 +175,17 @@ interface GameStore {
 }
 
 const initialState = {
+  room: null as Room | null,
+  recoveryStatus: 'idle' as GameStore['recoveryStatus'],
+  buildId: import.meta.env.VITE_BUILD_REVISION || 'local',
+  errorAction: null as string | null,
+  dinnerAvailable: true,
+  spotifyClassicAvailable: false,
+  licensedPackAvailable: false,
+  licensedPacks: [] as GameStore['licensedPacks'],
+  startProgress: null as string | null,
+  wakeLockStatus: 'off' as GameStore['wakeLockStatus'],
+  savedTables: [] as SavedTable[],
   screen: 'home' as Screen,
   myId: '',
   roomCode: '',
@@ -331,7 +354,27 @@ export const useGameStore = create<GameStore>((set) => ({
   setMyStats: (myStats) => set({ myStats }),
   setMyHistory: (myHistory) => set({ myHistory }),
   syncRoom: (room) =>
-    set({
+    set((state) => {
+      const game = room.gameState;
+      const newRound = game.matchId !== state.room?.gameState.matchId || game.roundId !== state.room?.gameState.roundId;
+      const myNaming = game.classic?.myNamingResult;
+      return {
+      room,
+      roomCode: room.code,
+      screen: game.phase === 'lobby' ? 'lobby' : game.phase === 'game_over' ? 'results' : 'game',
+      lastReveal: game.reveal ?? null,
+      songHistory: game.history ?? [],
+      gameStats: game.stats ?? null,
+      winnerId: game.result?.winnerIds[0] ?? null,
+      finalPlayers: game.result ? room.players : {},
+      turnDeadline: game.phase === 'playing' ? game.timing?.deadline ?? null : null,
+      challengeDeadline: game.phase === 'challenge' ? game.timing?.deadline ?? null : null,
+      songNameResult: myNaming ? {playerId: state.myId, ...myNaming} : null,
+      currentPreviewUrl: game.audio?.source?.url ?? null,
+      currentTrackId: null,
+      recoveryStatus: 'idle',
+      startProgress: game.phase === 'lobby' ? state.startProgress : null,
+      ...(newRound ? { buzzedPlayers: [], error: null, errorAction: null } : {}),
       players: room.players,
       hostId: room.hostId,
       settings: room.settings,
@@ -343,6 +386,17 @@ export const useGameStore = create<GameStore>((set) => ({
       challengers: room.gameState.challengers,
       deckSize: room.gameState.deckSize,
       sharedTimeline: room.gameState.sharedTimeline || [],
+      };
     }),
-  reset: () => set(initialState),
+  reset: () => set((state) => ({
+    ...initialState,
+    connected: state.connected,
+    volume: state.volume,
+    savedTables: state.savedTables,
+    buildId: state.buildId,
+    dinnerAvailable: state.dinnerAvailable,
+    spotifyClassicAvailable: state.spotifyClassicAvailable,
+    licensedPackAvailable: state.licensedPackAvailable,
+    licensedPacks: state.licensedPacks,
+  })),
 }));

@@ -1,93 +1,91 @@
-import { Socket } from 'socket.io';
-import type { ClientToServerEvents, ServerToClientEvents, Room } from '@tunes/shared';
+import type { Socket } from 'socket.io';
+import type { ClientToServerEvents, ServerToClientEvents, Room, RoundAction } from '@tunes/shared';
 import type { GameEngine } from './game';
+import { logger } from './logger';
 import { isBoundedInt, isRecord, isShortString } from './validate';
 
 type TunesSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
+type ActionResult = { error?: string; code?: string };
+type Handler = (engine: GameEngine, playerId: string, payload: Record<string, unknown>) => ActionResult;
 
 export interface GameActionDeps {
   getEngine: (socket: TunesSocket) => GameEngine | null;
   getMapping: (socketId: string) => { code: string; playerId: string } | undefined;
-  getRoom: (code: string) => Room | undefined;
-  persistRoom: (code: string) => void;
+  getRoom?: (code: string) => Room | undefined;
+  persistRoom?: (code: string) => void;
 }
 
-/** In-game actions: placing, challenging, naming, skipping, buying. */
-export function registerGameActionHandlers(socket: TunesSocket, deps: GameActionDeps): void {
-  const { getEngine, getMapping, getRoom, persistRoom } = deps;
+function readScope(payload: Record<string, unknown>): RoundAction | null {
+  const { actionId, matchId, roundId } = payload;
+  if (!isShortString(matchId, 64) || !matchId || !isBoundedInt(roundId, 0, Number.MAX_SAFE_INTEGER)) return null;
+  if (actionId !== undefined && (!isShortString(actionId, 64) || !actionId)) return null;
+  return { matchId, roundId, actionId };
+}
 
-  socket.on('play-anchor', (payload) => {
-    if (!isRecord(payload) || !isBoundedInt(payload.index, 0, 100)) return;
-    const index = payload.index;
-    const engine = getEngine(socket);
-    const mapping = getMapping(socket.id);
-    if (!engine || !mapping) return;
-    const room = getRoom(mapping.code.toUpperCase());
-    if (room && mapping.playerId === room.hostId) {
-      engine.playAnchor(index);
-    }
-  });
+const invalidPosition = { error: 'Select a valid timeline gap.', code: 'INVALID_POSITION' };
 
-  socket.on('skip-anchors', () => {
-    const engine = getEngine(socket);
-    const mapping = getMapping(socket.id);
-    if (!engine || !mapping) return;
-    const room = getRoom(mapping.code.toUpperCase());
-    if (room && mapping.playerId === room.hostId) {
-      engine.skipAnchors();
-    }
-  });
+export function registerGameActionHandlers(socket: TunesSocket, { getEngine, getMapping }: GameActionDeps): void {
+  const handlers: Partial<Record<keyof ClientToServerEvents, Handler>> = {
+    'skip-anchors': (engine, id) => engine.skipAnchors(id),
+    'place-card': (engine, id, { position }) =>
+      isBoundedInt(position, 0, 1000) ? engine.placeCard(id, position) : invalidPosition,
+    'challenge': (engine, id, { position }) =>
+      isBoundedInt(position, 0, 1000) ? engine.challenge(id, position) : invalidPosition,
+    'pass-challenge': (engine, id) => engine.passChallenge(id),
+    'name-song': (engine, id, { title, artist, year }) => {
+      if (!isShortString(title) || !isShortString(artist)) {
+        return { error: 'Enter a valid title and artist.' };
+      }
+      if (year !== undefined && !isBoundedInt(year, 1000, 3000)) {
+        return { error: 'Enter a complete four-digit release year.', code: 'EXPERT_YEAR_REQUIRED' };
+      }
+      return engine.nameSong(id, { title, artist, year });
+    },
+    'done-guessing': (engine, id) => engine.doneGuessing(id),
+    'skip-song': (engine, id) => engine.skipSong(id),
+    'buy-card': (engine, id, { actionId }) => actionId
+      ? engine.buyCard(id)
+      : { error: 'Refresh and rejoin to use the current purchase control.', code: 'REFRESH_REQUIRED' },
+    'confirm-reveal': (engine, id) => engine.confirmReveal(id),
+    'end-match': (engine, id) => engine.endMatch(id),
+    'dinner-guess': (engine, id, { position }) =>
+      isBoundedInt(position, 0, 1000) ? engine.dinnerGuess(id, position) : invalidPosition,
+    'lock-guess': (engine, id, { position }) =>
+      position === undefined || isBoundedInt(position, 0, 1000) ? engine.lockGuess(id, position) : invalidPosition,
+    'audio-ready': cueAction((engine, id, cueId) => engine.audioReady(id, cueId)),
+    'audio-interrupted': cueAction((engine, id, cueId) => engine.audioInterrupted(id, cueId)),
+    'resume-audio': cueAction((engine, id, cueId) => engine.resumeAudio(id, cueId)),
+    'replace-song': cueAction((engine, id, cueId) => engine.replaceSong(id, cueId)),
+    'assign-speaker': (engine, id, { playerId }) =>
+      isShortString(playerId, 64) ? engine.assignSpeaker(id, playerId) : { error: 'Select a connected seat.' },
+    'rematch-consent': (engine, id, { accept }) =>
+      typeof accept === 'boolean' ? engine.setRematchConsent(id, accept) : { error: 'Choose a rematch response.' },
+    'flag-recording': (engine, id) => engine.flagRecording(id),
+    'play-anchor': () => ({ error: 'Starting cards are for reading the timeline.' }),
+  };
+  for (const [event, handler] of Object.entries(handlers)) {
+    socket.on(event as keyof ClientToServerEvents, (payload: unknown) => {
+      const engine = getEngine(socket);
+      const mapping = getMapping(socket.id);
+      if (!engine || !mapping) return;
+      const scope = isRecord(payload) ? readScope(payload) : null;
+      if (!scope || !isRecord(payload)) {
+        socket.emit('error', { message: 'Refresh and rejoin to use the current game controls.', code: 'REFRESH_REQUIRED', action: event });
+        return;
+      }
+      try {
+        const result = engine.dispatch(mapping.playerId, event, scope, () => handler(engine, mapping.playerId, payload));
+        if (result.error) socket.emit('error', { message: result.error, code: result.code, action: event });
+      } catch (error) {
+        logger.error('Game action failed', { action: event, matchId: scope.matchId, error: String(error) });
+        socket.emit('error', { message: 'The table could not save that action. Try again.', code: 'ACTION_SAVE_FAILED', action: event });
+      }
+    });
+  }
+}
 
-  socket.on('place-card', (payload) => {
-    if (!isRecord(payload) || !isBoundedInt(payload.position, 0, 100)) return;
-    const engine = getEngine(socket);
-    const mapping = getMapping(socket.id);
-    if (!engine || !mapping) return;
-    engine.placeCard(mapping.playerId, payload.position);
-    persistRoom(mapping.code);
-  });
-
-  socket.on('challenge', (data) => {
-    const engine = getEngine(socket);
-    const mapping = getMapping(socket.id);
-    if (!engine || !mapping) return;
-    const position = isBoundedInt(data?.position, 0, 100) ? data.position : 0;
-    const result = engine.challenge(mapping.playerId, position);
-    if (result.error) {
-      socket.emit('error', { message: result.error });
-    }
-  });
-
-  socket.on('name-song', (guess) => {
-    // Length caps protect the regex-heavy fuzzy matcher from CPU-burn payloads
-    if (!isRecord(guess)) return;
-    if (!isShortString(guess.title) || !isShortString(guess.artist)) return;
-    if (guess.year !== undefined && !isBoundedInt(guess.year, 1000, 3000)) return;
-    const engine = getEngine(socket);
-    const mapping = getMapping(socket.id);
-    if (!engine || !mapping) return;
-    engine.nameSong(mapping.playerId, { title: guess.title, artist: guess.artist, year: guess.year });
-  });
-
-  socket.on('skip-song', () => {
-    const engine = getEngine(socket);
-    const mapping = getMapping(socket.id);
-    if (!engine || !mapping) return;
-    engine.skipSong(mapping.playerId);
-  });
-
-  socket.on('buy-card', () => {
-    const engine = getEngine(socket);
-    const mapping = getMapping(socket.id);
-    if (!engine || !mapping) return;
-    engine.buyCard(mapping.playerId);
-  });
-
-  socket.on('confirm-reveal', () => {
-    const engine = getEngine(socket);
-    const mapping = getMapping(socket.id);
-    if (!engine || !mapping) return;
-    engine.confirmReveal(mapping.playerId);
-    persistRoom(mapping.code);
-  });
+function cueAction(run: (engine: GameEngine, playerId: string, cueId: string) => ActionResult): Handler {
+  return (engine, id, { cueId }) => isShortString(cueId, 64) && cueId
+    ? run(engine, id, cueId)
+    : { error: 'This music cue has expired.', code: 'CUE_MOVED_ON' };
 }

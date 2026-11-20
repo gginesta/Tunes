@@ -16,8 +16,11 @@
     "build:server": "npm run build --workspace=server",
     "build:app": "npm run build --workspace=app",
     "build": "npm run build:shared && npm run build:app && npm run build:server",
-    "start": "NODE_ENV=production node server/dist/index.js",
+    "start": "node scripts/start.mjs",
     "test": "npm run test --workspace=server",
+    "test:multiplayer": "node scripts/rehearse-release.mjs",
+    "test:spotify-room": "node scripts/verify-spotify-classic.mjs",
+    "test:prefixed-room": "node scripts/verify-prefixed-room.mjs",
     "lint": "eslint ."
   },
   "devDependencies": {
@@ -25,6 +28,8 @@
     "concurrently": "^10.0.3",
     "eslint": "^10.4.1",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "jsqr": "^1.4.0",
+    "playwright-core": "^1.65.1",
     "prettier": "^3.8.4",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.61.0"
