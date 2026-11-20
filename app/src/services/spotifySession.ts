@@ -186,7 +186,7 @@ export function ensureSpotifySession(): void {
 
   initPlayer(getSpotifyToken, {
     onReady: (deviceId) => {
-      useGameStore.setState({ spotifyDeviceId: deviceId, spotifyError: null });
+      useGameStore.setState({ spotifyDeviceId: deviceId, spotifyReady: false, spotifyError: null });
       // Don't set spotifyReady yet — wait for device to be confirmed
       console.log('[Tunes] SDK ready, waiting for device confirmation...');
     },
