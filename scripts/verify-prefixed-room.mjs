@@ -68,7 +68,7 @@ function startProxy(backendPort) {
       return;
     }
     const upstream = request({ host, port: backendPort, method: req.method, headers: req.headers, path: pathWithoutPrefix(req.url) }, (reply) => {
-      playerRequests.push({ path: req.url, status: reply.statusCode, type: reply.headers['content-type'] });
+      playerRequests.push({ path: req.url, status: reply.statusCode });
       res.writeHead(reply.statusCode, reply.headers);
       reply.pipe(res);
       res.once('close', () => reply.destroy());
@@ -165,6 +165,19 @@ try {
   }
 
   const controller = await isolatedPage();
+  await controller.addInitScript(() => {
+    window.observedAudio = [];
+    window.Audio = new Proxy(window.Audio, {
+      construct(Audio, args) {
+        const element = Reflect.construct(Audio, args);
+        window.observedAudio.push(element);
+        return element;
+      },
+    });
+  });
+  const waitForPlayingClip = (url) => controller.waitForFunction((expected) => window.observedAudio.some(
+    (audio) => audio.currentSrc === expected && !audio.paused && audio.currentTime > 0,
+  ), url, { timeout: 12_000 });
   await controller.goto(origin);
   await controller.getByRole('heading', { name: 'Legacy home fixture' }).waitFor();
   await controller.evaluate((keys) => Object.entries(keys).forEach(([key, value]) => localStorage.setItem(key, value)), rootKeys);
@@ -193,14 +206,14 @@ try {
   await guest.getByRole('button', { name: 'Join room' }).click();
   await guest.getByRole('heading', { name: 'Invite the table' }).waitFor();
   await controller.getByText('2 people ready').waitFor();
-  const guestSeatKey = prefix + ':tunes_player';
-  const guestSeat = await guest.evaluate((key) => localStorage.getItem(key), guestSeatKey);
+  const playerStorageKey = prefix + ':tunes_player';
+  const guestSeat = await guest.evaluate((key) => localStorage.getItem(key), playerStorageKey);
   assert.ok(guestSeat, 'Guest seat must be persisted in the prefixed namespace');
   await guest.reload();
   await guest.getByRole('heading', { name: 'Invite the table' }).waitFor();
   await guest.getByText('2 people ready').waitFor();
   assert.equal((await guest.locator('.tunes-room-code').innerText()).trim(), code);
-  assert.equal(await guest.evaluate((key) => localStorage.getItem(key), guestSeatKey), guestSeat);
+  assert.equal(await guest.evaluate((key) => localStorage.getItem(key), playerStorageKey), guestSeat);
 
   await controller.reload();
   await controller.getByRole('button', { name: 'Customize' }).click();
@@ -216,18 +229,19 @@ try {
   assert.equal((await controller.request.get(origin + prefix + 'music-credits.html')).status(), 200);
 
   const isClip = (response) => new URL(response.url()).pathname.startsWith(prefix + 'listening/');
-  const clip = controller.waitForResponse(isClip);
-  await controller.getByRole('button', { name: 'Start Classic' }).click();
-  await controller.getByRole('button', { name: 'Continue', exact: true }).click();
-  const response = await clip;
+  const [response] = await Promise.all([controller.waitForResponse(isClip), (async () => {
+    await controller.getByRole('button', { name: 'Start Classic' }).click();
+    await controller.getByRole('button', { name: 'Continue', exact: true }).click();
+  })()]);
   assert.ok([200, 206].includes(response.status()), 'Independent audio returned a successful file response');
   assert.match(response.headers()['content-type'], /^audio\//);
   const play = controller.getByRole('button', { name: 'Play music', exact: true });
   if (await play.isVisible()) await play.click();
   const playing = guest.getByRole('heading', { name: 'Now playing', exact: true });
   await playing.waitFor();
+  await waitForPlayingClip(response.url());
   const { matchId, roundId, currentTurnPlayerId, deckSize } = guestRoom.gameState;
-  const hostSeat = await controller.evaluate((key) => localStorage.getItem(key), guestSeatKey);
+  const hostSeat = await controller.evaluate((key) => localStorage.getItem(key), playerStorageKey);
   assert.ok(hostSeat && currentTurnPlayerId && matchId && roundId > 0);
 
   await controller.evaluate(() => {
@@ -247,11 +261,12 @@ try {
   assert.equal(guestRoom.gameState.deckSize, deckSize);
   assert.equal(guestRoom.gameState.timing.remainingMs, remaining);
   assert.equal(guestRoom.gameState.timing.deadline, null);
-  assert.equal(await controller.evaluate((key) => localStorage.getItem(key), guestSeatKey), hostSeat);
+  assert.equal(await controller.evaluate((key) => localStorage.getItem(key), playerStorageKey), hostSeat);
   const [resumed] = await Promise.all([controller.waitForResponse(isClip), resume.click()]);
   assert.equal(resumed.url(), response.url(), 'The restored speaker must play the same clip');
   assert.ok([200, 206].includes(resumed.status()));
   await playing.waitFor();
+  await waitForPlayingClip(response.url());
 
   const legacyAfter = await controller.evaluate((keys) => Object.fromEntries(keys.map((key) => [key, localStorage.getItem(key)])), Object.keys(rootKeys));
   assert.deepEqual(legacyAfter, rootKeys, 'The prefixed app must preserve the root app’s saved seat');
